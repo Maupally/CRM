@@ -156,18 +156,29 @@ const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } ca
 export function AssistantButton() {
   const cfg = useConfig();
   const [open, setOpen] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => { setPreset((e as CustomEvent<string | undefined>).detail || null); setOpen(true); };
+    window.addEventListener('crm:assistant', on);
+    return () => window.removeEventListener('crm:assistant', on);
+  }, []);
   if (!cfg.data) return null;
   return (
     <>
       <button className="fab" aria-label="Asystent" title="Asystent głosowy" onClick={() => setOpen(true)}>
         <Mic size={22} />
       </button>
-      <AssistantPanel open={open} enabled={!!cfg.data.assistant} onClose={() => setOpen(false)} />
+      <AssistantPanel open={open} enabled={!!cfg.data.assistant} preset={preset} onClose={() => { setOpen(false); setPreset(null); }} />
     </>
   );
 }
 
-function AssistantPanel({ open, onClose, enabled }: { open: boolean; onClose: () => void; enabled: boolean }) {
+/** Opens the assistant from anywhere, optionally sending a question straight away. */
+export function openAssistant(text?: string) {
+  window.dispatchEvent(new CustomEvent('crm:assistant', { detail: text }));
+}
+
+function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onClose: () => void; enabled: boolean; preset: string | null }) {
   const loc = useLocation();
   const leadId = loc.pathname.match(/^\/firmy\/([^/]+)/)?.[1];
   const qc = useQueryClient();
@@ -265,6 +276,7 @@ function AssistantPanel({ open, onClose, enabled }: { open: boolean; onClose: ()
   listenAgain.current = () => { if (handsFree && open && mic.supported) mic.start('short'); };
 
   useEffect(() => {
+    if (open && enabled && preset) { send(preset); return; }
     if (open && enabled && mic.supported && handsFree && !busy) mic.start('short');
     if (!open) { mic.cancel(); stopSpeaking(); }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
