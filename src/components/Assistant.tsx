@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Mic, MicOff, Send, Sparkles, Check, X, AlertTriangle, Loader2 } from 'lucide-react';
+import {
+  Mic, MicOff, Send, Sparkles, Check, X, AlertTriangle, Loader2, Camera, Sunrise, MessageSquareText, Volume2, Car,
+  Copy, Mail, Square,
+} from 'lucide-react';
 import { api, type AssistantTurn, type Proposal } from '../api';
-import { Modal, useConfig, useToast } from './ui';
+import { Modal, useConfig, useToast, copyText } from './ui';
 
-/* ------------------------------------------------------------ speech recognition (Chrome / Android / Safari) */
+/* ------------------------------------------------------------ speech in (browser recognition) */
 
 type Recognition = {
   lang: string; continuous: boolean; interimResults: boolean;
@@ -15,81 +18,156 @@ type Recognition = {
 const SpeechCtor: (new () => Recognition) | undefined =
   typeof window !== 'undefined' ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : undefined;
 
-function useDictation(onFinal: (text: string) => void) {
-  const [listening, setListening] = useState(false);
+/**
+ * Dictation. In "long" mode (a debrief after a call) it keeps listening through pauses —
+ * phones end a recognition session after a few seconds of silence — until stopped by hand.
+ */
+function useDictation(onFinal: (text: string, long: boolean) => void) {
+  const [state, setState] = useState<'off' | 'short' | 'long'>('off');
   const [interim, setInterim] = useState('');
   const rec = useRef<Recognition | null>(null);
-  const text = useRef('');
+  const kept = useRef('');            // text from finished sessions (long mode)
+  const current = useRef('');         // final text of the running session
+  const mode = useRef<'off' | 'short' | 'long'>('off');
+  const stopping = useRef(false);
   const final = useRef(onFinal);
   final.current = onFinal;
 
-  const stop = useCallback(() => rec.current?.stop(), []);
-  const start = useCallback(() => {
-    if (!SpeechCtor || rec.current) return;
+  const run = useCallback(() => {
+    if (!SpeechCtor) return;
     const r = new SpeechCtor();
     r.lang = 'pl-PL';
     r.continuous = true;
     r.interimResults = true;
-    text.current = '';
+    current.current = '';
     r.onresult = (e) => {
       let done = '', live = '';
       for (let i = 0; i < e.results.length; i++) {
         const t = e.results[i][0].transcript;
         if (e.results[i].isFinal) done += t; else live += t;
       }
-      text.current = done;
-      setInterim((done + ' ' + live).trim());
+      current.current = done;
+      setInterim(`${kept.current} ${done} ${live}`.replace(/\s+/g, ' ').trim());
     };
-    r.onerror = () => { /* "no-speech", "aborted" … — onend follows */ };
+    r.onerror = () => {};
     r.onend = () => {
       rec.current = null;
-      setListening(false);
-      const said = (text.current || '').trim();
+      const text = `${kept.current} ${current.current}`.replace(/\s+/g, ' ').trim();
+      if (mode.current === 'long' && !stopping.current) {       // silence ended the session — keep going
+        kept.current = text;
+        try { run(); return; } catch { /* fall through and finish */ }
+      }
+      const was = mode.current;
+      mode.current = 'off';
+      stopping.current = false;
+      kept.current = '';
+      setState('off');
       setInterim('');
-      if (said) final.current(said);
+      if (text && was !== 'off') final.current(text, was === 'long');
     };
     rec.current = r;
-    setListening(true);
     r.start();
   }, []);
+
+  const start = useCallback((m: 'short' | 'long' = 'short') => {
+    if (!SpeechCtor || mode.current !== 'off') return;
+    stopSpeaking();
+    mode.current = m;
+    stopping.current = false;
+    kept.current = '';
+    setState(m);
+    run();
+  }, [run]);
+  const stop = useCallback(() => { stopping.current = true; rec.current?.stop(); }, []);
+  const cancel = useCallback(() => {
+    stopping.current = true; mode.current = 'off'; kept.current = ''; current.current = '';
+    rec.current?.abort(); setState('off'); setInterim('');
+  }, []);
   useEffect(() => () => rec.current?.abort(), []);
-  return { supported: !!SpeechCtor, listening, interim, start, stop };
+  return { supported: !!SpeechCtor, state, interim, start, stop, cancel };
 }
 
-/* ------------------------------------------------------------ the panel */
+/* ------------------------------------------------------------ speech out */
 
+function stopSpeaking() {
+  try { window.speechSynthesis?.cancel(); } catch { /* not supported */ }
+}
+
+function speak(text: string, onEnd?: () => void) {
+  const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
+  if (!synth || !text.trim()) { onEnd?.(); return; }
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/[*_#`>]/g, '').replace(/\n+/g, '. '));
+  u.lang = 'pl-PL';
+  const pl = synth.getVoices().find((v) => v.lang?.toLowerCase().startsWith('pl'));
+  if (pl) u.voice = pl;
+  u.rate = 1.05;
+  u.onend = () => onEnd?.();
+  u.onerror = () => onEnd?.();
+  synth.speak(u);
+}
+
+/* ------------------------------------------------------------ photos: downscale before upload */
+
+async function shrinkImage(file: File): Promise<{ mediaType: string; data: string; preview: string }> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, bad) => {
+      const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url;
+    });
+    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    const preview = c.toDataURL('image/jpeg', 0.85);
+    return { mediaType: 'image/jpeg', data: preview.split(',')[1], preview };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/* ------------------------------------------------------------ state */
+
+type Status = 'pending' | 'approved' | 'rejected' | 'replaced';
+interface PItem extends Proposal { on: boolean }
 interface Msg {
   role: 'user' | 'assistant';
   text: string;
-  proposals?: Proposal[];
+  image?: string;
+  proposals?: PItem[];
+  status?: Status;
   results?: { ok: boolean; message: string; leadId?: string }[];
 }
 
+const APPROVE = /^(tak|zatwierd[zź]|zapisz|potwierd[zź]|ok(ej)?|dobrze|zgoda|wszystko)\b/i;
+const REJECT = /^(nie|odrzu[cć]|anuluj|skasuj|stop)\b/i;
+
 const EXAMPLES = [
-  'Dzwoniłem do Cichoń Dressage, nie odebrali, spróbuj w piątek',
   'Muszę się z nimi umówić w przyszłym tygodniu',
-  'Arabka umówiona na wtorek 10:00, osoba decyzyjna pani Celina',
-  'Dodaj firmę Kowalski Logistyka z Gliwic, telefon 600 100 200',
-  'Co mam dziś do zrobienia?',
+  'Które stadniny z Katowic mają telefon, a nikt do nich nie dzwonił?',
+  'Zrób raport tygodniowy',
+  'Bieg Terry’ego Foxa jest potwierdzony',
 ];
+
+const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 
 export function AssistantButton() {
   const cfg = useConfig();
   const [open, setOpen] = useState(false);
-  const [autoMic, setAutoMic] = useState(false);
   if (!cfg.data) return null;
   return (
     <>
-      <button className="fab" aria-label="Asystent" title="Asystent głosowy"
-        onClick={() => { setAutoMic(true); setOpen(true); }}>
+      <button className="fab" aria-label="Asystent" title="Asystent głosowy" onClick={() => setOpen(true)}>
         <Mic size={22} />
       </button>
-      <AssistantPanel open={open} autoMic={autoMic} enabled={!!cfg.data.assistant} onClose={() => { setOpen(false); setAutoMic(false); }} />
+      <AssistantPanel open={open} enabled={!!cfg.data.assistant} onClose={() => setOpen(false)} />
     </>
   );
 }
 
-function AssistantPanel({ open, onClose, enabled, autoMic }: { open: boolean; onClose: () => void; enabled: boolean; autoMic: boolean }) {
+function AssistantPanel({ open, onClose, enabled }: { open: boolean; onClose: () => void; enabled: boolean }) {
   const loc = useLocation();
   const leadId = loc.pathname.match(/^\/firmy\/([^/]+)/)?.[1];
   const qc = useQueryClient();
@@ -97,54 +175,132 @@ function AssistantPanel({ open, onClose, enabled, autoMic }: { open: boolean; on
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [photo, setPhoto] = useState<{ mediaType: string; data: string; preview: string } | null>(null);
+  const [handsFree, setHandsFree] = useState(() => lsGet('crm-handsfree') === '1');
   const bottom = useRef<HTMLDivElement>(null);
+  const camera = useRef<HTMLInputElement>(null);
+  const msgsRef = useRef(msgs);
+  msgsRef.current = msgs;
 
-  const send = useCallback(async (text: string) => {
-    const said = text.trim();
-    if (!said || busy) return;
-    const history: AssistantTurn[] = msgs.map((m) => ({
-      role: m.role,
-      text: m.role === 'assistant'
-        ? [m.text, ...(m.proposals || []).map((p) => `[propozycja: ${p.title}]`), ...(m.results || []).map((r) => `[${r.ok ? 'zapisano' : 'błąd'}: ${r.message}]`)].join('\n')
-        : m.text,
-    }));
-    setMsgs((x) => [...x, { role: 'user', text: said }]);
+  const pendingIndex = () => {
+    const i = msgsRef.current.length - 1;
+    const m = msgsRef.current[i];
+    return m?.role === 'assistant' && m.status === 'pending' && m.proposals?.some((p) => p.on) ? i : -1;
+  };
+
+  const history = (): AssistantTurn[] => msgsRef.current.map((m) => ({
+    role: m.role,
+    text: m.role === 'assistant'
+      ? [m.text,
+        ...(m.proposals || []).map((p) => `[propozycja ${p.tool} (${m.status === 'pending' ? 'czeka'
+          : m.status === 'approved' ? (p.on ? 'zatwierdzona' : 'pominięta') : m.status === 'replaced' ? 'zastąpiona' : 'odrzucona'}): ${p.title} ${JSON.stringify(p.input)}]`),
+        ...(m.results || []).map((r) => `[${r.ok ? 'zapisano' : 'błąd'}: ${r.message}]`)].join('\n')
+      : (m.image ? '[zdjęcie] ' : '') + m.text,
+  }));
+
+  const approve = async (index: number) => {
+    const m = msgsRef.current[index];
+    const items = (m?.proposals || []).filter((p) => p.on);
+    if (!items.length) return;
+    setMsgs((x) => x.map((mm, i) => i === index ? { ...mm, status: 'approved' } : mm));
+    try {
+      const r = await api.assistantExecute(items.map((p) => ({ tool: p.tool, input: p.input })));
+      setMsgs((x) => x.map((mm, i) => i === index ? { ...mm, results: r.results } : mm));
+      qc.invalidateQueries();
+      const failed = r.results.filter((x) => !x.ok);
+      const msg = failed.length ? `Zapisano ${r.results.length - failed.length}, błędy: ${failed.length}` : 'Zapisano';
+      toast(msg, failed.length ? 'error' : 'ok');
+      if (handsFree) speak(failed.length ? `${msg}. ${failed.map((x) => x.message).join('. ')}` : 'Zapisane.', () => listenAgain.current());
+    } catch (e) {
+      setMsgs((x) => x.map((mm, i) => i === index ? { ...mm, status: 'pending' } : mm));
+      toast((e as Error).message, 'error');
+    }
+  };
+  const reject = (index: number) => {
+    setMsgs((x) => x.map((m, i) => i === index ? { ...m, status: 'rejected' } : m));
+    if (handsFree) speak('Odrzucone.', () => listenAgain.current());
+  };
+
+  const listenAgain = useRef<() => void>(() => {});
+
+  const send = useCallback(async (text: string, opts: { debrief?: boolean } = {}) => {
+    const typed = text.trim();
+    const img = photo;
+    if ((!typed && !img) || busy) return;
+    const said = opts.debrief ? `Relacja z rozmowy (podyktowana): ${typed}` : typed;
+    const hist = history();
+    // a new instruction replaces proposals nobody approved yet
+    setMsgs((x) => [...x.map((m) => m.status === 'pending' ? { ...m, status: 'replaced' as Status } : m),
+      { role: 'user', text: typed || 'Dodaj firmę z tego zdjęcia', image: img?.preview }]);
     setDraft('');
+    setPhoto(null);
     setBusy(true);
     try {
-      const r = await api.assistant(said, history, leadId);
-      setMsgs((x) => [...x, { role: 'assistant', text: r.reply, proposals: r.proposals }]);
+      const r = await api.assistant(said, hist, leadId, img ? { mediaType: img.mediaType, data: img.data } : undefined, handsFree);
+      const proposals = r.proposals.map((p) => ({ ...p, on: true }));
+      setMsgs((x) => [...x, { role: 'assistant', text: r.reply, proposals, status: proposals.length ? 'pending' : undefined }]);
+      if (handsFree) {
+        const ask = proposals.length
+          ? ` ${proposals.length === 1 ? 'Jedna zmiana' : `Zmiany, ${proposals.length}`}: ${proposals.map((p) => p.title).join('; ')}. Powiedz: zatwierdź, odrzuć albo co poprawić.`
+          : '';
+        speak(r.reply + ask, () => listenAgain.current());
+      }
     } catch (e) {
       setMsgs((x) => [...x, { role: 'assistant', text: (e as Error).message }]);
+      if (handsFree) speak((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [busy, msgs, leadId]);
+  }, [busy, leadId, photo, handsFree]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const mic = useDictation(send);
+  const onHeard = useCallback((text: string, long: boolean) => {
+    const pi = pendingIndex();
+    const short = text.split(/\s+/).length <= 4;
+    if (!long && pi > -1 && short && APPROVE.test(text)) { approve(pi); return; }
+    if (!long && pi > -1 && short && REJECT.test(text)) { reject(pi); return; }
+    send(text, { debrief: long });
+  }, [send]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mic = useDictation(onHeard);
+  listenAgain.current = () => { if (handsFree && open && mic.supported) mic.start('short'); };
 
   useEffect(() => {
-    if (open && autoMic && enabled && mic.supported && !busy) mic.start();
-    if (!open) mic.stop();
+    if (open && enabled && mic.supported && handsFree && !busy) mic.start('short');
+    if (!open) { mic.cancel(); stopSpeaking(); }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [msgs, busy, mic.interim]);
 
-  const approve = async (index: number, items: Proposal[]) => {
-    try {
-      const r = await api.assistantExecute(items.map((p) => ({ tool: p.tool, input: p.input })));
-      setMsgs((x) => x.map((m, i) => i === index ? { ...m, proposals: [], results: r.results } : m));
-      qc.invalidateQueries();
-      const bad = r.results.filter((x) => !x.ok).length;
-      toast(bad ? `Zapisano ${r.results.length - bad}, błędy: ${bad}` : 'Zapisano', bad ? 'error' : 'ok');
-    } catch (e) {
-      toast((e as Error).message, 'error');
-    }
+  const toggleHandsFree = () => {
+    const v = !handsFree;
+    setHandsFree(v);
+    lsSet('crm-handsfree', v ? '1' : '0');
+    if (v) speak('Tryb głośnomówiący włączony. Mów, co zrobić.', () => { if (mic.supported) mic.start('short'); });
+    else { stopSpeaking(); mic.cancel(); }
   };
-  const dismiss = (index: number) => setMsgs((x) => x.map((m, i) => i === index ? { ...m, proposals: [], results: [{ ok: false, message: 'Odrzucono' }] } : m));
+
+  const edit = (index: number, key: string, patch: Record<string, any>) =>
+    setMsgs((x) => x.map((m, i) => i !== index ? m : {
+      ...m, proposals: m.proposals!.map((p) => p.key === key ? { ...p, input: { ...p.input, ...patch } } : p),
+    }));
+  const toggle = (index: number, key: string) =>
+    setMsgs((x) => x.map((m, i) => i !== index ? m : {
+      ...m, proposals: m.proposals!.map((p) => p.key === key ? { ...p, on: !p.on } : p),
+    }));
+
+  const pickPhoto = async (f: File | undefined) => {
+    if (!f) return;
+    try { setPhoto(await shrinkImage(f)); } catch { toast('Nie udało się wczytać zdjęcia', 'error'); }
+  };
 
   return (
-    <Modal open={open} onClose={onClose} wide title={<span className="row"><Sparkles size={18} style={{ color: 'var(--accent)' }} /> Asystent</span>}>
+    <Modal open={open} onClose={onClose} wide title={
+      <span className="row wrap"><Sparkles size={18} style={{ color: 'var(--accent)' }} /> Asystent
+        <button className={`chip ${handsFree ? 'on' : ''}`} onClick={toggleHandsFree} title="Czyta odpowiedzi na głos i słucha dalej">
+          <Car size={14} /> {handsFree ? 'Głośnomówiący: wł.' : 'Głośnomówiący'}
+        </button>
+      </span>
+    }>
       {!enabled ? (
         <div className="col">
           <div className="error-box">Asystent nie jest jeszcze włączony.</div>
@@ -152,20 +308,42 @@ function AssistantPanel({ open, onClose, enabled, autoMic }: { open: boolean; on
         </div>
       ) : (
         <div className="asst">
+          <div className="quick-actions">
+            <button className="qa" onClick={() => send('Poranny briefing: co mam dziś i od czego zacząć?')} disabled={busy}><Sunrise size={18} />Briefing</button>
+            <button className="qa" onClick={() => mic.state === 'long' ? mic.stop() : mic.start('long')} disabled={busy || !mic.supported || mic.state === 'short'}>
+              {mic.state === 'long' ? <Square size={18} /> : <MessageSquareText size={18} />}{mic.state === 'long' ? 'Zakończ relację' : 'Relacja z rozmowy'}
+            </button>
+            <button className="qa" onClick={() => camera.current?.click()} disabled={busy}><Camera size={18} />Wizytówka</button>
+            {leadId && <button className="qa" onClick={() => send('Przygotuj mnie do rozmowy z tą firmą — jak zagadać?')} disabled={busy}><Sparkles size={18} />Jak zagadać</button>}
+            <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+          </div>
+
           <div className="chat">
             {!msgs.length && (
               <div className="col tight">
-                <div className="soft">Powiedz, co się wydarzyło albo co zrobić. Każdą zmianę zobaczysz najpierw jako propozycję do zatwierdzenia.</div>
+                <div className="soft small">Mów swobodnie. Każda zmiana pojawi się najpierw jako propozycja — nic nie zapisze się bez Twojego „zatwierdź”.
+                  {' '}„Relacja z rozmowy” słucha dłużej: opowiedz, jak poszło, a asystent sam wyciągnie ustalenia, osobę, następny krok i maila.</div>
                 <div className="chips">
-                  {leadId && <button className="chip on" onClick={() => send('Przygotuj mnie do rozmowy z tą firmą — jak zagadać?')}>Jak zagadać do tej firmy?</button>}
                   {EXAMPLES.map((e) => <button key={e} className="chip" onClick={() => send(e)}>{e}</button>)}
                 </div>
               </div>
             )}
             {msgs.map((m, i) => (
               <div key={i} className={`bubble ${m.role}`}>
+                {m.image && <img src={m.image} alt="" className="bubble-img" />}
                 {m.text && <div className="pre">{m.text}</div>}
-                {!!m.proposals?.length && <Proposals items={m.proposals} onApprove={(items) => approve(i, items)} onDismiss={() => dismiss(i)} />}
+                {m.role === 'assistant' && m.text && m.text.length > 160 && (
+                  <div className="row wrap" style={{ marginTop: 8, gap: 4 }}>
+                    <button className="btn sm ghost" onClick={() => speak(m.text)}><Volume2 size={14} /> Czytaj</button>
+                    <button className="btn sm ghost" onClick={() => { copyText(m.text); toast('Skopiowano'); }}><Copy size={14} /> Kopiuj</button>
+                    <a className="btn sm ghost" href={`mailto:?subject=${encodeURIComponent('B2B')}&body=${encodeURIComponent(m.text)}`}><Mail size={14} /> Mail</a>
+                  </div>
+                )}
+                {!!m.proposals?.length && (
+                  <Proposals items={m.proposals} status={m.status || 'pending'}
+                    onToggle={(k) => toggle(i, k)} onEdit={(k, patch) => edit(i, k, patch)}
+                    onApprove={() => approve(i)} onReject={() => reject(i)} />
+                )}
                 {m.results && (
                   <ul className="exec-results">
                     {m.results.map((r, k) => (
@@ -179,21 +357,31 @@ function AssistantPanel({ open, onClose, enabled, autoMic }: { open: boolean; on
               </div>
             ))}
             {busy && <div className="bubble assistant soft row"><Loader2 size={15} className="spin" /> Myślę…</div>}
-            {mic.listening && <div className="bubble user live">{mic.interim || 'Słucham…'}</div>}
+            {mic.state !== 'off' && (
+              <div className="bubble user live">{mic.interim || (mic.state === 'long' ? 'Słucham relacji… mów swobodnie, pauzy nie przerywają.' : 'Słucham…')}</div>
+            )}
             <div ref={bottom} />
           </div>
 
+          {photo && (
+            <div className="row" style={{ gap: 10 }}>
+              <img src={photo.preview} alt="" style={{ height: 56, borderRadius: 10 }} />
+              <span className="soft small grow">Zdjęcie dołączone — dopisz coś albo wyślij.</span>
+              <button className="btn sm ghost icon" onClick={() => setPhoto(null)} aria-label="Usuń zdjęcie"><X size={15} /></button>
+            </div>
+          )}
+
           <div className="ask">
             {mic.supported && (
-              <button className={`btn icon mic ${mic.listening ? 'on' : ''}`} onClick={() => mic.listening ? mic.stop() : mic.start()}
-                aria-label={mic.listening ? 'Zatrzymaj' : 'Mów'} disabled={busy}>
-                {mic.listening ? <MicOff size={18} /> : <Mic size={18} />}
+              <button className={`btn icon mic ${mic.state !== 'off' ? 'on' : ''}`} onClick={() => mic.state !== 'off' ? mic.stop() : mic.start('short')}
+                aria-label={mic.state !== 'off' ? 'Zatrzymaj' : 'Mów'} disabled={busy}>
+                {mic.state !== 'off' ? <MicOff size={18} /> : <Mic size={18} />}
               </button>
             )}
             <textarea rows={1} placeholder={mic.supported ? 'Mów albo pisz…' : 'Pisz albo użyj mikrofonu na klawiaturze…'} value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft); } }} />
-            <button className="btn primary icon" onClick={() => send(draft)} disabled={!draft.trim() || busy} aria-label="Wyślij"><Send size={17} /></button>
+            <button className="btn primary icon" onClick={() => send(draft)} disabled={(!draft.trim() && !photo) || busy} aria-label="Wyślij"><Send size={17} /></button>
           </div>
           {leadId && <div className="hint">Kontekst: otwarta karta firmy — „ta firma” to ona.</div>}
         </div>
@@ -205,53 +393,74 @@ function AssistantPanel({ open, onClose, enabled, autoMic }: { open: boolean; on
 /* ------------------------------------------------------------ proposal cards */
 
 const EDITABLE: Record<string, string> = { summary: 'Skrót', text: 'Notatka', note: 'Notatka' };
+const STATUS_LABEL: Record<Status, string> = { pending: '', approved: '', rejected: 'Odrzucone', replaced: 'Zastąpione nowszym poleceniem' };
 
-function Proposals({ items, onApprove, onDismiss }: { items: Proposal[]; onApprove: (items: Proposal[]) => Promise<void>; onDismiss: () => void }) {
-  const [list, setList] = useState(items);
-  const [on, setOn] = useState<Set<string>>(() => new Set(items.map((p) => p.key)));
-  const [saving, setSaving] = useState(false);
-  const chosen = list.filter((p) => on.has(p.key));
-  const set = (key: string, patch: Record<string, any>) =>
-    setList((l) => l.map((p) => p.key === key ? { ...p, input: { ...p.input, ...patch } } : p));
-  // a firm that is not approved cannot receive the actions that depend on it
-  const blocked = (p: Proposal) => typeof p.input.id === 'string' && /^NEW\d+$/.test(p.input.id) && !on.has(p.input.id);
+function Proposals({ items, status, onToggle, onEdit, onApprove, onReject }: {
+  items: PItem[]; status: Status; onToggle: (key: string) => void; onEdit: (key: string, patch: Record<string, any>) => void;
+  onApprove: () => void; onReject: () => void;
+}) {
+  const live = status === 'pending';
+  const chosen = items.filter((p) => p.on);
+  // actions on a firm that is not approved yet cannot run
+  const blocked = (p: PItem) => typeof p.input.id === 'string' && /^NEW\d+$/.test(p.input.id) && !items.some((x) => x.key === p.input.id && x.on);
 
   return (
     <div className="proposals">
-      {list.map((p) => (
-        <div key={p.key} className={`proposal ${on.has(p.key) ? '' : 'off'}`}>
+      {items.map((p) => (
+        <div key={p.key} className={`proposal ${p.on && status !== 'rejected' && status !== 'replaced' ? '' : 'off'}`}>
           <label className="row top" style={{ gap: 10 }}>
-            <input type="checkbox" checked={on.has(p.key)} onChange={() => setOn((s) => { const n = new Set(s); if (n.has(p.key)) n.delete(p.key); else n.add(p.key); return n; })} />
+            <input type="checkbox" checked={p.on} disabled={!live} onChange={() => onToggle(p.key)} />
             <div className="grow">
               <div className="title">{p.title}</div>
               {p.lines.filter((l) => !Object.keys(EDITABLE).some((k) => p.input[k] && l === p.input[k])).map((l, i) => <div key={i} className="small soft">{l}</div>)}
             </div>
           </label>
-          {on.has(p.key) && Object.entries(EDITABLE).map(([k, label]) => typeof p.input[k] === 'string' && p.input[k] ? (
+
+          {live && p.on && p.tool === 'draft_email' && <EmailEditor p={p} onEdit={(patch) => onEdit(p.key, patch)} />}
+
+          {live && p.on && p.tool !== 'draft_email' && Object.entries(EDITABLE).map(([k, label]) => typeof p.input[k] === 'string' && p.input[k] ? (
             <label key={k} className="field" style={{ marginTop: 8 }}>{label}
-              <textarea rows={2} value={p.input[k]} onChange={(e) => set(p.key, { [k]: e.target.value })} />
+              <textarea rows={2} value={p.input[k]} onChange={(e) => onEdit(p.key, { [k]: e.target.value })} />
             </label>
           ) : null)}
-          {on.has(p.key) && p.input.follow_up?.date && (
+          {live && p.on && p.input.follow_up?.date && (
             <label className="field" style={{ marginTop: 8 }}>Data następnego kroku
-              <input type="date" value={p.input.follow_up.date} onChange={(e) => set(p.key, { follow_up: { ...p.input.follow_up, date: e.target.value } })} />
+              <input type="date" value={p.input.follow_up.date} onChange={(e) => onEdit(p.key, { follow_up: { ...p.input.follow_up, date: e.target.value } })} />
             </label>
           )}
-          {on.has(p.key) && p.tool === 'plan_activity' && (
+          {live && p.on && (p.tool === 'plan_activity' || p.tool === 'reschedule_activity') && (
             <label className="field" style={{ marginTop: 8 }}>Data
-              <input type="date" value={p.input.date} onChange={(e) => set(p.key, { date: e.target.value })} />
+              <input type="date" value={p.input.date} onChange={(e) => onEdit(p.key, { date: e.target.value })} />
             </label>
           )}
           {p.warnings.map((w, i) => <div key={i} className="small row" style={{ color: 'var(--warn)', marginTop: 6 }}><AlertTriangle size={13} /> {w}</div>)}
-          {blocked(p) && on.has(p.key) && <div className="small" style={{ color: 'var(--bad)', marginTop: 6 }}>Wymaga zatwierdzenia nowej firmy.</div>}
+          {live && blocked(p) && p.on && <div className="small" style={{ color: 'var(--bad)', marginTop: 6 }}>Wymaga zatwierdzenia nowej firmy.</div>}
         </div>
       ))}
+      {live ? (
+        <div className="row wrap">
+          <button className="btn primary" disabled={!chosen.length || chosen.some(blocked)} onClick={onApprove}>
+            <Check size={16} /> Zatwierdź {chosen.length > 1 ? `(${chosen.length})` : ''}
+          </button>
+          <button className="btn ghost" onClick={onReject}>Odrzuć</button>
+        </div>
+      ) : STATUS_LABEL[status] ? <div className="small faint">{STATUS_LABEL[status]}</div> : null}
+    </div>
+  );
+}
+
+function EmailEditor({ p, onEdit }: { p: PItem; onEdit: (patch: Record<string, any>) => void }) {
+  const toast = useToast();
+  const { to = '', subject = '', body = '' } = p.input;
+  return (
+    <div className="col tight" style={{ marginTop: 8 }}>
+      <label className="field">Do<input type="email" value={to} onChange={(e) => onEdit({ to: e.target.value })} /></label>
+      <label className="field">Temat<input type="text" value={subject} onChange={(e) => onEdit({ subject: e.target.value })} /></label>
+      <label className="field">Treść<textarea rows={8} value={body} onChange={(e) => onEdit({ body: e.target.value })} /></label>
       <div className="row wrap">
-        <button className="btn primary" disabled={!chosen.length || saving || chosen.some(blocked)}
-          onClick={async () => { setSaving(true); await onApprove(chosen); setSaving(false); }}>
-          <Check size={16} /> Zatwierdź {chosen.length > 1 ? `(${chosen.length})` : ''}
-        </button>
-        <button className="btn ghost" onClick={onDismiss} disabled={saving}>Odrzuć</button>
+        <a className="btn sm" href={`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}><Mail size={14} /> Otwórz w poczcie</a>
+        <button className="btn sm" onClick={() => { copyText(`${subject}\n\n${body}`); toast('Skopiowano'); }}><Copy size={14} /> Kopiuj</button>
+        <span className="hint">Po wysłaniu kliknij „Zatwierdź” — mail trafi do historii.</span>
       </div>
     </div>
   );

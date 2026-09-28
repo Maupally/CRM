@@ -143,8 +143,9 @@ export function createApp(o: AppOptions) {
 
   /* ---- assistant: proposals first, writes only after the user approves */
   api.post('/assistant', async (c) => {
-    const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string }>(c);
-    return c.json(await new Assistant(await crm()).ask(d.text, Array.isArray(d.history) ? d.history : [], d.leadId));
+    const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string; image?: { mediaType: string; data: string }; spoken?: boolean }>(c);
+    return c.json(await new Assistant(await crm()).ask(d.text || '', Array.isArray(d.history) ? d.history : [],
+      { leadId: d.leadId, image: d.image || null, spoken: !!d.spoken }));
   });
   api.post('/assistant/execute', async (c) => {
     const d = await body<{ items: { tool: string; input: Record<string, unknown> }[] }>(c);

@@ -534,3 +534,11 @@ dialog.modal::backdrop { background: rgb(11 21 48 / .45); backdrop-filter: blur(
 .mic.on { background: var(--bad); border-color: var(--bad); color: #fff; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 6px var(--bad-bg); } }
 .spin { animation: spin .8s linear infinite; }
+.quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.qa {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 6px; border: 0; border-radius: 14px;
+  background: var(--tint); color: var(--chip-ink); font-size: 12.5px; font-weight: 600;
+}
+.qa:hover { filter: brightness(.97); }
+.qa:disabled { opacity: .5; }
+.bubble-img { display: block; max-width: 180px; max-height: 140px; border-radius: 12px; margin-bottom: 6px; }

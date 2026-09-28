@@ -44,7 +44,7 @@ describe('assistant', () => {
     ]);
     (a as any).client = fake;
 
-    const r = await a.ask('dzwoniłem do cichoń nie odebrali, spróbuj w piątek. dodaj kowalski logistyka z gliwic', [], 'L001');
+    const r = await a.ask('dzwoniłem do cichoń nie odebrali, spróbuj w piątek. dodaj kowalski logistyka z gliwic', [], { leadId: 'L001' });
     expect(r.reply).toBe('Przygotowałem trzy zmiany.');
     expect(r.proposals.map((p) => p.tool)).toEqual(['log_activity', 'create_company', 'plan_activity']);
     expect(r.proposals[0].lines.join(' ')).toMatch(/nie odebrał.*Następny krok/s);
@@ -100,12 +100,57 @@ describe('assistant coaching', () => {
       { stop_reason: 'end_turn', content: [{ type: 'text', text: '1) Dzień dobry, pani Celino…' }] },
     ];
     (a as any).client = { beta: { messages: { create: async (r: any) => { requests.push(JSON.parse(JSON.stringify(r))); return turns.shift(); } } } };
-    const r = await a.ask('jak zagadać?', [], l.id);
+    const r = await a.ask('jak zagadać?', [], { leadId: l.id });
     expect(r.proposals).toHaveLength(0);
     const pitch = JSON.parse(requests[1].messages.at(-1).content[0].content);
     expect(pitch.playbook.opening).toContain('Maple Bear');
     expect(pitch.person).toBe('p. Celina');
     expect(pitch.history[0].note).toContain('wycieczkami');
+    await db.close();
+  });
+});
+
+describe('assistant: groups, mail, events, photos', () => {
+  it('queries the base, plans many, drafts a mail and updates an event', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-09-28');
+    await crm.saveSegment({ name: 'STADNINY', weight: 2 });
+    const a1 = await crm.createLead({ company: 'Stajnia A', segment: 'STADNINY', city: 'Katowice', phone: '600000001', email: 'a@a.pl' });
+    const a2 = await crm.createLead({ company: 'Stajnia B', segment: 'STADNINY', city: 'Katowice', phone: '600000002' });
+    await crm.createLead({ company: 'Stajnia C', segment: 'STADNINY', city: 'Tychy', phone: '600000003' });
+    const ev = await crm.saveEvent({ title: "Bieg Terry'ego Foxa", date: '2026-10-10' });
+
+    const as = new Assistant(crm, 'test-key');
+    const requests: any[] = [];
+    const turns: any[] = [
+      { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'query_companies',
+        input: { segment: 'STADNINY', city: 'katowice', has_phone: true, never_contacted: true } }] },
+      { stop_reason: 'tool_use', content: [
+        { type: 'tool_use', id: 't2', name: 'plan_many', input: { type: 'Call', note: 'pierwszy telefon',
+          items: [{ id: a1.id, date: '2026-10-05' }, { id: a2.id, date: '2026-10-06' }] } },
+        { type: 'tool_use', id: 't3', name: 'draft_email', input: { id: a1.id, subject: 'Współpraca', body: 'Dzień dobry…' } },
+        { type: 'tool_use', id: 't4', name: 'update_event', input: { id: ev.id, status: 'confirmed', add_note: 'Potwierdzone przez organizatora.' } },
+      ] },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Dwie stadniny z Katowic, zaplanowane.' }] },
+    ];
+    (as as any).client = { beta: { messages: { create: async (r: any) => { requests.push(JSON.parse(JSON.stringify(r))); return turns.shift(); } } } };
+
+    const r = await as.ask('które stadniny z katowic nie miały kontaktu? zaplanuj im telefony', [], {
+      spoken: true, image: { mediaType: 'image/jpeg', data: 'aGVsbG8=' },
+    });
+    const found = JSON.parse(requests[1].messages.at(-1).content[0].content);
+    expect(found.total).toBe(2);
+    expect(requests[0].messages.at(-1).content[0].type).toBe('image');
+    expect(requests[0].system[1].text).toContain('głośnomówiący');
+    expect(r.proposals.map((p) => p.tool)).toEqual(['plan_many', 'draft_email', 'update_event']);
+    expect(r.proposals[1].input.to).toBe('a@a.pl');
+
+    const done = await as.execute(r.proposals.map((p) => ({ tool: p.tool, input: p.input })));
+    expect(done.results.every((x) => x.ok)).toBe(true);
+    expect((await crm.getLead(a2.id)).nextContact).toBe('2026-10-06');
+    expect((await crm.leadCard(a1.id)).activities.some((x) => x.type === 'Email' && x.note === 'Mail: Współpraca')).toBe(true);
+    const saved = (await crm.listEvents()).find((e) => e.id === ev.id)!;
+    expect(saved).toMatchObject({ status: 'confirmed', notes: 'Potwierdzone przez organizatora.' });
     await db.close();
   });
 });

@@ -90,8 +90,8 @@ export interface Proposal {
 export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
 export const api = {
-  assistant: (text: string, history: AssistantTurn[], leadId?: string) =>
-    post<{ reply: string; proposals: Proposal[] }>('/assistant', { text, history, leadId }),
+  assistant: (text: string, history: AssistantTurn[], leadId?: string, image?: { mediaType: string; data: string }, spoken?: boolean) =>
+    post<{ reply: string; proposals: Proposal[] }>('/assistant', { text, history, leadId, image, spoken }),
   assistantExecute: (items: { tool: string; input: Record<string, any> }[]) =>
     post<{ results: { ok: boolean; message: string; leadId?: string }[] }>('/assistant/execute', { items }),
   me: () => get<{ authenticated: boolean; passwordRequired: boolean }>('/me'),

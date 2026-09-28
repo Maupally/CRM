@@ -30,19 +30,26 @@ Każdy push na gałąź daje podgląd (Preview), push na gałąź produkcyjną �
 
 ## Asystent głosowy
 
-Niebieski przycisk z mikrofonem (prawy dolny róg). Mówisz po polsku, np.:
+Niebieski przycisk z mikrofonem (prawy dolny róg). Mówisz po polsku, asystent szuka firm w bazie
+(radzi sobie z przekręconymi nazwami) i każdą zmianę pokazuje jako kartę do zatwierdzenia — skrót,
+notatkę, daty i treść maila można poprawić przed zapisem. Bez zatwierdzenia nic się nie zapisuje.
 
-- „Dzwoniłem do Cichoń Dressage, nie odebrali, spróbuj w piątek.”
-- „Muszę się z nimi umówić w przyszłym tygodniu.”
-- „Dodaj firmę Kowalski Logistyka z Gliwic, telefon 600 100 200.”
-- „Decyduje pani Celina, najlepiej dzwonić rano” — trafia do notatek firmy.
-- „Jak zagadać do tej firmy?” — ściąga do rozmowy z Playbooka, notatek i historii.
-- „Co mam dziś do zrobienia?”
+- **Polecenia**: „Dzwoniłem do Cichoń, nie odebrali, spróbuj w piątek”, „Muszę się z nimi umówić
+  w przyszłym tygodniu”, „Dodaj firmę Kowalski Logistyka z Gliwic…”, „Decyduje pani Celina”.
+- **Relacja z rozmowy**: dłuższe nagranie (pauzy nie przerywają). Asystent wyciąga ustalenia, osobę
+  decyzyjną, dane kontaktowe, następny krok i — jeśli padła obietnica — szkic maila.
+- **Briefing**: co dziś, w jakiej kolejności i jedno zdanie przypomnienia o każdej firmie.
+- **Tryb głośnomówiący** (np. w samochodzie): czyta odpowiedzi na głos i słucha dalej;
+  „zatwierdź” / „odrzuć” / „popraw datę na środę” mówione głosem.
+- **Jak zagadać**: ściąga do rozmowy z Playbooka, notatek i historii firmy.
+- **Mail**: „wyślij im podsumowanie” — szkic z szablonu, otwierany w poczcie, zapisywany w historii.
+- **Wizytówka**: zdjęcie aparatem → nowa firma z osobą i kontaktem.
+- **Pytania o bazę**: „które stadniny z Katowic mają telefon, a nikt do nich nie dzwonił?”,
+  potem „zaplanuj im telefony na przyszły tydzień” — rozłoży równo na dni robocze.
+- **Raport i wydarzenia**: „zrób raport tygodniowy”, „bieg Terry'ego Foxa jest potwierdzony”.
 
-Asystent szuka firm w bazie (radzi sobie z przekręconymi nazwami), a każdą zmianę pokazuje jako
-kartę do zatwierdzenia — skrót rozmowy i daty można poprawić przed zapisem. Bez zatwierdzenia nic
-się nie zapisuje. Na karcie firmy „ta firma” oznacza otwartą firmę. Działa na Claude Opus 5
-(`server/assistant.ts`); rozpoznawanie mowy robi przeglądarka (Chrome na Androidzie, Safari).
+Model: Claude Opus 5 (`server/assistant.ts`). Rozpoznawanie i czytanie mowy robi przeglądarka
+(Chrome na Androidzie, Safari).
 
 ## Co się zmieniło względem wersji z Sheets
 
