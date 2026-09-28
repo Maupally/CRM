@@ -1,0 +1,46 @@
+{
+  "name": "b2b-crm",
+  "version": "1.0.0",
+  "description": "B2B CRM — calling console, pipeline, events and weekly report",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"tsx watch server/index.ts\" \"vite\"",
+    "build": "vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "import": "tsx server/import-cli.ts",
+    "typecheck": "tsc",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maupally/CRM.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Maupally/CRM/issues"
+  },
+  "homepage": "https://github.com/Maupally/CRM#readme",
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@tanstack/react-query": "^5.104.0",
+    "hono": "^4.13.9",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  }
+}
