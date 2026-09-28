@@ -1,9 +1,10 @@
 import { useState, type KeyboardEvent } from 'react';
-import { api, type FollowUp } from '../api.ts';
+import { CalendarPlus, CheckCircle2 } from 'lucide-react';
+import { api, type FollowUp } from '../api';
 import {
   autoStage, quickDates, DISQUALIFY_REASONS, STAGES, TYPES, type Activity, type Lead, type Stage,
-} from '../../shared/domain.ts';
-import { Modal, Seg, useAction, useToday, StagePill, relDay, typeIcon } from './ui.tsx';
+} from '../../shared/domain';
+import { Modal, Seg, StagePill, TYPE_ICON, relDay, stageLabel, typeLabel, useAction, useToday } from './ui';
 
 /* ------------------------------------------------------------ next step picker */
 
@@ -12,28 +13,37 @@ export const noNextStep = (): NextStepValue => ({ on: false, date: '', type: 'Ca
 export const toFollowUp = (v: NextStepValue): FollowUp | null =>
   v.on && v.date ? { date: v.date, type: v.type, note: v.note } : null;
 
-export function NextStep({ value, onChange, title = 'Next step' }: {
-  value: NextStepValue; onChange: (v: NextStepValue) => void; title?: string;
+export function DateChips({ value, onChange, allowNone, min }: {
+  value: string; onChange: (d: string) => void; allowNone?: boolean; min?: string;
 }) {
   const today = useToday();
+  return (
+    <div className="chips">
+      {allowNone && <button type="button" className={`chip ${!value ? 'on' : ''}`} onClick={() => onChange('')}>Bez</button>}
+      {quickDates(today).map((q) => (
+        <button type="button" key={q.label} className={`chip ${value === q.date ? 'on' : ''}`}
+          onClick={() => onChange(q.date)} title={q.date}>{q.label}</button>
+      ))}
+      <input type="date" value={value} min={min ?? today} onChange={(e) => onChange(e.target.value)}
+        style={{ width: 150, height: 30, borderRadius: 99, fontSize: 13 }} aria-label="Inna data" />
+    </div>
+  );
+}
+
+export function NextStep({ value, onChange, title = 'Następny krok' }: {
+  value: NextStepValue; onChange: (v: NextStepValue) => void; title?: string;
+}) {
   const set = (p: Partial<NextStepValue>) => onChange({ ...value, ...p });
   return (
     <div>
-      <div className="label">{title}</div>
-      <div className="chips">
-        <button type="button" className={`chip ${!value.on ? 'on' : ''}`} onClick={() => set({ on: false })}>None</button>
-        {quickDates(today).map((q) => (
-          <button type="button" key={q.label} className={`chip ${value.on && value.date === q.date ? 'on' : ''}`}
-            onClick={() => set({ on: true, date: q.date })} title={q.date}>{q.label}</button>
-        ))}
-      </div>
+      <div className="lbl">{title}</div>
+      <DateChips allowNone value={value.on ? value.date : ''} onChange={(d) => set({ on: !!d, date: d })} />
       {value.on && (
         <div className="row wrap" style={{ marginTop: 8 }}>
-          <input type="date" value={value.date} min={today} onChange={(e) => set({ date: e.target.value })} style={{ width: 150 }} />
-          <select value={value.type} onChange={(e) => set({ type: e.target.value })} style={{ width: 120 }}>
-            {TYPES.filter((t) => t !== 'Note').map((t) => <option key={t}>{t}</option>)}
+          <select value={value.type} onChange={(e) => set({ type: e.target.value })} style={{ width: 140 }}>
+            {TYPES.filter((t) => t !== 'Note').map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
           </select>
-          <input type="text" className="grow" placeholder="What for? (optional)" value={value.note}
+          <input type="text" className="grow" placeholder="Po co? (opcjonalnie)" value={value.note}
             onChange={(e) => set({ note: e.target.value })} style={{ minWidth: 160 }} />
         </div>
       )}
@@ -45,47 +55,51 @@ export function NextStep({ value, onChange, title = 'Next step' }: {
 
 export interface StageValue { stage: string; reason: string }
 
+export function ReasonPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="col tight">
+      <div className="chips">
+        {DISQUALIFY_REASONS.map((r) => (
+          <button type="button" key={r} className={`chip ${value.startsWith(r) ? 'on' : ''}`} onClick={() => onChange(r)}>{r}</button>
+        ))}
+      </div>
+      <input type="text" placeholder="Powód (wymagany) — co dokładnie powiedzieli?" value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
 export function StageChoice({ from, auto, value, onChange }: {
   from: Stage; auto: Stage; value: StageValue; onChange: (v: StageValue) => void;
 }) {
   const dq = value.stage === 'disqualified' && from !== 'disqualified';
   return (
     <div>
-      <div className="label">Stage</div>
+      <div className="lbl">Etap</div>
       <div className="row wrap">
-        <select value={value.stage} onChange={(e) => onChange({ ...value, stage: e.target.value })} style={{ width: 'auto' }}>
-          <option value="">{auto === from ? `Keep: ${from}` : `Auto: ${from} → ${auto}`}</option>
-          {STAGES.filter((s) => s !== from).map((s) => <option key={s} value={s}>Move to {s}</option>)}
+        <select value={value.stage} onChange={(e) => onChange({ ...value, stage: e.target.value })} style={{ width: 'auto', minWidth: 220 }}>
+          <option value="">{auto === from ? `Bez zmian: ${stageLabel(from)}` : `Automatycznie: ${stageLabel(auto)}`}</option>
+          {STAGES.filter((s) => s !== from).map((s) => <option key={s} value={s}>Przenieś do: {stageLabel(s)}</option>)}
         </select>
-        {!value.stage && auto !== from && <span className="hint">moves automatically <StagePill stage={auto} /></span>}
+        {!value.stage && auto !== from && <span className="hint row">zmieni się na <StagePill stage={auto} /></span>}
       </div>
-      {dq && (
-        <div className="stack tight" style={{ marginTop: 8 }}>
-          <div className="chips">
-            {DISQUALIFY_REASONS.map((r) => (
-              <button type="button" key={r} className={`chip ${value.reason.startsWith(r) ? 'on' : ''}`}
-                onClick={() => onChange({ ...value, reason: r })}>{r}</button>
-            ))}
-          </div>
-          <input type="text" placeholder="Reason (required)" value={value.reason}
-            onChange={(e) => onChange({ ...value, reason: e.target.value })} />
-        </div>
-      )}
+      {dq && <div style={{ marginTop: 8 }}><ReasonPicker value={value.reason} onChange={(r) => onChange({ ...value, reason: r })} /></div>}
     </div>
   );
 }
 
-const submitOnCtrlEnter = (fn: () => void) => (e: KeyboardEvent) => {
+const ctrlEnter = (fn: () => void) => (e: KeyboardEvent) => {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); fn(); }
 };
 
-/* ------------------------------------------------------------ log panel (lead page) */
+const RESULT_LABELS = { reached: 'Odebrał', 'no answer': 'Nie odebrał', done: 'Zrobione / wysłane' } as const;
+
+/* ------------------------------------------------------------ composer (record page) */
 
 type Mode = 'log' | 'plan';
 
-export function LogPanel({ lead }: { lead: Lead }) {
+export function Composer({ lead, initialMode = 'log', onDone }: { lead: Lead; initialMode?: Mode; onDone?: () => void }) {
   const today = useToday();
-  const [mode, setMode] = useState<Mode>('log');
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [type, setType] = useState<string>('Call');
   const [result, setResult] = useState<string>('reached');
   const [note, setNote] = useState('');
@@ -93,17 +107,15 @@ export function LogPanel({ lead }: { lead: Lead }) {
   const [stage, setStage] = useState<StageValue>({ stage: '', reason: '' });
   const [next, setNext] = useState<NextStepValue>(noNextStep());
 
-  const reset = () => {
-    setNote(''); setDate(''); setStage({ stage: '', reason: '' }); setNext(noNextStep());
-  };
+  const reset = () => { setNote(''); setDate(''); setStage({ stage: '', reason: '' }); setNext(noNextStep()); onDone?.(); };
   const act = useAction(
     () => mode === 'plan'
-      ? api.log(lead.id, { type, result: 'planned', note, date: date || today })
+      ? api.log(lead.id, { type, result: 'planned', note, date })
       : api.log(lead.id, {
         type, result: type === 'Note' ? 'done' : result, note, date: date || undefined,
         stage: stage.stage || undefined, reason: stage.reason || undefined, followUp: toFollowUp(next),
       }),
-    { ok: mode === 'plan' ? 'Planned' : 'Logged', onDone: reset },
+    { ok: mode === 'plan' ? 'Zaplanowano' : 'Zapisano', onDone: reset },
   );
 
   const effResult = type === 'Note' ? 'done' : result;
@@ -111,52 +123,45 @@ export function LogPanel({ lead }: { lead: Lead }) {
   const needReason = mode === 'log' && stage.stage === 'disqualified' && lead.stage !== 'disqualified' && !stage.reason.trim();
   const planNeedsDate = mode === 'plan' && !date;
   const submit = () => { if (!needReason && !planNeedsDate && !act.isPending) act.mutate(undefined); };
+  const types = mode === 'plan' ? TYPES.filter((t) => t !== 'Note') : TYPES;
 
   return (
-    <div className="log-panel" onKeyDown={submitOnCtrlEnter(submit)}>
-      <div className="row between wrap">
-        <Seg value={mode} options={['log', 'plan'] as const} onChange={setMode}
-          labels={{ log: 'What happened', plan: 'Plan next' }} />
-        <span className="hint"><span className="kbd">Ctrl</span> + <span className="kbd">Enter</span> saves</span>
+    <div className="composer" onKeyDown={ctrlEnter(submit)}>
+      <Seg className="accent" value={mode} options={['log', 'plan'] as const} onChange={(m) => { setMode(m); setDate(''); if (m === 'plan' && type === 'Note') setType('Call'); }}
+        labels={{ log: <><CheckCircle2 size={15} /> Co się wydarzyło</>, plan: <><CalendarPlus size={15} /> Zaplanuj</> }} />
+      <div className="chips">
+        {types.map((t) => {
+          const I = TYPE_ICON[t];
+          return <button type="button" key={t} className={`chip ${t === type ? 'on' : ''}`} onClick={() => setType(t)}><I size={14} /> {typeLabel(t)}</button>;
+        })}
       </div>
-      <Seg value={type} options={TYPES} onChange={setType}
-        labels={Object.fromEntries(TYPES.map((t) => [t, `${typeIcon(t)} ${t}`]))} />
 
       {mode === 'log' && type !== 'Note' && (
-        <Seg className="results" value={result} options={['reached', 'no answer', 'done'] as const} onChange={setResult}
-          labels={{ reached: 'Reached', 'no answer': 'No answer', done: 'Done / sent' }} />
+        <Seg className="results" value={result} options={['reached', 'no answer', 'done'] as const} onChange={setResult} labels={RESULT_LABELS} />
       )}
 
-      <textarea rows={3} autoFocus={false} placeholder={mode === 'plan' ? 'What is the plan?' : 'What was said? One sentence is enough.'}
+      <textarea rows={3} placeholder={mode === 'plan' ? 'Co trzeba zrobić?' : type === 'Note' ? 'Notatka…' : 'Co ustaliliście? Jedno zdanie wystarczy.'}
         value={note} onChange={(e) => setNote(e.target.value)} />
 
       {mode === 'plan' ? (
-        <div>
-          <div className="label">When</div>
-          <div className="chips">
-            {quickDates(today).map((q) => (
-              <button type="button" key={q.label} className={`chip ${date === q.date ? 'on' : ''}`}
-                onClick={() => setDate(q.date)}>{q.label}</button>
-            ))}
-            <input type="date" value={date} min={today} onChange={(e) => setDate(e.target.value)} style={{ width: 150, height: 26 }} />
-          </div>
-        </div>
+        <div><div className="lbl">Kiedy</div><DateChips value={date} onChange={setDate} /></div>
       ) : (
         <>
           <StageChoice from={lead.stage} auto={auto} value={stage} onChange={setStage} />
-          <NextStep value={next} onChange={setNext} />
+          {type !== 'Note' && <NextStep value={next} onChange={setNext} />}
           <details>
-            <summary className="hint" style={{ cursor: 'pointer' }}>Happened on another day?</summary>
-            <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} style={{ width: 150, marginTop: 6 }} />
+            <summary className="hint" style={{ cursor: 'pointer' }}>Było innego dnia?</summary>
+            <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} style={{ width: 170, marginTop: 8 }} />
           </details>
         </>
       )}
 
-      <div className="row">
+      <div className="row wrap">
         <button className="btn primary" disabled={needReason || planNeedsDate || act.isPending} onClick={submit}>
-          {mode === 'plan' ? `Plan ${type.toLowerCase()}${date ? ' · ' + relDay(date, today) : ''}` : `Save ${type.toLowerCase()}`}
+          {mode === 'plan' ? `Zaplanuj${date ? ' · ' + relDay(date, today) : ''}` : 'Zapisz'}
         </button>
-        {needReason && <span className="hint">Give a reason to disqualify.</span>}
+        <span className="hint hide-sm"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+        {needReason && <span className="hint">Podaj powód odrzucenia.</span>}
       </div>
     </div>
   );
@@ -177,7 +182,7 @@ export function CompleteDialog({ activity, stage, company, onClose }: {
     () => api.complete(activity!.id, {
       result, note, stage: st.stage || undefined, reason: st.reason || undefined, followUp: toFollowUp(next),
     }),
-    { ok: 'Done', onDone: close },
+    { ok: 'Zrobione', onDone: close },
   );
   if (!activity) return null;
   const auto = autoStage(stage, activity.type, result);
@@ -185,23 +190,40 @@ export function CompleteDialog({ activity, stage, company, onClose }: {
   const submit = () => { if (!needReason && !act.isPending) act.mutate(undefined); };
 
   return (
-    <Modal open={!!activity} onClose={close}
-      title={<>{typeIcon(activity.type)} {activity.type}{company ? ` · ${company}` : ''}</>}
+    <Modal open={!!activity} onClose={close} title={<>{typeLabel(activity.type)}{company ? ` · ${company}` : ''}</>}
       footer={<>
-        <button className="btn" onClick={close}>Cancel</button>
-        <button className="btn primary" disabled={needReason || act.isPending} onClick={submit}>Save</button>
+        <button className="btn" onClick={close}>Anuluj</button>
+        <button className="btn primary" disabled={needReason || act.isPending} onClick={submit}>Zapisz</button>
       </>}>
-      <div onKeyDown={submitOnCtrlEnter(submit)} className="stack">
-        {activity.note && <div className="muted pre">{activity.note}</div>}
+      <div onKeyDown={ctrlEnter(submit)} className="composer" style={{ padding: 0 }}>
+        {activity.note && <div className="soft pre">{activity.note}</div>}
         <Seg className="results" value={result} options={['reached', 'no answer', 'done'] as const} onChange={(r) => {
           setResult(r);
           // a missed call almost always means "try again" — offer it straight away
-          if (r === 'no answer' && !next.on) setNext({ on: true, date: '', type: activity.type, note: 'Try again' });
-        }} labels={{ reached: 'Reached', 'no answer': 'No answer', done: 'Done / sent' }} />
-        <textarea rows={3} placeholder="How did it go?" value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
+          if (r === 'no answer' && !next.on) setNext({ on: false, date: '', type: activity.type, note: 'Ponowić' });
+        }} labels={RESULT_LABELS} />
+        <textarea rows={3} placeholder="Jak poszło?" value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
         <StageChoice from={stage} auto={auto} value={st} onChange={setSt} />
-        <NextStep value={next} onChange={setNext} />
+        <NextStep value={next} onChange={setNext} title={result === 'no answer' ? 'Kiedy ponowić?' : 'Następny krok'} />
       </div>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------ stage change with a reason */
+
+export function DisqualifyDialog({ lead, onClose }: { lead: Pick<Lead, 'id' | 'company' | 'openCount'> | null; onClose: () => void }) {
+  const [reason, setReason] = useState('');
+  const act = useAction(() => api.setStage(lead!.id, 'disqualified', reason), {
+    ok: 'Odrzucono', onDone: () => { setReason(''); onClose(); },
+  });
+  return (
+    <Modal open={!!lead} onClose={onClose} title={`Odrzuć: ${lead?.company || ''}`}
+      footer={<><button className="btn" onClick={onClose}>Anuluj</button>
+        <button className="btn primary" style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }}
+          disabled={!reason.trim() || act.isPending} onClick={() => act.mutate(undefined)}>Odrzuć</button></>}>
+      <ReasonPicker value={reason} onChange={setReason} />
+      {!!lead?.openCount && <div className="hint">Zaplanowane follow-upy ({lead.openCount}) zostaną anulowane.</div>}
     </Modal>
   );
 }

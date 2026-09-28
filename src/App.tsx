@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from './api.ts';
-import { searchKey } from '../shared/domain.ts';
-import { Loading, Modal, StagePill } from './components/ui.tsx';
-import { TodayPage } from './pages/Today.tsx';
-import { LeadsPage } from './pages/Leads.tsx';
-import { LeadPage } from './pages/Lead.tsx';
-import { CalendarPage } from './pages/Calendar.tsx';
-import { EventsPage } from './pages/Events.tsx';
-import { StatsPage } from './pages/Stats.tsx';
-import { ReportPage } from './pages/Report.tsx';
-import { PlaybookPage } from './pages/Playbook.tsx';
-import { DataPage } from './pages/Data.tsx';
+import {
+  LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
+  Plus, LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
+} from 'lucide-react';
+import { api } from './api';
+import { searchKey } from '../shared/domain';
+import { Avatar, Loading, Menu, Modal, StagePill, ThemeToggle } from './components/ui';
+import { AddCompany } from './components/AddCompany';
+import { DashboardPage } from './pages/Dashboard';
+import { TasksPage } from './pages/Tasks';
+import { PipelinePage } from './pages/Pipeline';
+import { CompaniesPage } from './pages/Companies';
+import { CompanyPage } from './pages/Company';
+import { CalendarPage } from './pages/Calendar';
+import { EventsPage } from './pages/Events';
+import { ReportsPage } from './pages/Reports';
+import { SettingsPage } from './pages/Settings';
 
 export function App() {
   const qc = useQueryClient();
@@ -25,6 +30,7 @@ export function App() {
   }, [qc]);
 
   if (me.isLoading) return <Loading />;
+  if (me.error) return <div className="login"><div className="error-box">{(me.error as Error).message}</div></div>;
   if (!me.data?.authenticated) return <Login onDone={() => { qc.clear(); me.refetch(); }} />;
   return <Shell passwordRequired={!!me.data.passwordRequired} />;
 }
@@ -40,131 +46,208 @@ function Login({ onDone }: { onDone: () => void }) {
   };
   return (
     <div className="login">
-      <form className="card card-pad stack" onSubmit={submit}>
-        <div className="brand" style={{ padding: 0 }}><span className="brand-mark">B</span> B2B CRM</div>
-        <label className="field"><span>Password</span>
-          <input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} />
+      <form className="card pad col loose" onSubmit={submit}>
+        <div className="brand" style={{ padding: 0 }}><span className="brand-mark">B2</span><div><b>B2B CRM</b><span className="eyebrow">Partnerstwa</span></div></div>
+        <label className="field">Hasło
+          <input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" />
         </label>
         {err && <div className="error-box">{err}</div>}
-        <button className="btn primary" disabled={busy || !pw}>Sign in</button>
+        <button className="btn primary block" disabled={busy || !pw}>Zaloguj</button>
       </form>
     </div>
   );
 }
 
-const NAV = [
-  { to: '/', label: 'Today', icon: '◉', end: true },
-  { to: '/leads', label: 'Leads', icon: '☰' },
-  { to: '/calendar', label: 'Calendar', icon: '▦' },
-  { to: '/events', label: 'Events', icon: '★' },
-  { to: '/stats', label: 'Stats', icon: '▲' },
-  { to: '/report', label: 'Report', icon: '✉' },
-  { to: '/playbook', label: 'Playbook', icon: '❡' },
-  { to: '/data', label: 'Data', icon: '⇅' },
+interface NavItem { to: string; label: string; icon: LucideIcon; end?: boolean }
+const NAV: { group?: string; items: NavItem[] }[] = [
+  { items: [
+    { to: '/', label: 'Pulpit', icon: LayoutDashboard, end: true },
+    { to: '/zadania', label: 'Zadania', icon: ListTodo },
+  ] },
+  { group: 'Sprzedaż', items: [
+    { to: '/lejek', label: 'Lejek', icon: KanbanSquare },
+    { to: '/firmy', label: 'Firmy', icon: Building2 },
+  ] },
+  { group: 'Plan', items: [
+    { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
+    { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+  ] },
+  { group: 'Analiza', items: [
+    { to: '/raporty', label: 'Raporty', icon: BarChart3 },
+  ] },
 ];
 
 function Shell({ passwordRequired }: { passwordRequired: boolean }) {
-  const today = useQuery({ queryKey: ['today'], queryFn: api.today });
-  const late = (today.data?.overdue.length || 0) + (today.data?.due.length || 0);
-  const [finder, setFinder] = useState(false);
+  const dash = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 5 * 60_000 });
+  const due = (dash.data?.overdue.length || 0) + (dash.data?.due.length || 0);
+  const [palette, setPalette] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [more, setMore] = useState(false);
   const qc = useQueryClient();
+  const nav = useNavigate();
+  const loc = useLocation();
+  useEffect(() => { window.scrollTo(0, 0); setMore(false); }, [loc.pathname]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) ||
-          (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement).tagName))) {
-        e.preventDefault();
-        setFinder(true);
-      }
+      const typing = /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement).tagName);
+      if ((e.key === 'k' && (e.metaKey || e.ctrlKey)) || (e.key === '/' && !typing)) { e.preventDefault(); setPalette(true); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const signOut = async () => { await api.logout(); qc.clear(); location.reload(); };
+
   return (
     <div className="shell">
       <aside className="side">
-        <div className="brand"><span className="brand-mark">B</span> B2B CRM</div>
+        <div className="brand"><span className="brand-mark">B2</span><div><b>B2B CRM</b><span className="eyebrow">Partnerstwa</span></div></div>
         <nav className="nav">
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end}>
-              <span aria-hidden>{n.icon}</span> {n.label}
-              {n.to === '/' && late > 0 && <span className="count">{late}</span>}
-            </NavLink>
+          {NAV.map((g, i) => (
+            <div key={i}>
+              {g.group && <div className="nav-group">{g.group}</div>}
+              {g.items.map(({ to, label, icon: I, end }) => (
+                <NavLink key={to} to={to} end={end}>
+                  <I size={18} /> {label}
+                  {to === '/zadania' && due > 0 && <span className="badge">{due}</span>}
+                </NavLink>
+              ))}
+            </div>
           ))}
+          <div className="nav-group">&nbsp;</div>
+          <NavLink to="/ustawienia"><Settings size={18} /> Ustawienia</NavLink>
         </nav>
-        <div className="side-foot stack tight">
-          <button className="btn sm" onClick={() => setFinder(true)}>Find company <span className="kbd">/</span></button>
-          {passwordRequired && (
-            <button className="btn sm ghost" onClick={async () => { await api.logout(); qc.clear(); location.reload(); }}>
-              Sign out
-            </button>
-          )}
+        <div className="side-foot">
+          <ThemeToggle />
+          {passwordRequired && <button className="btn ghost sm" onClick={signOut}><LogOut size={15} /> Wyloguj</button>}
         </div>
       </aside>
-      <main className="main">
-        <Routes>
-          <Route path="/" element={<TodayPage />} />
-          <Route path="/leads" element={<LeadsPage />} />
-          <Route path="/leads/:id" element={<LeadPage />} />
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/events" element={<EventsPage />} />
-          <Route path="/events/:id" element={<EventsPage />} />
-          <Route path="/stats" element={<StatsPage />} />
-          <Route path="/report" element={<ReportPage />} />
-          <Route path="/playbook" element={<PlaybookPage />} />
-          <Route path="/data" element={<DataPage />} />
-          <Route path="*" element={<div className="empty">Nothing here.</div>} />
-        </Routes>
-      </main>
-      <Finder open={finder} onClose={() => setFinder(false)} />
+
+      <div className="main">
+        <header className="topbar">
+          <span className="brand-mark only-sm" style={{ width: 32, height: 32 }}>B2</span>
+          <button className="search-btn" onClick={() => setPalette(true)}>
+            <Search size={16} /> <span className="trunc">Szukaj firmy, telefonu, maila…</span> <kbd className="hide-sm">/</kbd>
+          </button>
+          <span className="grow hide-sm" />
+          <Menu trigger={(t) => <button className="btn primary" onClick={t}><Plus size={17} /><span className="hide-sm">Nowy</span></button>}>
+            {(close) => (
+              <>
+                <button onClick={() => { close(); setAdding(true); }}><Building2 size={16} /> Firma</button>
+                <button onClick={() => { close(); setPalette(true); }}><ListTodo size={16} /> Aktywność u firmy…</button>
+                <button onClick={() => { close(); nav('/wydarzenia?nowe=1'); }}><PartyPopper size={16} /> Wydarzenie</button>
+              </>
+            )}
+          </Menu>
+          <span className="hide-sm"><ThemeToggle /></span>
+        </header>
+
+        <main className="content">
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/zadania" element={<TasksPage />} />
+            <Route path="/lejek" element={<PipelinePage />} />
+            <Route path="/firmy" element={<CompaniesPage onAdd={() => setAdding(true)} />} />
+            <Route path="/firmy/:id" element={<CompanyPage />} />
+            <Route path="/kalendarz" element={<CalendarPage />} />
+            <Route path="/wydarzenia" element={<EventsPage />} />
+            <Route path="/wydarzenia/:id" element={<EventsPage />} />
+            <Route path="/raporty" element={<ReportsPage />} />
+            <Route path="/ustawienia" element={<SettingsPage />} />
+            <Route path="*" element={<div className="empty">Nie ma takiej strony.</div>} />
+          </Routes>
+        </main>
+      </div>
+
+      <nav className="tabbar">
+        <NavLink to="/" end><LayoutDashboard size={21} />Pulpit</NavLink>
+        <NavLink to="/zadania"><ListTodo size={21} />Zadania{due > 0 && <span className="dot">{due}</span>}</NavLink>
+        <NavLink to="/lejek"><KanbanSquare size={21} />Lejek</NavLink>
+        <NavLink to="/firmy"><Building2 size={21} />Firmy</NavLink>
+        <button onClick={() => setMore(true)}><MoreHorizontal size={21} />Więcej</button>
+      </nav>
+
+      <Modal open={more} onClose={() => setMore(false)} title="Więcej">
+        <div className="list card flat">
+          {[
+            { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
+            { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+            { to: '/raporty', label: 'Raporty', icon: BarChart3 },
+            { to: '/ustawienia', label: 'Ustawienia i dane', icon: Settings },
+          ].map(({ to, label, icon: I }) => (
+            <NavLink key={to} to={to} className="li"><I size={18} /> {label}</NavLink>
+          ))}
+        </div>
+        <div className="row between">
+          <span className="row soft">Motyw <ThemeToggle /></span>
+          {passwordRequired && <button className="btn" onClick={signOut}><LogOut size={15} /> Wyloguj</button>}
+        </div>
+      </Modal>
+
+      <Palette open={palette} onClose={() => setPalette(false)} onAdd={() => { setPalette(false); setAdding(true); }} />
+      <AddCompany open={adding} onClose={() => setAdding(false)} />
     </div>
   );
 }
 
-/** Jump to any company by typing part of its name, city, phone or email. */
-function Finder({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** Command palette: jump to any company by name, city, phone or email — or to a page. */
+function Palette({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: () => void }) {
   const leads = useQuery({ queryKey: ['leads'], queryFn: api.leads, enabled: open });
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const nav = useNavigate();
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => input.current?.focus(), 30); } }, [open]);
+  useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => input.current?.focus(), 40); } }, [open]);
 
-  const hits = useMemo(() => {
+  type Item = { key: string; label: string; sub?: string; stage?: string; go: () => void; avatar?: string; icon?: LucideIcon };
+  const items: Item[] = useMemo(() => {
     const k = searchKey(q);
-    if (!k || !leads.data) return [];
+    const pages: Item[] = [
+      { key: 'new', label: 'Dodaj firmę', icon: Plus, go: onAdd },
+      ...NAV.flatMap((g) => g.items).map((n) => ({ key: n.to, label: n.label, icon: n.icon, go: () => nav(n.to) })),
+      { key: '/ustawienia', label: 'Ustawienia', icon: Settings, go: () => nav('/ustawienia') },
+    ];
+    if (!k) return pages;
     const digits = q.replace(/\D/g, '');
-    return leads.data.filter((l) =>
-      searchKey(l.company).includes(k) || searchKey(l.city) === k || l.email.includes(k) ||
+    const hits = (leads.data || []).filter((l) =>
+      searchKey(l.company).includes(k) || searchKey(l.city) === k || l.email.includes(k) || searchKey(l.person).includes(k) ||
       (digits.length >= 3 && l.phone.replace(/\D/g, '').includes(digits)) || l.id.toLowerCase() === k,
-    ).sort((a, b) => Number(searchKey(b.company).startsWith(k)) - Number(searchKey(a.company).startsWith(k)) ||
-      b.priority - a.priority).slice(0, 12);
-  }, [q, leads.data]);
+    ).sort((a, b) => Number(searchKey(b.company).startsWith(k)) - Number(searchKey(a.company).startsWith(k)) || b.priority - a.priority)
+      .slice(0, 10)
+      .map((l) => ({ key: l.id, label: l.company, sub: [l.city, l.segment, l.phone].filter(Boolean).join(' · '), stage: l.stage,
+        avatar: l.company, go: () => nav(`/firmy/${l.id}`) }));
+    return [...hits, ...pages.filter((p) => searchKey(p.label).includes(k))];
+  }, [q, leads.data, nav, onAdd]);
 
-  const go = (id: string) => { onClose(); nav(`/leads/${id}`); };
+  const run = (i: Item) => { onClose(); i.go(); };
   return (
-    <Modal open={open} onClose={onClose} title="Find company">
-      <input ref={input} type="search" placeholder="Name, city, phone, email…" value={q}
+    <Modal open={open} onClose={onClose} title="Szukaj">
+      <input ref={input} type="search" placeholder="Nazwa firmy, miasto, telefon, e-mail…" value={q}
         onChange={(e) => { setQ(e.target.value); setSel(0); }}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, hits.length - 1)); }
+          if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, items.length - 1)); }
           if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
-          if (e.key === 'Enter' && hits[sel]) go(hits[sel].id);
+          if (e.key === 'Enter' && items[sel]) run(items[sel]);
         }} />
-      <ul className="list">
-        {hits.map((l, i) => (
-          <li key={l.id} className="item" style={{ cursor: 'pointer', background: i === sel ? 'var(--panel-2)' : undefined, padding: '8px 6px' }}
-            onMouseEnter={() => setSel(i)} onClick={() => go(l.id)}>
-            <div className="grow">
-              <div className="title ellipsis">{l.company}</div>
-              <div className="muted ellipsis" style={{ fontSize: 12.5 }}>{[l.city, l.segment, l.phone].filter(Boolean).join(' · ')}</div>
+      <div className="palette-list">
+        {!q && <div className="group-label" style={{ paddingLeft: 10 }}>Przejdź do</div>}
+        {items.map((it, i) => {
+          const I = it.icon;
+          return (
+            <div key={it.key} className={`palette-item ${i === sel ? 'sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => run(it)}>
+              {it.avatar ? <Avatar name={it.avatar} size="sm" /> : I ? <span className="type-ic"><I size={15} /></span> : null}
+              <div className="grow">
+                <div className="trunc" style={{ fontWeight: 600 }}>{it.label}</div>
+                {it.sub && <div className="trunc small soft">{it.sub}</div>}
+              </div>
+              {it.stage && <StagePill stage={it.stage} />}
+              {i === sel && <CornerDownLeft size={14} className="faint hide-sm" />}
             </div>
-            <StagePill stage={l.stage} />
-          </li>
-        ))}
-        {q && leads.data && !hits.length && <li className="empty">No match.</li>}
-      </ul>
+          );
+        })}
+        {q && leads.data && !items.length && <div className="empty">Nic nie znaleziono.</div>}
+      </div>
     </Modal>
   );
 }

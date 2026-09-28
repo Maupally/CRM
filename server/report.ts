@@ -1,7 +1,7 @@
 import {
   COUNTED, type Activity, type CrmEvent, type Lead, type Task,
   shortDate, plural, daysBetween,
-} from '../shared/domain.ts';
+} from '../shared/domain.js';
 
 export interface ReportInput {
   from: string;

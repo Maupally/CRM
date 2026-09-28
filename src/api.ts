@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage } from '../shared/domain.ts';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -29,6 +29,7 @@ export interface Config {
   owner: string;
   today: string;
   stages: Stage[];
+  stageLabels: Record<string, string>;
   types: string[];
   results: string[];
   counted: string[];
@@ -47,15 +48,19 @@ export interface LeadCard {
 
 export type AgendaItem = Activity & { phone?: string; email?: string; stage?: string };
 
-export interface TodayView {
+export type OpenItem = Activity & { phone: string; email: string; stage: string; city: string; segment: string };
+
+export interface Dashboard {
   today: string;
-  overdue: AgendaItem[];
-  due: AgendaItem[];
-  upcoming: AgendaItem[];
+  overdue: OpenItem[];
+  due: OpenItem[];
+  upcoming: OpenItem[];
   queue: Lead[];
+  pipeline: Record<string, number>;
   tasks: Task[];
   events: CrmEvent[];
   doneToday: { activities: number; companies: number };
+  doneWeek: { activities: number; companies: number };
 }
 
 export interface Bucket {
@@ -79,7 +84,11 @@ export const api = {
   logout: () => post('/logout'),
 
   config: () => get<Config>('/config'),
-  today: () => get<TodayView>('/today'),
+  dashboard: () => get<Dashboard>('/dashboard'),
+  openActivities: () => get<OpenItem[]>('/activities?open=1'),
+  activities: (from: string, to: string) => get<OpenItem[]>(`/activities?from=${from}&to=${to}`),
+  bulk: (d: { ids: string[]; stage?: string; reason?: string; segment?: string; plan?: FollowUp | null }) =>
+    post<{ changed: number }>('/leads/bulk', d),
   leads: () => get<Lead[]>('/leads'),
   lead: (id: string) => get<LeadCard>(`/leads/${encodeURIComponent(id)}`),
   createLead: (d: Record<string, string>) => post<Lead>('/leads', d),

@@ -7,12 +7,22 @@ export const STAGES = ['new', 'contacting', 'scheduled visit', 'negotiation', 'a
 export type Stage = (typeof STAGES)[number];
 
 export const STAGE_INFO: Record<Stage, string> = {
-  new: 'nobody has called yet',
-  contacting: 'called — no answer, or a talk without a decision',
-  'scheduled visit': 'meeting booked',
-  negotiation: 'interested, agreeing on the form',
-  active: 'partnership running',
-  disqualified: 'a firm no (reason in the log)',
+  new: 'nikt jeszcze nie dzwonił',
+  contacting: 'dzwoniono — bez odpowiedzi albo bez decyzji',
+  'scheduled visit': 'spotkanie umówione',
+  negotiation: 'zainteresowani, ustalamy formę',
+  active: 'współpraca działa',
+  disqualified: 'nie i już (powód w historii)',
+};
+
+/** What the person sees. Stored values stay English — the sheet and the report use them. */
+export const STAGE_LABEL: Record<Stage, string> = {
+  new: 'Nowy',
+  contacting: 'W kontakcie',
+  'scheduled visit': 'Umówiona wizyta',
+  negotiation: 'Negocjacje',
+  active: 'Partner',
+  disqualified: 'Odrzucony',
 };
 
 /** Stages where the lead is finished and should not carry follow-ups. */
@@ -20,28 +30,40 @@ export const CLOSED_STAGES: Stage[] = ['active', 'disqualified'];
 
 export const TYPES = ['Call', 'Email', 'SMS', 'Meeting', 'Visit', 'Note'] as const;
 export type ActivityType = (typeof TYPES)[number];
+export const TYPE_LABEL: Record<ActivityType, string> = {
+  Call: 'Telefon', Email: 'E-mail', SMS: 'SMS', Meeting: 'Spotkanie', Visit: 'Wizyta', Note: 'Notatka',
+};
 /** Types that count as outreach. Notes are bookkeeping. */
 export const COUNTED: ActivityType[] = ['Call', 'Email', 'SMS', 'Meeting', 'Visit'];
 
 /** 'planned' is in the future; 'cancelled' was planned and dropped by a stage change. */
 export const RESULTS = ['planned', 'reached', 'no answer', 'done', 'cancelled'] as const;
 export type Result = (typeof RESULTS)[number];
+export const RESULT_LABEL: Record<Result, string> = {
+  planned: 'zaplanowane', reached: 'odebrał', 'no answer': 'nie odebrał', done: 'zrobione', cancelled: 'anulowane',
+};
 /** Results that count as having actually spoken to / delivered to someone. */
 export const CONTACT_RESULTS: Result[] = ['reached', 'done'];
 
 export const EVENT_TYPES = ['Open day', 'Workshop', 'Fair', 'Sponsorship', 'Meeting', 'Other'] as const;
+export const EVENT_TYPE_LABEL: Record<string, string> = {
+  'Open day': 'Dzień otwarty', Workshop: 'Warsztaty', Fair: 'Targi', Sponsorship: 'Sponsoring', Meeting: 'Spotkanie', Other: 'Inne',
+};
 export const EVENT_STATUS = ['planned', 'confirmed', 'done', 'cancelled'] as const;
+export const EVENT_STATUS_LABEL: Record<string, string> = {
+  planned: 'planowane', confirmed: 'potwierdzone', done: 'odbyło się', cancelled: 'odwołane',
+};
 export const TASK_STATUS = ['todo', 'doing', 'done'] as const;
 
 export const DEFAULT_SEGMENT = 'NIEZNANA';
 
 export const DISQUALIFY_REASONS = [
-  'Not interested — no reason given',
-  'Already has a competing benefit provider',
-  'Too small — not enough staff',
-  'No working contact details',
-  'Company closed or in bankruptcy',
-  'Wrong target group',
+  'Niezainteresowani',
+  'Mają już podobny benefit',
+  'Za mała firma',
+  'Brak działającego kontaktu',
+  'Firma zamknięta / upadłość',
+  'Nie nasza grupa docelowa',
 ];
 
 /* ------------------------------------------------------------ records */
@@ -251,12 +273,12 @@ export function quickDates(today: string): { label: string; date: string }[] {
   const toFriday = (4 - wd + 7) % 7 || 7;
   const toMonday = (7 - wd) % 7 || 7;
   return [
-    { label: 'Tomorrow', date: addDays(today, 1) },
-    { label: '+2 days', date: addDays(today, 2) },
-    { label: 'Friday', date: addDays(today, toFriday) },
-    { label: 'Next Mon', date: addDays(today, toMonday) },
-    { label: '+2 weeks', date: addDays(today, 14) },
-    { label: '+1 month', date: addDays(today, 30) },
+    { label: 'Jutro', date: addDays(today, 1) },
+    { label: 'Za 2 dni', date: addDays(today, 2) },
+    { label: 'Piątek', date: addDays(today, toFriday) },
+    { label: 'Pon.', date: addDays(today, toMonday) },
+    { label: 'Za 2 tyg.', date: addDays(today, 14) },
+    { label: 'Za miesiąc', date: addDays(today, 30) },
   ];
 }
 

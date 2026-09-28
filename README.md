@@ -1,78 +1,80 @@
 # B2B CRM
 
-Calling console, pipeline, calendar, events and weekly report for B2B partnerships.
-Replaces the Google Apps Script + Sheets version: same data, same stages, same
-priority formula, same report — but on a real database, with a fast UI.
+CRM do partnerstw B2B: pulpit dnia, zadania, lejek (kanban), baza firm z widokami,
+karta firmy z historią i pitchem, kalendarz, wydarzenia z checklistą, raporty
+i raport tygodniowy. Zastępuje wersję z Google Apps Script + Sheets: te same dane,
+etapy, wzór priorytetu i raport, ale na prawdziwej bazie danych.
 
-## What's different from the Sheets version
+Działa na telefonie: dolne menu, duże przyciski, okna jako panele od dołu. Można go
+dodać do ekranu głównego („Dodaj do ekranu głównego” w Chrome).
 
-- **One source of truth.** "Last contact" and "Next contact" are derived from the
-  activity log, not stored twice, so they can never disagree with it.
-- **Stage changes are structured**, not parsed out of note text. The report's
-  "disqualified" list reads them directly.
-- **Closing a lead** (active / disqualified) cancels its open follow-ups instead of
-  marking them "done".
-- **No duplicate IDs**, no formula columns to break, no 6-second round trips.
-- **After a call, one form** records what happened, moves the stage (auto or by
-  hand) and books the next step. A missed call pre-fills "try again".
-- **Backup = the old sheet.** Data → Download .xlsx gives the same tabs and columns,
-  ready to open in Google Sheets.
+## Uruchomienie na Vercel (z telefonu)
 
-## Screens
+1. **Vercel → Add New → Project → Import** repozytorium `Maupally/CRM`.
+   - Application Preset / Framework: **Vite** (w repo jest `vercel.json`, więc i tak ustawi się samo).
+   - Root Directory: `./`. Build i Output zostaw domyślne (`npm run build`, `dist`).
+2. **Baza danych**: w projekcie **Storage → Create Database → Neon** (albo **Supabase**) → **Connect**.
+   Vercel sam doda zmienną `DATABASE_URL` / `POSTGRES_URL`. Tabele tworzą się same przy pierwszym wejściu —
+   nie trzeba nic uruchamiać w SQL Editorze. Wszystkie tabele są w schemacie `crm`, więc CRM może też
+   współdzielić bazę z innym projektem.
+3. **Settings → Environment Variables**:
+   - `APP_PASSWORD` — hasło do CRM (**obowiązkowo**, w bazie są prawdziwe kontakty),
+   - `OWNER` — imię w raporcie (domyślnie `Martin`),
+   - opcjonalnie `SESSION_SECRET` — dowolny długi ciąg znaków.
+4. **Deployments → Redeploy**.
+5. Wejdź na adres projektu, zaloguj się, **Ustawienia → Dane → Import z arkusza** i wgraj .xlsx
+   (w Google Sheets: Plik → Pobierz → Microsoft Excel).
+
+Każdy push na gałąź daje podgląd (Preview), push na gałąź produkcyjną — wersję produkcyjną.
+
+## Co się zmieniło względem wersji z Sheets
+
+- **Jedno źródło prawdy.** „Ostatni / Następny kontakt” liczą się z historii aktywności, a nie są
+  trzymane w dwóch miejscach — nie mogą się już rozjechać.
+- **Zmiany etapu są zapisane jako dane**, a nie wyciągane z tekstu notatki.
+- **Zamknięcie firmy** (partner / odrzucona) anuluje otwarte follow-upy zamiast oznaczać je jako zrobione.
+- **Brak zduplikowanych ID** i kolumn z formułami, które dało się zepsuć.
+- **Po rozmowie jeden formularz**: co się wydarzyło, etap (sam albo ręcznie) i następny krok.
+- **Kopia = stary arkusz.** Eksport daje .xlsx z tymi samymi zakładkami i kolumnami.
+
+## Ekrany
 
 | | |
 |---|---|
-| **Today** | overdue and due follow-ups, next 7 days, call queue by priority, event tasks |
-| **Leads** | filter by stage, segment, city, contact data, follow-up; sort; search (`/` finds any company) |
-| **Lead** | log / plan activity, timeline (tick off, edit, reschedule, delete), pitch from the playbook, notes, email templates with `[Firma]` / `[Miasto]` / `[Osoba]` filled in |
-| **Calendar** | week or two, activities + events + tasks |
-| **Events** | events with a task checklist each |
-| **Stats** | 30-day outreach chart, pipeline, per-segment table (the old Dashboard tab) |
-| **Report** | weekly report as plain text, copy or email |
-| **Playbook** | segments (weight, pitch, objections) and templates |
-| **Data** | xlsx export / import, duplicate check |
+| **Pulpit** | zaległe i dzisiejsze zadania, kolejka telefonów, lejek, wydarzenia |
+| **Zadania** | widoki: dziś i zaległe / nadchodzące / wszystkie / zrobione; filtr po typie |
+| **Lejek** | tablica kanban — przeciągnij kartę albo użyj menu ⋯ na telefonie |
+| **Firmy** | zapisane widoki (kolejka, w grze, zaległe, bez kroku, partnerzy…), filtry, akcje grupowe |
+| **Karta firmy** | ścieżka etapów, szybkie akcje, zapis aktywności, następny krok, historia, pitch, szablony |
+| **Kalendarz** | tydzień / 2 tygodnie: aktywności, wydarzenia, zadania |
+| **Wydarzenia** | wydarzenia z checklistą przygotowań |
+| **Raporty** | aktywność 30 dni, lejek, segmenty, raport tygodniowy do wysłania |
+| **Ustawienia** | Playbook (segmenty i pitch), szablony, import / eksport, duplikaty |
 
-## Run locally
+Skróty: `/` lub `Ctrl+K` — szukaj firmy; `Ctrl+Enter` — zapisz aktywność.
 
-Node 22.13+ (uses the built-in `node:sqlite`, nothing to compile).
+## Lokalnie
+
+Node 22. Bez `DATABASE_URL` używa wbudowanego Postgresa (PGlite) w `data/pglite` — nic nie trzeba instalować.
 
 ```bash
 npm install
-npm run import -- CRM_B2B.xlsx     # the sheet: File → Download → Microsoft Excel
+npm run import -- CRM_B2B.xlsx
 npm run dev                        # http://localhost:5173
+npm run typecheck && npm test
 ```
 
-Production build: `npm run build && APP_PASSWORD=… npm start` (serves on `PORT`, default 3000).
+Docker / VPS: `docker build -t b2b-crm . && docker run -p 3000:3000 -e DATABASE_URL=… -e APP_PASSWORD=… b2b-crm`.
 
-## Deploy
-
-Any host that runs a Docker container with a persistent volume (Railway, Fly.io,
-Render, a VPS):
-
-```bash
-docker build -t b2b-crm .
-docker run -p 3000:3000 -v crm-data:/data -e APP_PASSWORD=… -e SECURE_COOKIES=1 b2b-crm
-```
-
-The database is one file, `/data/crm.sqlite`. First run is empty: open **Data** and
-import the xlsx, or copy a `crm.sqlite` into the volume.
-
-**Always set `APP_PASSWORD`** — the base holds real contact data.
-
-## Checks
-
-```bash
-npm run typecheck
-npm test
-```
-
-## Layout
+## Struktura
 
 ```
-shared/domain.ts     stages, rules (priority, auto-stage), normalisation — used by both sides
-server/crm.ts        all reads and writes
-server/report.ts     weekly report
-server/spreadsheet.ts  xlsx import / export
-server/app.ts        HTTP API + login
-src/                 React UI
+shared/domain.ts       etapy, reguły (priorytet, auto-etap), normalizacja, polskie etykiety
+server/crm.ts          wszystkie odczyty i zapisy
+server/db.ts           Postgres (serwer) albo PGlite (lokalnie), schemat `crm`
+server/report.ts       raport tygodniowy
+server/spreadsheet.ts  import / eksport .xlsx
+server/app.ts          API + logowanie
+api/index.ts           funkcja Vercel
+src/                   interfejs (React)
 ```
