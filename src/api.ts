@@ -37,6 +37,7 @@ export interface Config {
   taskStatus: string[];
   segments: (Segment & { leads: number })[];
   templates: Template[];
+  assistant?: boolean;
 }
 
 export interface LeadCard {
@@ -78,7 +79,21 @@ export interface Stats {
 
 export interface FollowUp { date: string; type?: string; note?: string }
 
+export interface Proposal {
+  key: string;
+  tool: string;
+  input: Record<string, any>;
+  title: string;
+  lines: string[];
+  warnings: string[];
+}
+export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
+
 export const api = {
+  assistant: (text: string, history: AssistantTurn[], leadId?: string) =>
+    post<{ reply: string; proposals: Proposal[] }>('/assistant', { text, history, leadId }),
+  assistantExecute: (items: { tool: string; input: Record<string, any> }[]) =>
+    post<{ results: { ok: boolean; message: string; leadId?: string }[] }>('/assistant/execute', { items }),
   me: () => get<{ authenticated: boolean; passwordRequired: boolean }>('/me'),
   login: (password: string) => post('/login', { password }),
   logout: () => post('/logout'),

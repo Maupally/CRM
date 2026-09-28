@@ -9,6 +9,7 @@ import { api } from './api';
 import { searchKey } from '../shared/domain';
 import { Avatar, Loading, Menu, Modal, StagePill, ThemeToggle } from './components/ui';
 import { AddCompany } from './components/AddCompany';
+import { AssistantButton } from './components/Assistant';
 import { DashboardPage } from './pages/Dashboard';
 import { TasksPage } from './pages/Tasks';
 import { PipelinePage } from './pages/Pipeline';
@@ -187,6 +188,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
 
       <Palette open={palette} onClose={() => setPalette(false)} onAdd={() => { setPalette(false); setAdding(true); }} />
       <AddCompany open={adding} onClose={() => setAdding(false)} />
+      <AssistantButton />
     </div>
   );
 }

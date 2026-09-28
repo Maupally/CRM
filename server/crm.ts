@@ -123,7 +123,7 @@ export class Crm {
     };
   }
 
-  private async activityRow(id: number): Promise<Row> {
+  async activityRow(id: number): Promise<Row> {
     const r = await this.q.get('SELECT * FROM crm.activities WHERE id = ?', [id]);
     if (!r) throw notFound(`Nie ma aktywności ${id}.`);
     return r;
@@ -216,7 +216,7 @@ export class Crm {
     return { lead, activities, playbook: seg ? this.toSegment(seg) : null, events };
   }
 
-  private async findDuplicate(company: string, exceptId?: string): Promise<Row | undefined> {
+  async findDuplicate(company: string, exceptId?: string): Promise<Row | undefined> {
     const key = companyKey(company);
     if (!key) return undefined;
     return this.q.get('SELECT id, company FROM crm.leads WHERE company_key = ? AND id <> ?', [key, exceptId || '']);
@@ -289,6 +289,16 @@ export class Crm {
       }
       return c.getLead(id);
     });
+  }
+
+  /** Adds a dated line to the company's standing notes, keeping what is already there. */
+  async appendNote(id: string, text: string): Promise<Lead> {
+    const cur = await this.leadRow(id);
+    const line = longTxt(text);
+    if (!line) throw bad('Notatka jest pusta.');
+    const [y, m, d] = this.today().split('-');
+    const notes = [cur.notes, `${d}.${m}.${y}: ${line}`].filter(Boolean).join('\n');
+    return this.updateLead(id, { notes });
   }
 
   async deleteLead(id: string) {

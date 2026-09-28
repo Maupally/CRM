@@ -20,12 +20,29 @@ dodać do ekranu głównego („Dodaj do ekranu głównego” w Chrome).
 3. **Settings → Environment Variables**:
    - `APP_PASSWORD` — hasło do CRM (**obowiązkowo**, w bazie są prawdziwe kontakty),
    - `OWNER` — imię w raporcie (domyślnie `Martin`),
+   - `ANTHROPIC_API_KEY` — klucz z console.anthropic.com, włącza asystenta głosowego,
    - opcjonalnie `SESSION_SECRET` — dowolny długi ciąg znaków.
 4. **Deployments → Redeploy**.
 5. Wejdź na adres projektu, zaloguj się, **Ustawienia → Dane → Import z arkusza** i wgraj .xlsx
    (w Google Sheets: Plik → Pobierz → Microsoft Excel).
 
 Każdy push na gałąź daje podgląd (Preview), push na gałąź produkcyjną — wersję produkcyjną.
+
+## Asystent głosowy
+
+Niebieski przycisk z mikrofonem (prawy dolny róg). Mówisz po polsku, np.:
+
+- „Dzwoniłem do Cichoń Dressage, nie odebrali, spróbuj w piątek.”
+- „Muszę się z nimi umówić w przyszłym tygodniu.”
+- „Dodaj firmę Kowalski Logistyka z Gliwic, telefon 600 100 200.”
+- „Decyduje pani Celina, najlepiej dzwonić rano” — trafia do notatek firmy.
+- „Jak zagadać do tej firmy?” — ściąga do rozmowy z Playbooka, notatek i historii.
+- „Co mam dziś do zrobienia?”
+
+Asystent szuka firm w bazie (radzi sobie z przekręconymi nazwami), a każdą zmianę pokazuje jako
+kartę do zatwierdzenia — skrót rozmowy i daty można poprawić przed zapisem. Bez zatwierdzenia nic
+się nie zapisuje. Na karcie firmy „ta firma” oznacza otwartą firmę. Działa na Claude Opus 5
+(`server/assistant.ts`); rozpoznawanie mowy robi przeglądarka (Chrome na Androidzie, Safari).
 
 ## Co się zmieniło względem wersji z Sheets
 

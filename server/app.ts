@@ -4,6 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { Crm, HttpError } from './crm.js';
 import { openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
+import { Assistant, type AssistantTurn } from './assistant.js';
 
 export interface AppOptions {
   /** Called on the first request; the result is reused afterwards. */
@@ -92,7 +93,7 @@ export function createApp(o: AppOptions) {
   const crm = o.crm;
 
   /* ---- reads */
-  api.get('/config', async (c) => c.json(await (await crm()).config()));
+  api.get('/config', async (c) => c.json({ ...(await (await crm()).config()), assistant: !!process.env.ANTHROPIC_API_KEY }));
   api.get('/dashboard', async (c) => c.json(await (await crm()).dashboard()));
   api.get('/leads', async (c) => c.json(await (await crm()).listLeads()));
   api.get('/leads/:id', async (c) => c.json(await (await crm()).leadCard(c.req.param('id'))));
@@ -139,6 +140,18 @@ export function createApp(o: AppOptions) {
   api.delete('/segments/:name', async (c) => c.json(await (await crm()).deleteSegment(c.req.param('name'))));
   api.post('/templates', async (c) => c.json(await (await crm()).saveTemplate(await body(c))));
   api.delete('/templates/:code', async (c) => c.json(await (await crm()).deleteTemplate(c.req.param('code'))));
+
+  /* ---- assistant: proposals first, writes only after the user approves */
+  api.post('/assistant', async (c) => {
+    const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string }>(c);
+    return c.json(await new Assistant(await crm()).ask(d.text, Array.isArray(d.history) ? d.history : [], d.leadId));
+  });
+  api.post('/assistant/execute', async (c) => {
+    const d = await body<{ items: { tool: string; input: Record<string, unknown> }[] }>(c);
+    if (!Array.isArray(d.items) || !d.items.length) throw new HttpError(400, 'Nic do zatwierdzenia.');
+    const k = await crm();
+    return c.json(await new Assistant(k, process.env.ANTHROPIC_API_KEY || 'unused').execute(d.items.slice(0, 20)));
+  });
 
   /* ---- data */
   api.get('/export.xlsx', async (c) => {

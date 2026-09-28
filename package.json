@@ -1,7 +1,7 @@
 {
   "name": "b2b-crm",
   "version": "1.0.0",
-  "description": "B2B CRM \u2014 calling console, pipeline, events and weekly report",
+  "description": "B2B CRM — calling console, pipeline, events and weekly report",
   "scripts": {
     "dev": "concurrently -n api,web -c blue,green \"tsx watch server/index.ts\" \"vite\"",
     "build": "vite build",
@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/Maupally/CRM#readme",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@electric-sql/pglite": "^0.5.8",
     "@hono/node-server": "^2.1.1",
     "@tanstack/react-query": "^5.104.0",

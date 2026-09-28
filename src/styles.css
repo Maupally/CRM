@@ -504,3 +504,33 @@ dialog.modal::backdrop { background: rgb(11 21 48 / .45); backdrop-filter: blur(
 .tl.planned { grid-template-columns: 32px minmax(0, 1fr); }
 .tl.planned .acts { grid-column: 2; }
 @media (max-width: 900px) { .brand-mark.only-sm { display: grid !important; font-size: 12px; } }
+
+/* ------------------------------------------------------------ assistant */
+.fab {
+  position: fixed; right: 24px; bottom: 24px; z-index: 35; width: 58px; height: 58px; border-radius: 20px; border: 0;
+  display: grid; place-items: center; color: #fff; background: linear-gradient(140deg, var(--accent), var(--accent-deep));
+  box-shadow: var(--shadow-lift); transition: transform .15s;
+}
+.fab:hover { transform: translateY(-2px); }
+.fab:active { transform: scale(.96); }
+@media (max-width: 900px) { .fab { right: 14px; bottom: calc(82px + env(safe-area-inset-bottom)); width: 54px; height: 54px; } }
+.asst { display: flex; flex-direction: column; gap: 12px; min-height: 50dvh; }
+.chat { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.bubble { max-width: 92%; padding: 10px 14px; border-radius: 18px; line-height: 1.45; }
+.bubble.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 6px; }
+.bubble.user.live { opacity: .7; font-style: italic; }
+.bubble.assistant { align-self: flex-start; background: var(--panel); border-bottom-left-radius: 6px; width: 100%; max-width: 100%; }
+.proposals { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.proposal { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+.proposal.off { opacity: .55; }
+.proposal .title { font-weight: 600; }
+.exec-results { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.exec-results li { display: flex; gap: 6px; align-items: center; }
+.exec-results li.ok { color: var(--ok); }
+.exec-results li.bad { color: var(--bad); }
+.exec-results a { text-decoration: underline; }
+.ask { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: flex-end; background: var(--surface); padding-top: 6px; }
+.ask textarea { min-height: 40px; max-height: 140px; resize: none; }
+.mic.on { background: var(--bad); border-color: var(--bad); color: #fff; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px var(--bad-bg); } }
+.spin { animation: spin .8s linear infinite; }
