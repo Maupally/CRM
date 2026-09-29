@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terry Fox Run Katowice 2026 - Maple Bear</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /*
+   * Wszystkie style są zamknięte w .tfr, żeby motyw WordPressa ich nie nadpisywał
+   * (i żeby strona nie psuła reszty motywu). Wklejając tylko fragment do bloku HTML,
+   * skopiuj <style> + <div class="tfr">...</div>.
+   */
+  .tfr{
+    --red: #E4132A;
+    --red-dark: #B80F21;
+    --ink: #1D1D1B;
+    --text: #3A3A3A;
+    --grey: #5B5F62;
+    --line: #E6E6E6;
+    --paper: #F6F6F4;
+    --red-tint: #FDEBEC;
+    --radius: 18px;
+    --gap: clamp(14px, 2.5vw, 22px);
+    --pad: clamp(20px, 4vw, 32px);
+
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    color: var(--text);
+    background: var(--paper);
+    padding: clamp(12px, 3vw, 32px) clamp(12px, 3vw, 24px) 40px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .tfr *, .tfr *::before, .tfr *::after{ box-sizing: border-box; }
+  .tfr img{ max-width: 100%; height: auto; display: block; border: 0; margin: 0; padding: 0; box-shadow: none; }
+  .tfr h1, .tfr h2, .tfr p, .tfr ul, .tfr li, .tfr figure{ margin: 0; padding: 0; }
+  .tfr ul{ list-style: none; }
+  .tfr li::before, .tfr li::marker{ content: none; }
+
+  .tfr .container{
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+  }
+
+  /* ===== HERO ===== */
+  .tfr .hero{
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border-radius: var(--radius);
+    padding: clamp(56px, 10vw, 110px) var(--pad) clamp(48px, 8vw, 90px);
+    text-align: center;
+    color: #fff;
+    background: var(--red-dark);
+  }
+  /* Zdjęcie jest rozmyte: przy małej rozdzielczości źródła nie widać pikselozy. */
+  .tfr .hero-bg{
+    position: absolute;
+    inset: -30px;
+    z-index: -2;
+    background: url("https://maplebear.pl/wp-content/uploads/2026/09/images-3.jpg") center 35% / cover no-repeat;
+    filter: blur(8px) saturate(1.1);
+    transform: scale(1.05);
+  }
+  .tfr .hero::after{
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(70% 90% at 50% 45%, rgba(25,4,8,.55) 0%, rgba(25,4,8,.25) 70%),
+      linear-gradient(160deg, rgba(228,19,42,.55) 0%, rgba(120,8,20,.75) 100%);
+  }
+  .tfr .hero-eyebrow{
+    display: inline-block;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #fff;
+    background: rgba(255,255,255,.14);
+    border: 1px solid rgba(255,255,255,.45);
+    padding: 7px 16px;
+    border-radius: 999px;
+    backdrop-filter: blur(4px);
+  }
+  .tfr .hero h1{
+    font-family: 'Poppins', sans-serif;
+    font-weight: 800;
+    font-size: clamp(28px, 6vw, 52px);
+    line-height: 1.1;
+    letter-spacing: -.01em;
+    color: #fff;
+    margin: 20px auto 14px;
+    max-width: 14em;
+    text-shadow: 0 2px 16px rgba(0,0,0,.35);
+  }
+  .tfr .hero p{
+    max-width: 600px;
+    margin: 0 auto;
+    font-size: clamp(15px, 1.8vw, 18px);
+    color: rgba(255,255,255,.95);
+    text-shadow: 0 1px 8px rgba(0,0,0,.35);
+  }
+  .tfr .hero-badge{
+    display: inline-block;
+    margin-top: 26px;
+    background: #fff;
+    color: var(--red-dark);
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    padding: 11px 24px;
+    border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.2);
+  }
+
+  /* ===== CARDS ===== */
+  .tfr .card{
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: var(--pad);
+    box-shadow: 0 6px 24px rgba(20,20,20,.05);
+  }
+  .tfr h2{
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: clamp(19px, 2.4vw, 22px);
+    line-height: 1.3;
+    color: var(--red-dark);
+    margin: 0 0 14px;
+  }
+  .tfr .card p + p{ margin-top: 12px; }
+
+  /* dwie karty obok siebie na desktopie */
+  .tfr .grid-2{
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: var(--gap);
+  }
+
+  /* ===== CTA ===== */
+  .tfr .cta-row{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 22px;
+  }
+  .tfr a.cta{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 1.2;
+    padding: 14px 26px;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    text-decoration: none;
+    transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
+  }
+  .tfr a.cta:hover{ transform: translateY(-1px); text-decoration: none; }
+  .tfr a.cta-primary{
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(228,19,42,.25);
+  }
+  .tfr a.cta-primary:hover{ background: var(--red-dark); color: #fff; }
+  .tfr a.cta-secondary{
+    background: #fff;
+    color: var(--red-dark);
+    border-color: var(--red);
+  }
+  .tfr a.cta-secondary:hover{ background: var(--red-tint); color: var(--red-dark); }
+
+  /* ===== SCHEDULE ===== */
+  .tfr .schedule li{
+    display: grid;
+    grid-template-columns: 118px 1fr;
+    gap: 14px;
+    align-items: baseline;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .tfr .schedule li:first-child{ padding-top: 0; }
+  .tfr .schedule li:last-child{ border-bottom: 0; padding-bottom: 0; }
+  .tfr .schedule .time{
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 14.5px;
+    color: var(--red-dark);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .tfr .schedule .what{ font-size: 15px; color: var(--text); }
+
+  /* ===== ROUTE ===== */
+  .tfr .note{
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: var(--red-tint);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: var(--ink);
+  }
+  .tfr .note-icon{
+    flex: 0 0 auto;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--red);
+    color: #fff;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 26px;
+    text-align: center;
+  }
+
+  /* ===== STORY ===== */
+  .tfr .story{
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: clamp(20px, 3vw, 32px);
+    align-items: start;
+  }
+  .tfr .tf-photo{
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+    object-position: center top;
+    border-radius: 12px;
+    box-shadow: 0 8px 20px rgba(20,20,20,.12);
+  }
+  .tfr .highlight{
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    color: var(--red-dark);
+  }
+
+  /* ===== GALLERY ===== */
+  .tfr .gallery-title{
+    color: var(--ink);
+    text-align: center;
+    margin: 12px 0 0;
+  }
+  .tfr .gallery{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gap);
+  }
+  .tfr .gallery figure{
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #ddd;
+    aspect-ratio: 4 / 3;
+    box-shadow: 0 6px 24px rgba(20,20,20,.08);
+  }
+  .tfr .gallery figure.wide{
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 7;
+  }
+  .tfr .gallery img{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .tfr .gallery-caption{
+    text-align: center;
+    font-size: 14px;
+    color: var(--grey);
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  .tfr .footer{
+    text-align: center;
+    font-size: 13px;
+    color: var(--grey);
+    padding-top: 12px;
+  }
+
+  /* ===== RESPONSIVE ===== */
+  @media (max-width: 760px){
+    .tfr .grid-2{ grid-template-columns: 1fr; }
+    .tfr .story{ grid-template-columns: 1fr; }
+    .tfr .tf-photo{ max-width: 260px; margin: 0 auto; }
+  }
+  @media (max-width: 560px){
+    .tfr .gallery{ grid-template-columns: 1fr; }
+    .tfr .gallery figure,
+    .tfr .gallery figure.wide{ aspect-ratio: 4 / 3; }
+    .tfr .cta-row{ flex-direction: column; }
+    .tfr a.cta{ width: 100%; }
+    .tfr .schedule li{ grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+</head>
+<body style="margin:0">
+
+<div class="tfr">
+  <div class="container">
+
+    <header class="hero">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <span class="hero-eyebrow">Maple Bear Katowice</span>
+      <h1>Terry Fox Run Katowice 2026</h1>
+      <p>Dołącz do nas w tegorocznej, charytatywnej edycji biegu Terry'ego Foxa - biegniemy razem, żeby zbierać środki i wspierać walkę z rakiem.</p>
+      <span class="hero-badge">Start biegu: godz. 12:00</span>
+    </header>
+
+    <section class="card">
+      <h2>Tegoroczny bieg jest charytatywny</h2>
+      <p>W tym roku bieg Terry'ego Foxa w Katowicach ma charakter charytatywny - zbieramy środki, które trafią na wsparcie walki z rakiem, zgodnie z misją Terry Fox Foundation. Każdy krok i każda wpłata mają znaczenie - razem możemy więcej!</p>
+      <div class="cta-row">
+        <a class="cta cta-primary" href="https://terryfox.org/?form=GENERAL" target="_blank" rel="noopener">Wesprzyj zbiórkę →</a>
+        <a class="cta cta-secondary" href="https://forms.gle/ghe61JnZjFuZewUx5" target="_blank" rel="noopener">Zapisz się na bieg →</a>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <section class="card">
+        <h2>Harmonogram wydarzenia</h2>
+        <ul class="schedule">
+          <li><span class="time">11:00 - 11:30</span><span class="what">Rejestracja uczestników</span></li>
+          <li><span class="time">11:30 - 12:00</span><span class="what">Rozgrzewka</span></li>
+          <li><span class="time">12:00 - 13:00</span><span class="what">Bieg Terry'ego Foxa</span></li>
+          <li><span class="time">13:00 - 13:15</span><span class="what">Zakończenie, przemówienia i podsumowanie</span></li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Trasa biegu</h2>
+        <div class="note">
+          <span class="note-icon" aria-hidden="true">!</span>
+          <p>Trasa tegorocznego biegu będzie inna niż w poprzednich latach - szczegóły przekażemy wkrótce.</p>
+        </div>
+      </section>
+    </div>
+
+    <section class="card story">
+      <img class="tf-photo" src="https://maplebear.pl/wp-content/uploads/2026/09/images-1.jpg" alt="Terry Fox" loading="lazy">
+      <div>
+        <h2>Czym jest Terry Fox Run?</h2>
+        <p>Terry Fox School Run to nie tylko wydarzenie sportowe, ale przede wszystkim hołd dla odwagi i determinacji Terry'ego Foxa - którego historia jest prosta, ale potężna. Terry Fox stracił nogę z powodu mięsaka kościopochodnego w wieku 18 lat, przeszedł 16 miesięcy leczenia i nie mógł zignorować cierpienia, którego był świadkiem na oddziałach onkologicznych. Terry postanowił przebiec przez Kanadę, aby zebrać pieniądze na badania nad rakiem w Maratonie Nadziei. 1 września, po 143 dniach i 5373 kilometrach, Terry został zmuszony do przerwania biegu: rak pojawił się w jego płucach. Jego niezłomny duch i zaangażowanie nadal inspirują miliony ludzi na całym świecie i stanowią wspaniały przykład dla dzieci.</p>
+        <p>Maple Bear Global Schools współpracuje z Fundacją Terry'ego Foxa i rodziną Foxów, organizując wydarzenia i kampanie fundraisingowe na rzecz badań nad rakiem, zachęcając uczniów i ich rodziny do aktywnego udziału w inicjatywach charytatywnych. W Katowicach biegniemy nie tylko symbolicznie, dając swój wysiłek, ale także realnie wspieramy dzieci chore onkologicznie.</p>
+        <p><span class="highlight">Zarejestruj się, wpłać dowolną kwotę i pobiegnij "bez względu na wszystko"</span> - bo każdy krok ma znaczenie.</p>
+      </div>
+    </section>
+
+    <h2 class="gallery-title">Poprzednie edycje w obiektywie</h2>
+    <div class="gallery">
+      <figure><img src="https://maplebear.pl/wp-content/uploads/2026/09/36043542_67e7099a78c1623cb092773d03725fae.jpg" alt="Uczestnicy Terry Fox Run Katowice" loading="lazy"></figure>
+      <figure><img src="https://maplebear.pl/wp-content/uploads/2026/09/36043456_fbfffd91501ebd1b42490bf901f340d8.jpg" alt="Uczestnik Terry Fox Run Katowice" loading="lazy"></figure>
+      <figure class="wide"><img src="https://maplebear.pl/wp-content/uploads/2026/09/36040557_a260cb8975830c440d984b85839a3841.jpg" alt="Wspólne zdjęcie uczestników Terry Fox Run Katowice" loading="lazy"></figure>
+    </div>
+    <p class="gallery-caption">Radość, zaangażowanie i wspólny cel - tak wygląda Terry Fox Run w wykonaniu naszej szkolnej społeczności. Dołącz do nas w tegorocznej edycji!</p>
+
+    <p class="footer">Maple Bear Katowice · Terry Fox Run 2026</p>
+
+  </div>
+</div>
+
+</body>
+</html>
