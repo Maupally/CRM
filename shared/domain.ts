@@ -158,8 +158,28 @@ export interface Task {
   status: string;
   notes: string;
   completed: string;
+  leadId: string;
+  materials: Material[];
+  attachments: number[];
   eventTitle?: string;
   eventDate?: string;
+  company?: string;
+}
+
+/** A ready-to-use piece of text prepared for a task (post, SMS, email, text for teachers…). */
+export interface Material { title: string; body: string }
+
+export interface KnowledgeItem {
+  id: number;
+  title: string;
+  filename: string;
+  mime: string;
+  size: number;
+  description: string;
+  tags: string;
+  createdAt: string;
+  hasFile: boolean;
+  textLength: number;
 }
 
 /* ------------------------------------------------------ normalisation */

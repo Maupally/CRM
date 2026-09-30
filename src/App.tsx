@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  BookOpen,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   Plus, LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import { CalendarPage } from './pages/Calendar';
 import { EventsPage } from './pages/Events';
 import { ReportsPage } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
+import { KnowledgePage } from './pages/Knowledge';
 
 export function App() {
   const qc = useQueryClient();
@@ -72,6 +74,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
   { group: 'Plan', items: [
     { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
     { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+    { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },
   ] },
   { group: 'Analiza', items: [
     { to: '/raporty', label: 'Raporty', icon: BarChart3 },
@@ -154,6 +157,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/kalendarz" element={<CalendarPage />} />
             <Route path="/wydarzenia" element={<EventsPage />} />
             <Route path="/wydarzenia/:id" element={<EventsPage />} />
+            <Route path="/wiedza" element={<KnowledgePage />} />
             <Route path="/raporty" element={<ReportsPage />} />
             <Route path="/ustawienia" element={<SettingsPage />} />
             <Route path="*" element={<div className="empty">Nie ma takiej strony.</div>} />
@@ -174,6 +178,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
           {[
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+            { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },
             { to: '/raporty', label: 'Raporty', icon: BarChart3 },
             { to: '/ustawienia', label: 'Ustawienia i dane', icon: Settings },
           ].map(({ to, label, icon: I }) => (

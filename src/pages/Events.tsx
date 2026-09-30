@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query';
 import { Plus, MapPin, Pencil, Trash2, X, PartyPopper } from 'lucide-react';
 import { api } from '../api';
-import { DueTag, Empty, ErrorBox, Loading, Modal, relDay, useAction, useToday, weekdayName } from '../components/ui';
+import { Empty, ErrorBox, Loading, Modal, relDay, useAction, useToday, weekdayName } from '../components/ui';
+import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
 import { EVENT_STATUS, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
 
 export function EventsPage() {
@@ -81,8 +82,7 @@ function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; ta
   const [task, setTask] = useState('');
   const [due, setDue] = useState('');
   const add = useAction(() => api.saveTask({ eventId: e.id, task, due }), { onDone: () => { setTask(''); setDue(''); } });
-  const toggle = useAction((id: string) => api.toggleTask(id));
-  const drop = useAction((id: string) => api.deleteTask(id));
+  const [detail, setDetail] = useState<Task | null>(null);
   const open = tasks.filter((t) => t.status !== 'done');
   const done = tasks.filter((t) => t.status === 'done');
 
@@ -102,15 +102,9 @@ function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; ta
       </div>
       <div className="group-label">Checklista · {open.length} otwartych</div>
       <ul className="list">
-        {[...open, ...done].map((t) => (
-          <li key={t.id} className="li">
-            <button className={`check ${t.status === 'done' ? 'on' : ''}`} onClick={() => toggle.mutate(t.id)} aria-label="Przełącz">✓</button>
-            <span className={`grow ${t.status === 'done' ? 'done-text' : ''}`}>{t.task}</span>
-            {t.status !== 'done' ? <DueTag date={t.due} today={today} /> : <span className="faint small">{t.completed && relDay(t.completed, today)}</span>}
-            <button className="btn sm ghost icon" title="Usuń" onClick={() => confirm('Usunąć zadanie?') && drop.mutate(t.id)}><Trash2 size={14} /></button>
-          </li>
-        ))}
+        {[...open, ...done].map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} />)}
       </ul>
+      <TaskDetail task={detail} onClose={() => setDetail(null)} />
       <form className="row wrap pad" onSubmit={(ev) => { ev.preventDefault(); if (task.trim()) add.mutate(undefined); }}>
         <input type="text" className="grow" placeholder="Nowe zadanie…" value={task} onChange={(ev) => setTask(ev.target.value)} style={{ minWidth: 180 }} />
         <input type="date" value={due} onChange={(ev) => setDue(ev.target.value)} style={{ width: 160 }} />

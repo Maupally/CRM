@@ -8,11 +8,10 @@ function fakeClient(turns: any[]) {
   const requests: any[] = [];
   return {
     requests,
-    beta: { messages: { create: async (req: any) => {
+    beta: { messages: { stream: (req: any) => {
       requests.push(JSON.parse(JSON.stringify(req)));
       const t = turns.shift();
-      if (!t) throw new Error('no more scripted turns');
-      return t;
+      return { finalMessage: async () => { if (!t) throw new Error('no more scripted turns'); return t; } };
     } } },
   };
 }
@@ -99,7 +98,7 @@ describe('assistant coaching', () => {
       { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'get_pitch', input: { id: l.id } }] },
       { stop_reason: 'end_turn', content: [{ type: 'text', text: '1) Dzień dobry, pani Celino…' }] },
     ];
-    (a as any).client = { beta: { messages: { create: async (r: any) => { requests.push(JSON.parse(JSON.stringify(r))); return turns.shift(); } } } };
+    (a as any).client = { beta: { messages: { stream: (r: any) => { requests.push(JSON.parse(JSON.stringify(r))); const t = turns.shift(); return { finalMessage: async () => t }; } } } };
     const r = await a.ask('jak zagadać?', [], { leadId: l.id });
     expect(r.proposals).toHaveLength(0);
     const pitch = JSON.parse(requests[1].messages.at(-1).content[0].content);
@@ -133,7 +132,7 @@ describe('assistant: groups, mail, events, photos', () => {
       ] },
       { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Dwie stadniny z Katowic, zaplanowane.' }] },
     ];
-    (as as any).client = { beta: { messages: { create: async (r: any) => { requests.push(JSON.parse(JSON.stringify(r))); return turns.shift(); } } } };
+    (as as any).client = { beta: { messages: { stream: (r: any) => { requests.push(JSON.parse(JSON.stringify(r))); const t = turns.shift(); return { finalMessage: async () => t }; } } } };
 
     const r = await as.ask('które stadniny z katowic nie miały kontaktu? zaplanuj im telefony', [], {
       spoken: true, image: { mediaType: 'image/jpeg', data: 'aGVsbG8=' },
@@ -151,6 +150,84 @@ describe('assistant: groups, mail, events, photos', () => {
     expect((await crm.leadCard(a1.id)).activities.some((x) => x.type === 'Email' && x.note === 'Mail: Współpraca')).toBe(true);
     const saved = (await crm.listEvents()).find((e) => e.id === ev.id)!;
     expect(saved).toMatchObject({ status: 'confirmed', notes: 'Potwierdzone przez organizatora.' });
+    await db.close();
+  });
+});
+
+
+describe('knowledge base, files and project tasks', () => {
+  it('stores files, finds them, stamps a QR code and drives tasks and campaigns through the assistant', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const { Knowledge } = await import('./knowledge.js');
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-09-30');
+    const kb = new Knowledge(db);
+
+    // a one-page "poster" PDF with real text in it
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595, 842]);
+    page.drawText('Bieg Terry Foxa 10 pazdziernika Park Kosciuszki', { x: 50, y: 700, size: 18, font: await doc.embedFont(StandardFonts.Helvetica) });
+    const poster = await kb.add({ filename: 'plakat-bieg.pdf', mime: 'application/pdf', data: await doc.save() });
+    expect(poster.textLength).toBeGreaterThan(10);
+    const note = await kb.add({ title: 'Zapisy na bieg', text: 'Link do zapisów: https://maplebear.pl/bieg. Start 10:00, dystans 3 km.' });
+    const hits = await kb.search('bieg zapisy link');
+    expect(hits[0].id).toBe(note.id);
+
+    const ev = await crm.saveEvent({ title: "Bieg Terry'ego Foxa", date: '2026-10-10' });
+    await crm.saveSegment({ name: 'przedszkole/szkoła/żłobek', weight: 3 });
+    const school = await crm.createLead({ company: 'Szkoła Podstawowa 1', segment: 'przedszkole/szkoła/żłobek', email: 'sp1@szkola.pl' });
+    await crm.createLead({ company: 'Przedszkole bez maila', segment: 'przedszkole/szkoła/żłobek' });
+
+    const as = new Assistant(crm, 'test-key');
+    const requests: any[] = [];
+    const turns: any[] = [
+      { stop_reason: 'tool_use', container: { id: 'cont_1' }, content: [
+        { type: 'tool_use', id: 't1', name: 'search_knowledge', input: { query: 'bieg terry fox zapisy' } },
+        { type: 'tool_use', id: 't2', name: 'stamp_qr', input: { knowledge_id: poster.id, url: 'https://maplebear.pl/bieg', caption: 'Zapisy online' } },
+      ] },
+      { stop_reason: 'tool_use', content: [
+        { type: 'tool_use', id: 't3', name: 'create_task', input: { task: 'Teksty i gotowce na bieg', due: '2026-09-30', event_id: ev.id,
+          materials: [{ title: 'Tekst dla nauczycieli', body: 'Drodzy Państwo, 10 października…' }, { title: 'Post na Facebooka', body: 'Biegniemy!' }],
+          attachments: [poster.id] } },
+        { type: 'tool_use', id: 't4', name: 'draft_campaign', input: { name: 'Zaproszenie na bieg — szkoły',
+          audience: { segments: ['przedszkole/szkoła/żłobek'] }, subject: 'Zaproszenie dla [Firma]', body: 'Zapraszamy [Firma]…', attachments: [poster.id] } },
+      ] },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Gotowe.' }] },
+    ];
+    (as as any).client = { beta: { messages: { stream: (r: any) => { requests.push(JSON.parse(JSON.stringify(r))); const t = turns.shift(); return { finalMessage: async () => t }; } } } };
+
+    const r = await as.ask('na dziś przygotuj teksty na bieg i zaproszenie do szkół, dodaj QR do plakatu', [], { containerId: 'cont_0' });
+    expect(requests[0].container).toBe('cont_0');
+    expect(requests[1].container).toBe('cont_1');
+    expect(r.containerId).toBe('cont_1');
+    expect(r.files?.map((f) => f.filename)).toEqual(['plakat-bieg-qr.pdf']);
+    const stamped = await kb.file(r.files![0].id);
+    expect((await PDFDocument.load(stamped.data)).getPageCount()).toBe(1);
+    expect(r.proposals.map((p) => p.tool)).toEqual(['create_task', 'draft_campaign']);
+    const camp = r.proposals[1];
+    expect(camp.input.emails).toEqual(['sp1@szkola.pl']);          // the school without an email is left out
+    expect(camp.warnings.join(' ')).toMatch(/bez wcześniejszego kontaktu/);
+
+    const done = await as.execute(r.proposals.map((p) => ({ tool: p.tool, input: p.input })));
+    expect(done.results.every((x) => x.ok)).toBe(true);
+    const tasks = await crm.listTasks();
+    expect(tasks[0]).toMatchObject({ eventId: ev.id, due: '2026-09-30', attachments: [poster.id] });
+    expect(tasks[0].materials.map((m) => m.title)).toEqual(['Tekst dla nauczycieli', 'Post na Facebooka']);
+    expect(done.results[1].message).toMatch(/ręcznie: 1/);          // no Resend configured → manual sending
+
+    // tick it off with update_task, adding one more material
+    const turns2: any[] = [
+      { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'u1', name: 'update_task', input: { task_id: tasks[0].id, status: 'done',
+        add_materials: [{ title: 'SMS', body: 'Bieg 10.10!' }] } }] },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Odhaczone.' }] },
+    ];
+    (as as any).client = { beta: { messages: { stream: () => { const t = turns2.shift(); return { finalMessage: async () => t }; } } } };
+    const r2 = await as.ask('zrobione teksty na bieg');
+    await as.execute(r2.proposals.map((p) => ({ tool: p.tool, input: p.input })));
+    const after = (await crm.listTasks())[0];
+    expect(after.status).toBe('done');
+    expect(after.materials).toHaveLength(3);
+    expect(school.id).toBeTruthy();
     await db.close();
   });
 });

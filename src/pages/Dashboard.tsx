@@ -7,17 +7,18 @@ import {
 import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
+import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
 import {
-  Avatar, DueTag, Empty, ErrorBox, Loading, Prio, STAGE_COLOR, StatTile, relDay, stageLabel, telHref, useAction, useConfig,
+  Avatar, Empty, ErrorBox, Loading, Prio, STAGE_COLOR, StatTile, relDay, stageLabel, telHref, useConfig,
   weekdayName,
 } from '../components/ui';
-import { STAGES, shortDate, type Stage } from '../../shared/domain';
+import { STAGES, shortDate, type Stage, type Task } from '../../shared/domain';
 
 export function DashboardPage() {
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard });
   const cfg = useConfig();
   const [open, setOpen] = useState<OpenItem | null>(null);
-  const toggle = useAction((id: string) => api.toggleTask(id));
+  const [task, setTask] = useState<Task | null>(null);
 
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
@@ -135,18 +136,13 @@ export function DashboardPage() {
             </ul>
             {d.tasks.length > 0 && <div className="group-label">Do przygotowania</div>}
             <ul className="list">
-              {d.tasks.slice(0, 6).map((tk) => (
-                <li key={tk.id} className="li">
-                  <button className={`check ${tk.status === 'done' ? 'on' : ''}`} onClick={() => toggle.mutate(tk.id)} aria-label="Zrobione">✓</button>
-                  <div className="grow"><div className="small">{tk.task}</div><div className="meta trunc">{tk.eventTitle}</div></div>
-                  <DueTag date={tk.due} today={t} />
-                </li>
-              ))}
+              {d.tasks.slice(0, 6).map((tk) => <ProjectTaskRow key={tk.id} t={tk} today={t} onOpen={setTask} sub={tk.eventTitle || tk.company} />)}
             </ul>
           </section>
         </div>
       </div>
 
+      <TaskDetail task={task} onClose={() => setTask(null)} />
       <CompleteDialog activity={open} stage={(open?.stage || 'new') as Stage} company={open?.company} onClose={() => setOpen(null)} />
     </>
   );

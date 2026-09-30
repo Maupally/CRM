@@ -21,7 +21,10 @@ dodać do ekranu głównego („Dodaj do ekranu głównego” w Chrome).
    - `APP_PASSWORD` — hasło do CRM (**obowiązkowo**, w bazie są prawdziwe kontakty),
    - `OWNER` — imię w raporcie (domyślnie `Martin`),
    - `ANTHROPIC_API_KEY` — klucz z console.anthropic.com, włącza asystenta głosowego,
-   - opcjonalnie `SESSION_SECRET` — dowolny długi ciąg znaków.
+   - opcjonalnie `SESSION_SECRET` — dowolny długi ciąg znaków,
+   - opcjonalnie `RESEND_API_KEY` + `MAIL_FROM` (np. `Martin <martin@twojadomena.pl>`, domena
+     zweryfikowana w resend.com) i `MAIL_REPLY_TO` — wtedy maile do grup firm wysyła sam CRM.
+     Bez tego asystent przygotuje adresy (UDW) i treść do wklejenia w swojej poczcie.
 4. **Deployments → Redeploy**.
 5. Wejdź na adres projektu, zaloguj się, **Ustawienia → Dane → Import z arkusza** i wgraj .xlsx
    (w Google Sheets: Plik → Pobierz → Microsoft Excel).
@@ -47,6 +50,26 @@ notatkę, daty i treść maila można poprawić przed zapisem. Bez zatwierdzenia
 - **Pytania o bazę**: „które stadniny z Katowic mają telefon, a nikt do nich nie dzwonił?”,
   potem „zaplanuj im telefony na przyszły tydzień” — rozłoży równo na dni robocze.
 - **Raport i wydarzenia**: „zrób raport tygodniowy”, „bieg Terry'ego Foxa jest potwierdzony”.
+
+- **Projekty i zadania**: wydarzenia to projekty z listą zadań („wrzuć mi na dziś przygotowanie
+  tekstów na bieg”). Asystent od razu pisze gotowe materiały (tekst dla nauczycieli, post, SMS do
+  rodziców) i podpina pliki z Bazy wiedzy (np. plakat). „Zrobione”, „przesuń na jutro”,
+  „co mi zostało w projekcie X” — odhacza i przesuwa. Widok: **Zadania → Projekty**.
+- **Mail do grupy**: „wyślij zaproszenie na bieg do szkół i przedszkoli” — lista odbiorców z bazy,
+  temat i treść do poprawienia, załączniki. Ostrzega, gdy wśród odbiorców są firmy bez wcześniejszego
+  kontaktu (masowy mail bez zgody = niezamówiona informacja handlowa). Ten sam mail nie pójdzie
+  dwa razy pod jeden adres w tej samej kampanii.
+- **Pliki (📎)**: wrzuć PDF, Worda albo zdjęcie i powiedz, co zrobić — „dodaj kod QR do zapisów
+  w prawym dolnym rogu”, „zrób do tego stronę www w HTML”, „streść”. Gotowe pliki wracają w czacie
+  i lądują w Bazie wiedzy (podgląd, pobieranie). Rozmowa zostaje po zamknięciu — „Nowa rozmowa” czyści.
+
+## Baza wiedzy
+
+**Więcej → Baza wiedzy** (`/wiedza`). Tu trafia to, co było w projekcie „Maple Bear” w czatach Claude:
+plakaty, prezentacje, oferta, gotowe teksty, zasady. Projektu z claude.ai nie da się podpiąć przez API,
+więc: w projekcie pobierz pliki (i artefakty), wgraj je tutaj; wiedzę z samych rozmów wklej jako
+**Notatkę**. Dobry tytuł i opis („Plakat biegu Terry'ego Foxa, 10.10”) pomagają asystentowi trafić.
+Pliki do 4 MB; z PDF i Worda CRM sam wyciąga tekst.
 
 Model: Claude Opus 5 (`server/assistant.ts`). Rozpoznawanie i czytanie mowy robi przeglądarka
 (Chrome na Androidzie, Safari).
@@ -95,6 +118,10 @@ Docker / VPS: `docker build -t b2b-crm . && docker run -p 3000:3000 -e DATABASE_
 ```
 shared/domain.ts       etapy, reguły (priorytet, auto-etap), normalizacja, polskie etykiety
 server/crm.ts          wszystkie odczyty i zapisy
+server/assistant.ts    asystent (narzędzia, propozycje, wykonanie)
+server/knowledge.ts    Baza wiedzy (pliki, notatki, wyszukiwanie)
+server/studio.ts       kody QR i nanoszenie ich na PDF / plakat
+server/mail.ts         wysyłka maili do grup (Resend)
 server/db.ts           Postgres (serwer) albo PGlite (lokalnie), schemat `crm`
 server/report.ts       raport tygodniowy
 server/spreadsheet.ts  import / eksport .xlsx

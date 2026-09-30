@@ -5,6 +5,8 @@ import { Crm, HttpError } from './crm.js';
 import { openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, type AssistantTurn } from './assistant.js';
+import { Knowledge, MAX_FILE } from './knowledge.js';
+import { mailEnabled } from './mail.js';
 
 export interface AppOptions {
   /** Called on the first request; the result is reused afterwards. */
@@ -93,7 +95,7 @@ export function createApp(o: AppOptions) {
   const crm = o.crm;
 
   /* ---- reads */
-  api.get('/config', async (c) => c.json({ ...(await (await crm()).config()), assistant: !!process.env.ANTHROPIC_API_KEY }));
+  api.get('/config', async (c) => c.json({ ...(await (await crm()).config()), assistant: !!process.env.ANTHROPIC_API_KEY, mail: mailEnabled() }));
   api.get('/dashboard', async (c) => c.json(await (await crm()).dashboard()));
   api.get('/leads', async (c) => c.json(await (await crm()).listLeads()));
   api.get('/leads/:id', async (c) => c.json(await (await crm()).leadCard(c.req.param('id'))));
@@ -143,15 +145,50 @@ export function createApp(o: AppOptions) {
 
   /* ---- assistant: proposals first, writes only after the user approves */
   api.post('/assistant', async (c) => {
-    const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string; image?: { mediaType: string; data: string }; spoken?: boolean }>(c);
+    const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string; image?: { mediaType: string; data: string };
+      spoken?: boolean; attachments?: number[]; containerId?: string }>(c);
     return c.json(await new Assistant(await crm()).ask(d.text || '', Array.isArray(d.history) ? d.history : [],
-      { leadId: d.leadId, image: d.image || null, spoken: !!d.spoken }));
+      { leadId: d.leadId, image: d.image || null, spoken: !!d.spoken, attachments: Array.isArray(d.attachments) ? d.attachments : [],
+        containerId: typeof d.containerId === 'string' ? d.containerId : undefined }));
   });
   api.post('/assistant/execute', async (c) => {
     const d = await body<{ items: { tool: string; input: Record<string, unknown> }[] }>(c);
     if (!Array.isArray(d.items) || !d.items.length) throw new HttpError(400, 'Nic do zatwierdzenia.');
     const k = await crm();
     return c.json(await new Assistant(k, process.env.ANTHROPIC_API_KEY || 'unused').execute(d.items.slice(0, 20)));
+  });
+
+  /* ---- knowledge base */
+  const kb = async () => new Knowledge((await crm()).db);
+  api.get('/knowledge', async (c) => c.json(await (await kb()).list()));
+  api.get('/knowledge/:id', async (c) => c.json(await (await kb()).get(num(c.req.param('id')))));
+  api.post('/knowledge', async (c) => {
+    const k = await kb();
+    if ((c.req.header('content-type') || '').includes('multipart/form-data')) {
+      const form = await c.req.formData();
+      const f = form.get('file');
+      if (!(f instanceof File)) throw new HttpError(400, 'Dołącz plik.');
+      if (f.size > MAX_FILE) throw new HttpError(400, 'Plik jest za duży (maks. 4 MB).');
+      return c.json(await k.add({ title: String(form.get('title') || ''), filename: f.name, mime: f.type,
+        data: new Uint8Array(await f.arrayBuffer()), description: String(form.get('description') || ''), tags: String(form.get('tags') || '') }), 201);
+    }
+    const d = await body<{ title?: string; text?: string; description?: string; tags?: string }>(c);
+    return c.json(await k.add(d), 201);
+  });
+  api.patch('/knowledge/:id', async (c) => c.json(await (await kb()).update(num(c.req.param('id')), await body(c))));
+  api.delete('/knowledge/:id', async (c) => c.json(await (await kb()).remove(num(c.req.param('id')))));
+  api.get('/knowledge/:id/file', async (c) => {
+    const f = await (await kb()).file(num(c.req.param('id')));
+    const inline = c.req.query('inline') === '1';
+    const headers: Record<string, string> = {
+      'Content-Type': f.mime || 'application/octet-stream',
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.filename)}`,
+      'Cache-Control': 'private, max-age=300',
+      'X-Content-Type-Options': 'nosniff',
+    };
+    // generated HTML is previewed in a sandbox: no scripts, no access to the CRM's cookies or API
+    if (/html/.test(f.mime)) headers['Content-Security-Policy'] = 'sandbox; default-src \'none\'; img-src * data:; style-src \'unsafe-inline\' *; font-src *';
+    return c.body(f.data as unknown as ArrayBuffer, 200, headers);
   });
 
   /* ---- data */

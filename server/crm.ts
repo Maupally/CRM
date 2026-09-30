@@ -2,7 +2,7 @@ import type { DB, Q, Row } from './db.js';
 import { nowIso } from './db.js';
 import {
   STAGES, TYPES, RESULTS, COUNTED, CLOSED_STAGES, EVENT_STATUS, TASK_STATUS, DEFAULT_SEGMENT, STAGE_LABEL,
-  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task,
+  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material,
   txt, longTxt, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
   fillTemplate, isoDay,
 } from '../shared/domain.js';
@@ -61,8 +61,18 @@ SELECT l.*,
      AND a.result IN ('reached', 'done') AND a.type <> 'Note') AS last_logged
 FROM crm.leads l`;
 
-const TASK_SQL = `SELECT t.*, e.title AS event_title, e.date AS event_date FROM crm.tasks t
-  LEFT JOIN crm.events e ON e.id = t.event_id`;
+const TASK_SQL = `SELECT t.*, e.title AS event_title, e.date AS event_date, l.company AS company FROM crm.tasks t
+  LEFT JOIN crm.events e ON e.id = t.event_id
+  LEFT JOIN crm.leads l ON l.id = t.lead_id`;
+
+function parseMaterials(raw: unknown): Material[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(String(raw));
+    return Array.isArray(v) ? v.filter((m) => m && (m.title || m.body)).map((m) => ({ title: txt(m.title), body: longTxt(m.body) })) : [];
+  } catch { return []; }
+}
+const parseIds = (raw: unknown): number[] => String(raw || '').split(',').map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
 
 export class Crm {
   /**
@@ -656,8 +666,10 @@ export class Crm {
   private toTask(r: Row): Task {
     return {
       id: r.id, eventId: r.event_id, task: r.task, owner: r.owner, due: r.due, status: r.status,
-      notes: r.notes, completed: r.completed,
+      notes: r.notes, completed: r.completed, leadId: r.lead_id || '',
+      materials: parseMaterials(r.materials), attachments: parseIds(r.attachments),
       ...(r.event_title !== undefined ? { eventTitle: r.event_title || '', eventDate: r.event_date || '' } : {}),
+      ...(r.company ? { company: r.company } : {}),
     };
   }
 
@@ -670,30 +682,46 @@ export class Crm {
     return this.toTask((await this.q.get(TASK_SQL + ' WHERE t.id = ?', [id]))!);
   }
 
+  /**
+   * Create or update a task. Omitted fields keep their current value, so the assistant
+   * can e.g. only move the due date or only add materials.
+   */
   async saveTask(d: Partial<Task>): Promise<Task> {
-    const task = longTxt(d.task);
+    const id = txt(d.id);
+    const cur = id ? await this.q.get('SELECT * FROM crm.tasks WHERE id = ?', [id]) : undefined;
+    if (id && !cur) throw notFound(`Nie ma zadania ${id}.`);
+    const pick = <T>(v: T | undefined, fallback: T) => (v === undefined ? fallback : v);
+
+    const task = longTxt(pick(d.task, cur?.task ?? ''));
     if (!task) throw bad('Opisz zadanie.');
-    const status = txt(d.status) || 'todo';
+    const status = txt(pick(d.status, cur?.status ?? 'todo')) || 'todo';
     if (!(TASK_STATUS as readonly string[]).includes(status)) throw bad(`Nieznany status: ${status}`);
-    const due = txt(d.due) ? this.checkDate(txt(d.due), 'data') : '';
-    const eventId = txt(d.eventId);
+    const dueRaw = txt(pick(d.due, cur?.due ?? ''));
+    const due = dueRaw ? this.checkDate(dueRaw, 'data') : '';
+    const eventId = txt(pick(d.eventId, cur?.event_id ?? ''));
     if (eventId && !(await this.q.get('SELECT 1 FROM crm.events WHERE id = ?', [eventId]))) {
       throw notFound(`Nie ma wydarzenia ${eventId}.`);
     }
-    const id = txt(d.id);
-    if (id) {
-      const cur = await this.q.get('SELECT * FROM crm.tasks WHERE id = ?', [id]);
-      if (!cur) throw notFound(`Nie ma zadania ${id}.`);
+    const leadId = txt(pick(d.leadId, cur?.lead_id ?? ''));
+    if (leadId) await this.leadRow(leadId);
+    const materials = d.materials !== undefined
+      ? JSON.stringify(d.materials.filter((m) => m && (m.title || m.body)).map((m) => ({ title: txt(m.title), body: longTxt(m.body) })))
+      : (cur?.materials ?? '');
+    const attachments = d.attachments !== undefined ? d.attachments.map(Number).filter((n) => n > 0).join(',') : (cur?.attachments ?? '');
+    const owner = txt(pick(d.owner, cur?.owner ?? '')) || this.owner;
+    const notes = longTxt(pick(d.notes, cur?.notes ?? ''));
+
+    if (cur) {
       const completed = status === 'done' ? (cur.completed || this.today()) : '';
-      await this.q.run(`UPDATE crm.tasks SET event_id=?, task=?, owner=?, due=?, status=?, notes=?, completed=?
-        WHERE id = ?`, [eventId, task, txt(d.owner) || this.owner, due, status, longTxt(d.notes), completed, id]);
+      await this.q.run(`UPDATE crm.tasks SET event_id=?, lead_id=?, task=?, owner=?, due=?, status=?, notes=?, completed=?,
+        materials=?, attachments=? WHERE id = ?`, [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, id]);
       return this.taskById(id);
     }
     const newId = await this.tx(async (c) => {
       const nid = await c.nextCode('tasks', 'TS');
-      await c.q.run(`INSERT INTO crm.tasks (id, event_id, task, owner, due, status, notes, completed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, task, txt(d.owner) || c.owner, due, status,
-        longTxt(d.notes), status === 'done' ? c.today() : '']);
+      await c.q.run(`INSERT INTO crm.tasks (id, event_id, lead_id, task, owner, due, status, notes, completed, materials, attachments)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, leadId, task, owner, due, status, notes,
+        status === 'done' ? c.today() : '', materials, attachments]);
       return nid;
     });
     return this.taskById(newId);
