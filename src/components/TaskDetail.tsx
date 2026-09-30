@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Copy, Share2, Mail, Trash2, Pencil, ChevronDown, Plus, FileText, Paperclip } from 'lucide-react';
+import { Check, Copy, Share2, Mail, Trash2, Pencil, ChevronDown, Plus, FileText, Paperclip, X } from 'lucide-react';
 import { api } from '../api';
 import { FileCard } from './Files';
 import { DueTag, Modal, copyText, useAction, useToast, useToday } from './ui';
@@ -16,7 +16,7 @@ export async function shareText(title: string, text: string, toast: (m: string) 
   toast('Skopiowano');
 }
 
-export function MaterialView({ m, onChange, open }: { m: Material; onChange?: (m: Material) => void; open?: boolean }) {
+export function MaterialView({ m, onChange, onRemove, open }: { m: Material; onChange?: (m: Material) => void; onRemove?: () => void; open?: boolean }) {
   const toast = useToast();
   const [edit, setEdit] = useState(false);
   return (
@@ -34,6 +34,7 @@ export function MaterialView({ m, onChange, open }: { m: Material; onChange?: (m
           <button className="btn sm" onClick={() => shareText(m.title, m.body, toast)}><Share2 size={14} /> Wyślij dalej</button>
           <a className="btn sm ghost" href={`mailto:?subject=${encodeURIComponent(m.title)}&body=${encodeURIComponent(m.body)}`}><Mail size={14} /> Mail</a>
           {onChange && <button className="btn sm ghost" onClick={() => setEdit(!edit)}><Pencil size={14} /> {edit ? 'Gotowe' : 'Edytuj'}</button>}
+          {onRemove && <button className="btn sm ghost danger" onClick={onRemove}><Trash2 size={14} /> Usuń</button>}
         </div>
       </div>
     </details>
@@ -47,17 +48,19 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
   const [materials, setMaterials] = useState<Material[]>([]);
   const [text, setText] = useState('');
   const [due, setDue] = useState('');
-  useEffect(() => { if (task) { setMaterials(task.materials); setText(task.task); setDue(task.due); } }, [task]);
-  const dirty = !!task && (JSON.stringify(materials) !== JSON.stringify(task.materials) || text !== task.task || due !== task.due);
+  const [attached, setAttached] = useState<number[]>([]);
+  useEffect(() => { if (task) { setMaterials(task.materials); setText(task.task); setDue(task.due); setAttached(task.attachments); } }, [task]);
+  const dirty = !!task && (JSON.stringify(materials) !== JSON.stringify(task.materials) || text !== task.task || due !== task.due
+    || attached.join() !== task.attachments.join());
 
-  const save = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials }), { ok: 'Zapisano', onDone: onClose });
+  const save = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached }), { ok: 'Zapisano', onDone: onClose });
   const toggle = useAction(() => api.toggleTask(task!.id), { ok: (t) => t.status === 'done' ? 'Zrobione' : 'Przywrócone', onDone: onClose });
   const drop = useAction(() => api.deleteTask(task!.id), { ok: 'Usunięto', onDone: onClose });
   if (!task) return null;
-  const files = (kb.data || []).filter((k) => task.attachments.includes(k.id));
+  const files = (kb.data || []).filter((k) => attached.includes(k.id));
 
   return (
-    <Modal open={!!task} onClose={onClose} wide title={task.status === 'done' ? <span className="done-text">{task.task}</span> : task.task}
+    <Modal open={!!task} onClose={() => (!dirty || confirm('Masz niezapisane zmiany. Zamknąć bez zapisu?')) && onClose()} wide title={task.status === 'done' ? <span className="done-text">{task.task}</span> : task.task}
       footer={<>
         <button className="btn ghost danger" style={{ marginRight: 'auto' }} onClick={() => confirm('Usunąć zadanie?') && drop.mutate(undefined)}><Trash2 size={15} /></button>
         {dirty && <button className="btn" onClick={() => save.mutate(undefined)} disabled={save.isPending}>Zapisz zmiany</button>}
@@ -80,7 +83,8 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
         <div className="row between"><b>Gotowe materiały</b>
           <button className="btn sm ghost" onClick={() => setMaterials([...materials, { title: 'Nowy tekst', body: '' }])}><Plus size={14} /> Dodaj</button></div>
         {materials.map((m, i) => (
-          <MaterialView key={i} m={m} open={materials.length === 1} onChange={(nm) => setMaterials(materials.map((x, j) => j === i ? nm : x))} />
+          <MaterialView key={`${i}-${materials.length}`} m={m} open={materials.length === 1} onChange={(nm) => setMaterials(materials.map((x, j) => j === i ? nm : x))}
+            onRemove={() => setMaterials(materials.filter((_, j) => j !== i))} />
         ))}
         {!materials.length && <div className="soft small">Brak. Poproś asystenta: „przygotuj do tego zadania post i mail do rodziców”.</div>}
       </div>
@@ -88,7 +92,13 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
       {files.length > 0 && (
         <div className="col tight">
           <b>Załączniki</b>
-          <div className="files">{files.map((f) => <FileCard key={f.id} f={f} />)}</div>
+          <div className="files">{files.map((f) => (
+            <div key={f.id} className="row" style={{ gap: 6 }}>
+              <div className="grow" style={{ minWidth: 0 }}><FileCard f={f} /></div>
+              <button className="btn sm ghost icon" title="Odepnij od zadania (plik zostaje w Bazie wiedzy)" aria-label="Odepnij"
+                onClick={() => setAttached(attached.filter((id) => id !== f.id))}><X size={15} /></button>
+            </div>
+          ))}</div>
         </div>
       )}
     </Modal>

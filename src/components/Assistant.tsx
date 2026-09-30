@@ -513,7 +513,8 @@ function Proposals({ items, status, onToggle, onEdit, onApprove, onReject }: {
             return mats.length ? (
               <div className="col tight" style={{ marginTop: 8 }}>
                 {mats.map((m, j) => <MaterialView key={j} m={m} open={mats.length === 1}
-                  onChange={live ? (nm) => onEdit(p.key, { [k]: mats.map((x, q) => q === j ? nm : x) }) : undefined} />)}
+                  onChange={live ? (nm) => onEdit(p.key, { [k]: mats.map((x, q) => q === j ? nm : x) }) : undefined}
+                  onRemove={live ? () => onEdit(p.key, { [k]: mats.filter((_, q) => q !== j) }) : undefined} />)}
               </div>
             ) : null;
           })()}
