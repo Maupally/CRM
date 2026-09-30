@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { openDb, type DB } from './db.js';
 import { Crm } from './crm.js';
-import { Assistant } from './assistant.js';
+import { Assistant, needsContent } from './assistant.js';
 
 /** Plays back scripted model turns and records every request the assistant makes. */
 function fakeClient(turns: any[]) {
@@ -16,6 +16,18 @@ function fakeClient(turns: any[]) {
   };
 }
 const toolUse = (id: string, name: string, input: any) => ({ type: 'tool_use', id, name, input });
+
+describe('request routing', () => {
+  it('uses the knowledge base only when content has to be written', () => {
+    expect(needsContent('Dzień otwarty: post na Facebooku opublikowany, zaproszenia do partnerów wysłane, odhacz')).toBe(false);
+    expect(needsContent('przesuń zadanie na jutro')).toBe(false);
+    expect(needsContent('Przygotuj mnie do rozmowy z tą firmą')).toBe(false);
+    expect(needsContent('wrzuć mi na dziś, muszę przygotować teksty na biegi')).toBe(true);
+    expect(needsContent('napisz zaproszenie do szkół i przedszkoli')).toBe(true);
+    expect(needsContent('zmień w nim datę', 'napisz post o biegu')).toBe(true);
+    expect(needsContent('co to jest?', '', true)).toBe(true);
+  });
+});
 
 describe('assistant', () => {
   let db: DB;
@@ -50,10 +62,16 @@ describe('assistant', () => {
 
     // request shape: model, fallbacks, cached static prompt, context of the open card
     const req = fake.requests[0];
-    expect(req.model).toBe('claude-opus-5');
+    expect(req.model).toBe('claude-opus-5-5');
     expect(req.fallbacks).toBe('default');
     expect(req.system[0].cache_control).toEqual({ type: 'ephemeral' });
     expect(req.system[1].text).toContain('L001');
+    // bookkeeping goes the quick way: no knowledge base, no file tools, no sandbox, low effort
+    const names = req.tools.map((t: any) => t.name);
+    expect(names).toContain('log_activity');
+    expect(names).not.toContain('search_knowledge');
+    expect(names).not.toContain('code_execution');
+    expect(req.output_config.effort).toBe('low');
     // search result came back to the model
     const found = fake.requests[1].messages.at(-1).content[0].content;
     expect(found).toContain('Cichoń Dressage');

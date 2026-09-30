@@ -14,7 +14,7 @@ import {
   weekday, normEmail, type Lead, type KnowledgeItem,
 } from '../shared/domain.js';
 
-const MODEL = 'claude-opus-5';
+const MODEL = 'claude-opus-5-5';
 const MAX_ROUNDS = 10;
 
 type Input = Record<string, any>;
@@ -476,6 +476,24 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
 ];
 
+/**
+ * Most requests are quick bookkeeping (log a call, tick a task, move a date). Only requests that
+ * produce content — texts, posts, invitations, pages, files — need the knowledge base, the file
+ * tools and the code sandbox, and a deeper think. Quick requests skip all of that.
+ */
+const WRITE_VERB = /\b(napisz|napisa[cć]|przygotuj(?! mnie)|przygotow(a[cć]|ani[ea])|zredaguj|stw[oó]rz|wygeneruj|popraw (ten |t[eę] )?(tekst|post|mail|tre[sś][cć])|przer[oó]b)/i;
+const CONTENT_NOUN = /tekst|post(a|y|u)?\b|zaprosze|og[lł]oszeni|ulotk|plakat|stron[aęy]\b|\bwww\b|html|\bqr\b|pdf|gotowc|materia[lł]|baz[aeiy] wiedzy|ofert|prezentacj|\bsms|newsletter|kampani|do (wszystkich )?(szk[oó][lł]|przedszk|rodzic|nauczyciel)/i;
+/** "we sent the invitations", "tick it off" — reporting done work, not asking for new content */
+const DONE = /\b(odhacz|zrobion|zrobi[lł]|wys[lł]a[lł]|wys[lł]ali|opublikowa|ju[zż]\b|gotowe\b|przesu[nń]|zamknij)/i;
+
+function wantsContent(text: string): boolean {
+  return WRITE_VERB.test(text) || (CONTENT_NOUN.test(text) && !DONE.test(text));
+}
+
+export function needsContent(text: string, prevUser = '', hasFiles = false): boolean {
+  return hasFiles || wantsContent(text) || WRITE_VERB.test(prevUser);
+}
+
 const WRITE_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
 const STUDIO_NAMES = new Set(STUDIO_TOOLS.map((t) => t.name));
 
@@ -624,8 +642,14 @@ export class Assistant {
     first.push({ type: 'text', text: said.slice(0, 8000) });
     messages.push({ role: 'user', content: first });
 
+    const prevUser = [...history].reverse().find((h) => h.role === 'user')?.text || '';
+    const full = needsContent(said, prevUser, !!image || attach.length > 0);
+    const tools = full
+      ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...STUDIO_TOOLS, ...WRITE_TOOLS, CODE_TOOL]
+      : [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...WRITE_TOOLS];
+
     const files: KnowledgeItem[] = [];
-    let containerId = opts.containerId || undefined;
+    let containerId = full ? opts.containerId || undefined : undefined;
 
     const proposals: Proposal[] = [];
     const pending = new Map<string, string>();        // NEW1 → company name, for proposals on a firm not yet created
@@ -636,15 +660,16 @@ export class Assistant {
         model: MODEL,
         max_tokens: 32000,
         thinking: { type: 'adaptive' },
-        output_config: { effort: 'medium' },
-        betas: ['server-side-fallback-2026-07-01', 'code-execution-2025-08-25'],
+        output_config: { effort: full ? 'medium' : 'low' },
+        betas: full ? ['server-side-fallback-2026-07-01', 'code-execution-2025-08-25'] : ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
         ...(containerId ? { container: containerId } : {}),
         system: [
           { type: 'text', text: staticPrompt(), cache_control: { type: 'ephemeral' } },
-          { type: 'text', text: dynamicPrompt(this.crm.today(), this.crm.owner, segments.map((s) => s.name), lead, spoken) },
+          { type: 'text', text: dynamicPrompt(this.crm.today(), this.crm.owner, segments.map((s) => s.name), lead, spoken)
+            + (full ? '' : '\nTo szybka sprawa: zrób ją od razu, bez Bazy wiedzy i plików. Gdy do zadania trzeba napisać materiały, dodaj samo zadanie i powiedz, że teksty przygotujesz na prośbę „przygotuj teksty”.') },
         ],
-        tools: [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...STUDIO_TOOLS, ...WRITE_TOOLS, CODE_TOOL],
+        tools,
         messages,
       }).finalMessage();
 
@@ -694,7 +719,7 @@ export class Assistant {
     }
 
     if (!reply) reply = proposals.length ? 'Sprawdź i zatwierdź.' : files.length ? 'Gotowe — pliki poniżej.' : 'Nie wiem, co zrobić — powiedz trochę dokładniej.';
-    return { reply, proposals, files, containerId };
+    return { reply, proposals, files, containerId: containerId ?? opts.containerId };
   }
 
   /* ---------------------------------------------------------- knowledge & files */

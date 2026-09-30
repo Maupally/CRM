@@ -71,7 +71,7 @@ więc: w projekcie pobierz pliki (i artefakty), wgraj je tutaj; wiedzę z samych
 **Notatkę**. Dobry tytuł i opis („Plakat biegu Terry'ego Foxa, 10.10”) pomagają asystentowi trafić.
 Pliki do 4 MB; z PDF i Worda CRM sam wyciąga tekst.
 
-Model: Claude Opus 5 (`server/assistant.ts`). Rozpoznawanie i czytanie mowy robi przeglądarka
+Model: Claude Opus 5.5 (`server/assistant.ts`). Szybkie sprawy (odhaczanie, przesuwanie, notatki, telefony) idą bez Bazy wiedzy i plików, na niskim poziomie myślenia; pełna ścieżka włącza się, gdy trzeba coś napisać albo dołączono plik. Rozpoznawanie i czytanie mowy robi przeglądarka
 (Chrome na Androidzie, Safari).
 
 ## Co się zmieniło względem wersji z Sheets
