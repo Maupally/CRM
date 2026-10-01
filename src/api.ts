@@ -137,6 +137,8 @@ export const api = {
     get<{ activities: Activity[]; events: CrmEvent[]; tasks: Task[] }>(`/agenda?from=${from}&to=${to}`),
   stats: () => get<Stats>('/stats'),
   report: (from: string, to: string) => get<{ from: string; to: string; text: string }>(`/report?from=${from}&to=${to}`),
+  reportSummary: (from: string, to: string, notes: string) =>
+    post<{ from: string; to: string; text: string; summary: string }>('/report/summary', { from, to, notes }),
 
   events: () => get<CrmEvent[]>('/events'),
   saveEvent: (d: Partial<CrmEvent>) => post<CrmEvent>('/events', d),

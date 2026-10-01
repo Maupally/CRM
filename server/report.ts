@@ -51,39 +51,64 @@ export function buildReport(r: ReportInput): string {
   o.push(`  Meetings / visits held ${held}   ·   booked ahead ${meetingsAhead}`);
   o.push('');
 
-  // Who sits where in the funnel right now. "new" is only a count: 900 untouched rows tell nobody anything.
-  const byStage = new Map<string, string[]>();
-  for (const l of r.leads) {
-    if (!byStage.has(l.stage)) byStage.set(l.stage, []);
-    byStage.get(l.stage)!.push(l.company);
+  // Only companies actually worked on in this period, grouped by where they stand now.
+  // A lead that merely sits in "contacting" since last month is not news.
+  const worked = new Map<string, Activity[]>();
+  for (const h of inRange) {
+    if (h.result === 'planned' || h.result === 'cancelled') continue;
+    // real contact or a stage move; a bare note ("added by hand", imports) is not work on the lead
+    const moved = !!h.stageTo && h.stageFrom !== h.stageTo;
+    if (!(COUNTED as string[]).includes(h.type) && !moved) continue;
+    if (!worked.has(h.leadId)) worked.set(h.leadId, []);
+    worked.get(h.leadId)!.push(h);
   }
+  const stageOf = new Map(r.leads.map((l) => [l.id, l.stage]));
+  const line = (id: string) => {
+    const acts = worked.get(id)!.sort((x, y) => x.date.localeCompare(y.date) || x.id - y.id);
+    const last = acts[acts.length - 1];
+    const moved = acts.filter((h) => h.stageTo && h.stageFrom !== h.stageTo).map((h) => `${h.stageFrom || 'new'} -> ${h.stageTo}`);
+    const what = acts.filter((h) => (COUNTED as string[]).includes(h.type)).map((h) => h.type).filter((x, i, all) => all.indexOf(x) === i).join(', ');
+    const note = (last.note || '').replace(/\s+/g, ' ').trim();
+    return `${names.get(id) || id} - ${what}${moved.length ? ` [${moved.join('; ')}]` : ''}${note ? `: ${note.length > 110 ? note.slice(0, 107) + '...' : note}` : ''}`;
+  };
   const listed = (label: string, stage: string) => {
-    const rows = [...(byStage.get(stage) || [])].sort((x, y) => x.localeCompare(y, 'pl'));
-    o.push(`  ${label} (${rows.length})`);
-    if (!rows.length) { o.push('    none'); return; }
-    rows.forEach((c, n) => o.push(`    ${n + 1}. ${c}`));
+    const ids = [...worked.keys()].filter((id) => stageOf.get(id) === stage)
+      .sort((x, y) => (names.get(x) || x).localeCompare(names.get(y) || y, 'pl'));
+    if (!ids.length) return;
+    o.push(`  ${label} (${ids.length})`);
+    ids.forEach((id, n) => o.push(`    ${n + 1}. ${line(id)}`));
+    o.push('');
   };
 
   const dropped = inRange
     .filter((h) => h.stageTo === 'disqualified')
     .map((h) => ({ company: names.get(h.leadId) || h.leadId, why: h.note || 'no reason recorded' }));
 
-  o.push('B2B PARTNERSHIPS');
+  const count = (st: string) => r.leads.filter((l) => l.stage === st).length;
+  o.push('B2B PARTNERSHIPS - WORKED ON IN THIS PERIOD');
   o.push(rule);
-  o.push(`  Untouched so far: ${(byStage.get('new') || []).length}`);
-  o.push('');
+  if (!worked.size) o.push('  No companies worked on in this period.', '');
+  listed('New', 'new');
   listed('Contacting - contact attempted', 'contacting');
-  o.push('');
   listed('Visits booked', 'scheduled visit');
-  o.push('');
   listed('In negotiation', 'negotiation');
-  o.push('');
   listed('Active partnerships', 'active');
+  if (dropped.length) {
+    o.push(`  Disqualified in this period (${dropped.length})`);
+    dropped.forEach((d, n) => o.push(`    ${n + 1}. ${d.company} - ${d.why}`));
+    o.push('');
+  }
+  o.push(`  Pipeline now: untouched ${count('new')}   ·   contacting ${count('contacting')}   ·   visits booked ${count('scheduled visit')}` +
+    `   ·   negotiation ${count('negotiation')}   ·   active ${count('active')}`);
   o.push('');
-  o.push(`  Disqualified in this period (${dropped.length})`);
-  if (!dropped.length) o.push('    none');
-  dropped.forEach((d, n) => o.push(`    ${n + 1}. ${d.company} - ${d.why}`));
-  o.push('');
+
+  const doneTasks = r.tasks.filter((x) => x.status === 'done' && x.completed >= a && x.completed <= b);
+  if (doneTasks.length) {
+    o.push(`TASKS DONE (${doneTasks.length})`);
+    o.push(rule);
+    for (const x of doneTasks) o.push(`  ${shortDate(x.completed)}  ${x.task}${x.eventTitle ? `  (${x.eventTitle})` : x.company ? `  (${x.company})` : ''}`);
+    o.push('');
+  }
 
   const happened = r.events.filter((e) => e.date >= a && e.date <= b);
   const upcoming = r.events.filter((e) => e.date > b && e.status !== 'cancelled');

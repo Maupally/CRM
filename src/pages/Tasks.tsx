@@ -33,12 +33,22 @@ export function TasksPage() {
     queryKey: ['activities', 'done', today], queryFn: () => api.activities(addDays(today, -13), today), enabled: view === 'zrobione',
   });
 
+  const tasksQ = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
+  const [detail, setDetail] = useState<Task | null>(null);
+
   const all = openQ.data || [];
+  // project tasks (Bieg, Dzień otwarty…) sit in the same day groups as calls and meetings
+  const openTasks = (tasksQ.data || []).filter((t) => t.status !== 'done');
+  const taskDay = (t: Task) => t.due || 'none';
+  const tasksIn = (v: View): Task[] => type ? [] : v === 'zrobione'
+    ? (tasksQ.data || []).filter((t) => t.status === 'done' && t.completed >= addDays(today, -13))
+    : openTasks.filter((t) => v === 'dzis' ? !!t.due && t.due <= today : v === 'zalegle' ? !!t.due && t.due < today
+      : v === 'nadchodzace' ? t.due > today : true);
   const counts: Record<View, number> = {
-    dzis: all.filter((a) => a.date <= today).length,
-    zalegle: all.filter((a) => a.date < today).length,
-    nadchodzace: all.filter((a) => a.date > today).length,
-    wszystkie: all.length,
+    dzis: all.filter((a) => a.date <= today).length + tasksIn('dzis').length,
+    zalegle: all.filter((a) => a.date < today).length + tasksIn('zalegle').length,
+    nadchodzace: all.filter((a) => a.date > today).length + tasksIn('nadchodzace').length,
+    wszystkie: all.length + tasksIn('wszystkie').length,
     zrobione: 0,
     projekty: 0,
   };
@@ -52,24 +62,28 @@ export function TasksPage() {
     return r;
   }, [all, doneQ.data, view, type, today]);
 
+  const taskRows = view === 'projekty' ? [] : tasksIn(view);
+
   // group by day: "Zaległe" collapses everything before today into one bucket
   const groups = useMemo(() => {
-    const g = new Map<string, OpenItem[]>();
-    for (const a of rows) {
-      const key = view !== 'zrobione' && a.date < today ? 'late' : a.date;
-      if (!g.has(key)) g.set(key, []);
-      g.get(key)!.push(a);
+    const g = new Map<string, { acts: OpenItem[]; tasks: Task[] }>();
+    const at = (key: string) => { if (!g.has(key)) g.set(key, { acts: [], tasks: [] }); return g.get(key)!; };
+    for (const a of rows) at(view !== 'zrobione' && a.date < today ? 'late' : a.date).acts.push(a);
+    for (const t of taskRows) {
+      const d = view === 'zrobione' ? t.completed : taskDay(t);
+      at(d === 'none' ? 'none' : view !== 'zrobione' && d < today ? 'late' : d).tasks.push(t);
     }
-    return [...g.entries()];
-  }, [rows, view, today]);
+    const order = (k: string) => k === 'late' ? '0' : k === 'none' ? '9' : k;
+    return [...g.entries()].sort((x, y) => view === 'zrobione' ? order(y[0]).localeCompare(order(x[0])) : order(x[0]).localeCompare(order(y[0])));
+  }, [rows, taskRows, view, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const label = (k: string) => k === 'late' ? 'Zaległe' : k === today ? 'Dziś' : k === addDays(today, 1) ? 'Jutro'
+  const label = (k: string) => k === 'late' ? 'Zaległe' : k === 'none' ? 'Bez terminu' : k === today ? 'Dziś' : k === addDays(today, 1) ? 'Jutro'
     : `${weekdayName(k)} ${shortDate(k)}`;
 
   return (
     <>
       <div className="page-head">
-        <div><h1>Zadania</h1><div className="sub">Telefony, maile i spotkania do zrobienia — odhaczaj, a CRM sam ustawi etap i następny krok.</div></div>
+        <div><h1>Zadania</h1><div className="sub">Telefony, maile, spotkania i zadania z wydarzeń — odhaczaj, a CRM sam ustawi etap i następny krok.</div></div>
       </div>
       <section className="card">
         <div className="views">
@@ -92,10 +106,11 @@ export function TasksPage() {
         <div className="divider" />
         {openQ.isLoading || (view === 'zrobione' && doneQ.isLoading) ? <Loading /> : openQ.error ? <div className="pad"><ErrorBox error={openQ.error} /></div> : (
           <>
-            {groups.map(([k, items]) => (
+            {groups.map(([k, { acts: items, tasks }]) => (
               <div key={k}>
-                <div className={`group-label ${k === 'late' ? 'red' : ''}`}>{label(k)} · {items.length}</div>
+                <div className={`group-label ${k === 'late' ? 'red' : ''}`}>{label(k)} · {items.length + tasks.length}</div>
                 <ul className="list">
+                  {tasks.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} sub={t.eventTitle || t.company} />)}
                   {items.map((a) => view === 'zrobione' ? (
                     <li key={a.id} className="li">
                       <TypeIcon type={a.type} />
@@ -109,11 +124,12 @@ export function TasksPage() {
                 </ul>
               </div>
             ))}
-            {!rows.length && <Empty icon={ListChecks}>{view === 'zrobione' ? 'Nic nie zrobiono w ostatnich 14 dniach.' : 'Brak zadań w tym widoku.'}</Empty>}
+            {!rows.length && !taskRows.length && <Empty icon={ListChecks}>{view === 'zrobione' ? 'Nic nie zrobiono w ostatnich 14 dniach.' : 'Brak zadań w tym widoku.'}</Empty>}
           </>
         )}
         </>}
       </section>
+      <TaskDetail task={detail} onClose={() => setDetail(null)} />
       <CompleteDialog activity={open} stage={(open?.stage || 'new') as Stage} company={open?.company} onClose={() => setOpen(null)} />
     </>
   );

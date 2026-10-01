@@ -4,7 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { Crm, HttpError } from './crm.js';
 import { openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
-import { Assistant, type AssistantTurn } from './assistant.js';
+import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -144,6 +144,15 @@ export function createApp(o: AppOptions) {
   api.delete('/templates/:code', async (c) => c.json(await (await crm()).deleteTemplate(c.req.param('code'))));
 
   /* ---- assistant: proposals first, writes only after the user approves */
+  api.post('/report/summary', async (c) => {
+    const d = await c.req.json().catch(() => ({}));
+    const k = await crm();
+    if (!process.env.ANTHROPIC_API_KEY) {         // no assistant: the notes still make it into the report
+      const rep = await k.report(d.from || undefined, d.to || undefined);
+      return c.json({ ...rep, summary: '', text: withSummary(rep.text, String(d.notes || ''), 'NOTES') });
+    }
+    return c.json(await new Assistant(k).reportWithSummary(d.from || undefined, d.to || undefined, String(d.notes || '')));
+  });
   api.post('/assistant', async (c) => {
     const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string; image?: { mediaType: string; data: string };
       spoken?: boolean; attachments?: number[]; containerId?: string }>(c);

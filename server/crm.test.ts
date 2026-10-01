@@ -109,6 +109,13 @@ describe('Crm', () => {
     expect(text).toContain('Contacted 1 company');
     expect(text).toContain('Call 1');
     expect(text).toContain('Contacting - contact attempted (1)');
+    expect(text).toContain('Pipeline now:');
+    // a lead last touched before the period stays out of the list, even though it is in "contacting"
+    const old = await crm.createLead({ company: 'Stara Firma' });
+    await crm.logActivity(old.id, { type: 'Call', result: 'reached', date: '2026-09-10' });
+    const again = (await crm.report('2026-09-22', '2026-09-28')).text;
+    expect(again).not.toContain('Stara Firma');
+    expect(again).toContain('Alfa - Call, Email [new -> contacting]');
   });
 
   it('renames a segment together with its leads', async () => {

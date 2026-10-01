@@ -248,4 +248,17 @@ describe('knowledge base, files and project tasks', () => {
     expect(school.id).toBeTruthy();
     await db.close();
   });
+
+  it('puts a written summary with the user notes on top of the report', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-09-28');
+    const a = new Assistant(crm, 'test-key');
+    const fake = fakeClient([{ stop_reason: 'end_turn', content: [{ type: 'text', text: '- Two calls with Cichon.\n- Open day posted on Facebook.' }] }]);
+    (a as any).client = fake;
+    const r = await a.reportWithSummary('2026-09-22', '2026-09-28', 'Dzień otwarty opublikowany na FB');
+    expect(r.text.split('\n').slice(0, 6).join('\n')).toContain('SUMMARY');
+    expect(r.text).toContain('  - Open day posted on Facebook.');
+    expect(fake.requests[0].messages[0].content).toContain('Dzień otwarty opublikowany na FB');
+    expect(fake.requests[0].tools).toBeUndefined();
+  });
 });
