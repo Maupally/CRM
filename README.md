@@ -1,4 +1,4 @@
-# B2B CRM
+# Lumo
 
 CRM do partnerstw B2B: pulpit dnia, zadania, lejek (kanban), baza firm z widokami,
 karta firmy z historią i pitchem, kalendarz, wydarzenia z checklistą, raporty
@@ -62,6 +62,23 @@ notatkę, daty i treść maila można poprawić przed zapisem. Bez zatwierdzenia
 - **Pliki (📎)**: wrzuć PDF, Worda albo zdjęcie i powiedz, co zrobić — „dodaj kod QR do zapisów
   w prawym dolnym rogu”, „zrób do tego stronę www w HTML”, „streść”. Gotowe pliki wracają w czacie
   i lądują w Bazie wiedzy (podgląd, pobieranie). Rozmowa zostaje po zamknięciu — „Nowa rozmowa” czyści.
+
+## Czat Claude (konektor)
+
+**Ustawienia → Czat Claude**: adres konektora (tajny, zmienia się razem z hasłem). W claude.ai:
+Ustawienia → Konektory → Dodaj własny konektor → wklej adres. Potem w czacie lub w projekcie
+„Maple Bear” włącz „CRM” w narzędziach — Claude z całą wiedzą projektu czyta i zapisuje w CRM
+(zadania z gotowymi mailami, notatki, rozmowy, zespół). Serwer MCP: `server/mcp.ts`, `/api/mcp/<token>`.
+
+## Internet
+
+Asystent w CRM sam szuka w internecie, gdy pytasz „co to za firma”, podajesz adres e-mail albo
+domenę, albo mówisz „sprawdź w internecie…” (web search + otwieranie stron).
+
+## Narzędzia HTML
+
+Artefakt z czatu Claude (np. kalkulator, strona z szablonami) pobierz jako .html i wgraj do Bazy
+wiedzy — pojawi się w „Narzędziach” i działa w CRM (w piaskownicy, bez dostępu do danych CRM).
 
 ## Zespół
 

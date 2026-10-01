@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Upload, Plus, Trash2 } from 'lucide-react';
-import { api } from '../api';
-import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, useAction } from '../components/ui';
+import { Download, Upload, Plus, Trash2, Copy } from 'lucide-react';
+import { api, get } from '../api';
+import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, copyText, useAction, useToast } from '../components/ui';
 import type { Segment, Template } from '../../shared/domain';
 
-type Tab = 'playbook' | 'szablony' | 'dane';
+type Tab = 'playbook' | 'szablony' | 'dane' | 'claude';
 
 export function SettingsPage() {
   const [sp, setSp] = useSearchParams();
@@ -16,10 +16,10 @@ export function SettingsPage() {
       <div className="page-head">
         <div><h1>Ustawienia</h1><div className="sub">Segmenty i pitch, szablony maili, import i kopia zapasowa.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'playbook' ? {} : { tab: t }, { replace: true })}
-          labels={{ playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
+        <Seg value={tab} options={['playbook', 'szablony', 'dane', 'claude'] as const} onChange={(t) => setSp(t === 'playbook' ? {} : { tab: t }, { replace: true })}
+          labels={{ playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane', claude: 'Czat Claude' }} />
       </div>
-      {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : <Data />}
+      {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : tab === 'claude' ? <Connector /> : <Data />}
     </>
   );
 }
@@ -212,5 +212,37 @@ function Data() {
         )}
       </section>
     </div>
+  );
+}
+
+/** The address that plugs this CRM into Claude chats (and the Maple Bear project) as a connector. */
+function Connector() {
+  const q = useQuery({ queryKey: ['connector'], queryFn: () => get<{ url: string }>('/connector') });
+  const toast = useToast();
+  const [show, setShow] = useState(false);
+  return (
+    <section className="card pad col" style={{ gap: 14, maxWidth: 760 }}>
+      <h2>Podłącz CRM do czatu Claude</h2>
+      <div className="soft">Wtedy w claude.ai — także w projekcie „Maple Bear” z całą jego wiedzą — możesz pisać „co mam dziś w CRM?”,
+        „przygotuj maila do Armady i zapisz jako zadanie na piątek”, „dodaj Patryka do zespołu”. Claude czyta i zapisuje w CRM.</div>
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+        <div className="col tight">
+          <span className="small soft">Adres konektora (tajny — działa jak hasło)</span>
+          <div className="row wrap" style={{ gap: 6 }}>
+            <input type="text" readOnly value={show ? q.data!.url : q.data!.url.replace(/[a-f0-9]{32}$/, '••••••••')} style={{ flex: 1, minWidth: 220 }} />
+            <button className="btn sm" onClick={() => setShow(!show)}>{show ? 'Ukryj' : 'Pokaż'}</button>
+            <button className="btn sm primary" onClick={() => { copyText(q.data!.url); toast('Skopiowano adres'); }}><Copy size={14} /> Kopiuj</button>
+          </div>
+        </div>
+      )}
+      <ol className="steps">
+        <li>Na komputerze otwórz <b>claude.ai → Ustawienia → Konektory</b> (Settings → Connectors).</li>
+        <li><b>Dodaj własny konektor</b> (Add custom connector): nazwa „CRM”, adres — wklej skopiowany wyżej. Zapisz.</li>
+        <li>W czacie lub w projekcie „Maple Bear” kliknij ikonę narzędzi pod polem wpisywania i włącz <b>CRM</b>.
+          Konektor zadziała też w aplikacji na telefonie.</li>
+        <li>Przy pierwszym zapisie Claude zapyta o zgodę — możesz pozwolić na stałe.</li>
+      </ol>
+      <div className="hint">Wymaga planu Claude Pro, Max albo Team. Adres zmienia się, gdy zmienisz hasło do CRM (APP_PASSWORD) — wtedy podmień go w konektorze.</div>
+    </section>
   );
 }

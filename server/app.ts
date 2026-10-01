@@ -5,6 +5,7 @@ import { Crm, HttpError } from './crm.js';
 import { openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
+import { handleMcp, mcpToken } from './mcp.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -81,6 +82,14 @@ export function createApp(o: AppOptions) {
     return c.json({ ok: true });
   });
 
+  // Connector for Claude chats: the secret token in the path stands in for the login.
+  const connectorToken = mcpToken(secret);
+  api.post('/mcp/:token', async (c) => {
+    if (!same(c.req.param('token'), connectorToken)) return c.json({ error: 'Zły adres konektora.' }, 404);
+    return handleMcp(c, o.crm);
+  });
+  api.on(['GET', 'DELETE'], '/mcp/:token', (c) => c.body(null, 405));
+
   api.use('*', async (c, next) => {
     if (!(await authed(c))) return c.json({ error: 'Zaloguj się.' }, 401);
     await next();
@@ -107,6 +116,12 @@ export function createApp(o: AppOptions) {
   api.get('/report', async (c) => c.json(await (await crm()).report(c.req.query('from'), c.req.query('to'))));
   api.get('/events', async (c) => c.json(await (await crm()).listEvents()));
   api.get('/tasks', async (c) => c.json(await (await crm()).listTasks()));
+  api.get('/connector', (c) => {
+    const u = new URL(c.req.url);
+    const host = c.req.header('x-forwarded-host') || u.host;
+    const proto = c.req.header('x-forwarded-proto') || u.protocol.replace(':', '');
+    return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}` });
+  });
   api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
   api.get('/segments', async (c) => c.json(await (await crm()).listSegments()));
   api.get('/templates', async (c) => c.json(await (await crm()).listTemplates()));
@@ -200,7 +215,14 @@ export function createApp(o: AppOptions) {
       'X-Content-Type-Options': 'nosniff',
     };
     // generated HTML is previewed in a sandbox: no scripts, no access to the CRM's cookies or API
-    if (/html/.test(f.mime)) headers['Content-Security-Policy'] = 'sandbox; default-src \'none\'; img-src * data:; style-src \'unsafe-inline\' *; font-src *';
+    // ?run=1 lets an HTML tool (a calculator, templates page from Claude) run its scripts — still in a sandbox
+    // with an opaque origin, so it cannot read the CRM's cookies or call its API.
+    if (/html/.test(f.mime)) {
+      headers['Content-Security-Policy'] = inline && c.req.query('run') === '1'
+        ? "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; default-src 'none'; " +
+          "script-src 'unsafe-inline' 'unsafe-eval' https:; style-src 'unsafe-inline' https:; img-src * data: blob:; font-src https: data:; connect-src 'none'"
+        : 'sandbox; default-src \'none\'; img-src * data:; style-src \'unsafe-inline\' *; font-src *';
+    }
     return c.body(f.data as unknown as ArrayBuffer, 200, headers);
   });
 

@@ -24,8 +24,10 @@ export function KnowledgePage() {
     const k = searchKey(find);
     return (q.data || []).filter((i) => !k || searchKey(`${i.title} ${i.filename} ${i.description} ${i.tags}`).includes(k));
   }, [q.data, find]);
+  const isTool = (r: KnowledgeItem) => r.hasFile && r.mime.includes('html') && !r.tags.includes('wygenerowane');
+  const tools = rows.filter(isTool);
   const generated = rows.filter((r) => r.tags.includes('wygenerowane'));
-  const own = rows.filter((r) => !r.tags.includes('wygenerowane'));
+  const own = rows.filter((r) => !r.tags.includes('wygenerowane') && !isTool(r));
 
   const upload = async (list: FileList | null) => {
     const files = [...(list || [])];
@@ -56,6 +58,13 @@ export function KnowledgePage() {
         </div>
         {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : (
           <div className="pad col" style={{ paddingTop: 0 }}>
+            {tools.length > 0 && (
+              <>
+                <div className="group-label" style={{ padding: '10px 0 0' }}>Narzędzia (strony HTML — kalkulator, szablony)</div>
+                <div className="files">{tools.map((f) => <FileCard key={f.id} f={f} onOpen={() => setOpen(f)} />)}</div>
+                <div className="group-label" style={{ padding: '10px 0 0' }}>Pliki i notatki</div>
+              </>
+            )}
             {own.length > 0 && <div className="files">{own.map((f) => <FileCard key={f.id} f={f} onOpen={() => setOpen(f)} />)}</div>}
             {generated.length > 0 && (
               <>
@@ -66,7 +75,7 @@ export function KnowledgePage() {
             {!rows.length && (
               <Empty icon={BookOpen}>
                 {find ? 'Nic nie pasuje.' : <>Pusto. Wgraj plakat biegu, prezentację B2B, ofertę, gotowe maile — PDF, Word, zdjęcia albo tekst.<br />
-                  Z projektu w czatach Claude pobierz pliki i wgraj je tutaj.</>}
+                  Artefakt z czatu Claude (np. kalkulator) pobierz jako .html i wgraj — uruchomi się tutaj jako narzędzie.</>}
               </Empty>
             )}
           </div>
@@ -90,6 +99,8 @@ function ItemSheet({ item, onClose }: { item: KnowledgeItem | null; onClose: () 
   if (!item) return null;
   const isImg = item.mime.startsWith('image/');
   const isFrame = /pdf|html|text\//.test(item.mime);
+  const isHtml = item.mime.includes('html');
+  const runUrl = `${fileUrl(item.id, true)}&run=1`;
 
   return (
     <Modal open={!!item} onClose={onClose} wide title={item.title}
@@ -98,10 +109,12 @@ function ItemSheet({ item, onClose }: { item: KnowledgeItem | null; onClose: () 
         <button className="btn primary" onClick={() => save.mutate(undefined)} disabled={save.isPending}>Zapisz</button>
       </>}>
       {item.hasFile && isImg && <img className="preview-img" src={fileUrl(item.id, true)} alt={item.title} />}
-      {item.hasFile && isFrame && <iframe className="preview-frame" src={fileUrl(item.id, true)} title={item.title} sandbox="allow-downloads" />}
+      {item.hasFile && isHtml && <iframe className="preview-frame tall" src={runUrl} title={item.title}
+        sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads" />}
+      {item.hasFile && isFrame && !isHtml && <iframe className="preview-frame" src={fileUrl(item.id, true)} title={item.title} sandbox="allow-downloads" />}
       {item.hasFile && (
         <div className="row wrap">
-          <a className="btn sm" href={fileUrl(item.id, true)} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Otwórz</a>
+          <a className="btn sm" href={isHtml ? runUrl : fileUrl(item.id, true)} target="_blank" rel="noreferrer"><ExternalLink size={14} /> {isHtml ? 'Pełny ekran' : 'Otwórz'}</a>
           <a className="btn sm" href={fileUrl(item.id)}><Download size={14} /> Pobierz</a>
           <button className="btn sm ghost" onClick={() => { onClose(); openAssistant(`Weź z Bazy wiedzy materiał id ${item.id} („${item.title}”) i `); }}><Sparkles size={14} /> Zrób coś z tym…</button>
         </div>

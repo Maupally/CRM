@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { openDb, type DB } from './db.js';
 import { Crm } from './crm.js';
-import { Assistant, needsContent } from './assistant.js';
+import { Assistant, needsContent, needsWeb } from './assistant.js';
 
 /** Plays back scripted model turns and records every request the assistant makes. */
 function fakeClient(turns: any[]) {
@@ -26,6 +26,9 @@ describe('request routing', () => {
     expect(needsContent('napisz zaproszenie do szkół i przedszkoli')).toBe(true);
     expect(needsContent('zmień w nim datę', 'napisz post o biegu')).toBe(true);
     expect(needsContent('co to jest?', '', true)).toBe(true);
+    expect(needsWeb('dostałem maila od biuro@armada-golf.pl, co to za firma?')).toBe(true);
+    expect(needsWeb('sprawdź w internecie Norlandię')).toBe(true);
+    expect(needsWeb('przesuń zadanie na jutro')).toBe(false);
   });
 });
 
@@ -260,5 +263,56 @@ describe('knowledge base, files and project tasks', () => {
     expect(r.text).toContain('  - Open day posted on Facebook.');
     expect(fake.requests[0].messages[0].content).toContain('Dzień otwarty opublikowany na FB');
     expect(fake.requests[0].tools).toBeUndefined();
+  });
+});
+
+describe('web lookups', () => {
+  it('gives the assistant web search, without the code sandbox, for an unknown address', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-09-28');
+    const a = new Assistant(crm, 'test-key');
+    const fake = fakeClient([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'To klub golfowy w Siemianowicach.' }] }]);
+    (a as any).client = fake;
+    await a.ask('kto to jest biuro@armada-golf.pl?');
+    const names = fake.requests[0].tools.map((t: any) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['web_search', 'web_fetch', 'find_companies', 'create_company']));
+    expect(names).not.toContain('code_execution');
+    expect(fake.requests[0].betas).not.toContain('code-execution-2025-08-25');
+  });
+});
+
+describe('connector for Claude chats', () => {
+  it('answers MCP requests and writes through the same checks', async () => {
+    const { createApp } = await import('./app.js');
+    const { mcpToken } = await import('./mcp.js');
+    const { createHash } = await import('node:crypto');
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-09-28');
+    await crm.createLead({ company: 'Armada Klub Golfowy', city: 'Katowice' });
+    const app = createApp({ crm: async () => crm, password: 'pw' } as any);
+    const secret = createHash('sha256').update('crm:pw').digest('hex');
+    const rpc = (body: unknown, token = mcpToken(secret)) => app.request(`/api/mcp/${token}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify(body),
+    });
+
+    expect((await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, 'wrong')).status).toBe(404);
+    const init = await (await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } })).json();
+    expect(init.result.serverInfo.name).toBe('crm');
+    expect((await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' })).status).toBe(202);
+
+    const list = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
+    const names = list.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['find_companies', 'get_people', 'create_task', 'add_note']));
+    expect(names).not.toContain('draft_campaign');
+
+    const found = await (await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'find_companies', arguments: { query: 'armada' } } })).json();
+    expect(found.result.content[0].text).toContain('Armada');
+    const task = await (await rpc({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'create_task', arguments: {
+      task: 'Mail do Armady', due: '2026-10-02', lead_id: 'L001',
+      materials: [{ title: 'Mail', subject: 'Współpraca', body: 'Dzień dobry,\nproponuję spotkanie.' }] } } })).json();
+    expect(task.result.isError).toBeUndefined();
+    expect((await crm.listTasks())[0].materials[0].subject).toBe('Współpraca');
+    const bad = await (await rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'add_note', arguments: { id: 'L999', text: 'x' } } })).json();
+    expect(bad.result.isError).toBe(true);
   });
 });

@@ -519,6 +519,15 @@ function wantsContent(text: string): boolean {
   return WRITE_VERB.test(text) || (CONTENT_NOUN.test(text) && !DONE.test(text));
 }
 
+/** "who is behind this address?", "check them online" — needs the web, not the knowledge base. */
+const WEB = /[\w.+-]+@[\w-]+\.[\w.]+|\b[\w-]+\.(pl|com|eu|org|net|io)\b|internec|internet|w sieci|wyszukaj|wygoogluj|google|co to (jest )?za firm|sprawdź (tę |tą |ta )?firm|kto to jest/i;
+export const needsWeb = (text: string) => WEB.test(text);
+
+const WEB_TOOLS = [
+  { type: 'web_search_20260209', name: 'web_search', max_uses: 5, user_location: { type: 'approximate', country: 'PL', city: 'Katowice', timezone: 'Europe/Warsaw' } },
+  { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 5 },
+] as unknown as Anthropic.Beta.BetaToolUnion[];
+
 export function needsContent(text: string, prevUser = '', hasFiles = false): boolean {
   return hasFiles || wantsContent(text) || WRITE_VERB.test(prevUser);
 }
@@ -559,6 +568,7 @@ Zasady:
 - Zadania i projekty: wydarzenia (Bieg, Dzień otwarty…) to projekty z listą zadań. „Wrzuć mi na dziś…”, „muszę przygotować…” → create_task w odpowiednim wydarzeniu (event_id z get_events) z terminem. Gdy zadanie to przygotowanie treści — nie odkładaj tego: od razu napisz gotowe materiały (materials) na podstawie Bazy wiedzy i podepnij pliki (attachments), np. plakat. „Zrobione”, „przesuń na jutro”, „co mi zostało w projekcie X” → get_tasks + update_task. Zadań nie wpisuj w notatki wydarzenia.
 - Teksty dla nauczycieli/rodziców/szkół: gotowe do wysłania dalej bez poprawek — z datą, godziną, miejscem, linkiem/zapisami z materiałów. Gdy brakuje faktu (np. linku zapisów), zostaw widoczne pole [link do zapisów] i powiedz o tym.
 - Mail do grupy firm (szkoły, przedszkola, klienci z bazy) → draft_campaign. Mail do jednej firmy → draft_email.
+- Internet (gdy masz web_search): „co to za firma”, sam adres e-mail albo domena → szukaj po domenie z adresu (np. @armada-golf.pl → armada-golf.pl), otwórz ich stronę (web_fetch). Powiedz krótko: czym się zajmują, gdzie są, kto decyduje (jeśli widać), telefon/e-mail ze strony, i czy to pasuje na partnera. Podaj 1–2 źródła. Nie zgaduj — gdy nic nie ma, powiedz to. Jeśli firmy nie ma w CRM, zaproponuj create_company z tym, co znalazłeś.
 - Ludzie (dyrektor, Patryk, koordynatorka…): gdy w poleceniu pada imię albo funkcja, sprawdź get_people i ustaw person_id w zadaniu. Gdy osoby nie ma w Zespole — zaproponuj save_person (z tym, co wiesz) i użyj OS1 jako person_id; jeśli nie znasz e-maila ani telefonu, napisz krótko, że trzeba je uzupełnić.
 - Zadanie typu „wyślij maila do…”: materiał-mail ma temat w polu subject, a w body samą treść gotową do wklejenia. Nigdy nie pisz „Temat:” w treści. Nigdy nie dodawaj stopki ani podpisu (użytkownik ma ją w poczcie) — kończ na ostatnim zdaniu treści lub zwrocie typu „Pozdrawiam”.
 - Pliki: użytkownik może dołączyć plik do wiadomości (dostaniesz go i jest w $INPUT_DIR). Kod QR na PDF/plakat → stamp_qr. Sam kod QR → make_qr. Strona www / landing → napisz kompletny HTML i save_file. Inne przeróbki plików, wykresy, tabele, dokumenty Word/Excel/PowerPoint → code_execution; pliki wynikowe zapisuj w $OUTPUT_DIR (trafią do Bazy wiedzy). Na koniec krótko powiedz, co powstało.
@@ -682,10 +692,15 @@ export class Assistant {
     messages.push({ role: 'user', content: first });
 
     const prevUser = [...history].reverse().find((h) => h.role === 'user')?.text || '';
-    const full = needsContent(said, prevUser, !!image || attach.length > 0);
-    const tools = full
-      ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...STUDIO_TOOLS, ...WRITE_TOOLS, CODE_TOOL]
-      : [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...WRITE_TOOLS];
+    const files_ = !!image || attach.length > 0;
+    // the web search tools run their own sandbox, so they never ride along with code execution
+    const web = !files_ && needsWeb(said) && !WRITE_VERB.test(said);
+    const full = !web && needsContent(said, prevUser, files_);
+    const tools = web
+      ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...WRITE_TOOLS, ...WEB_TOOLS]
+      : full
+        ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...STUDIO_TOOLS, ...WRITE_TOOLS, CODE_TOOL]
+        : [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...WRITE_TOOLS];
 
     const files: KnowledgeItem[] = [];
     let containerId = full ? opts.containerId || undefined : undefined;
@@ -699,14 +714,14 @@ export class Assistant {
         model: MODEL,
         max_tokens: 32000,
         thinking: { type: 'adaptive' },
-        output_config: { effort: full ? 'medium' : 'low' },
+        output_config: { effort: full || web ? 'medium' : 'low' },
         betas: full ? ['server-side-fallback-2026-07-01', 'code-execution-2025-08-25'] : ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
         ...(containerId ? { container: containerId } : {}),
         system: [
           { type: 'text', text: staticPrompt(), cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicPrompt(this.crm.today(), this.crm.owner, segments.map((s) => s.name), lead, spoken)
-            + (full ? '' : '\nTo szybka sprawa: zrób ją od razu, bez Bazy wiedzy i plików. Gdy do zadania trzeba napisać materiały, dodaj samo zadanie i powiedz, że teksty przygotujesz na prośbę „przygotuj teksty”.') },
+            + (full || web ? '' : '\nTo szybka sprawa: zrób ją od razu, bez Bazy wiedzy i plików. Gdy do zadania trzeba napisać materiały, dodaj samo zadanie i powiedz, że teksty przygotujesz na prośbę „przygotuj teksty”.') },
         ],
         tools,
         messages,
@@ -785,6 +800,37 @@ export class Assistant {
     const summary = response.stop_reason === 'refusal' ? '' : response.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
     return { ...rep, summary, text: withSummary(rep.text, summary) };
+  }
+
+  /* ---------------------------------------------------------- remote use (MCP connector) */
+
+  /** Tools offered to Claude chats through the CRM connector: reads, plus writes that save straight away. */
+  static mcpTools() {
+    const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
+    return [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...writes].map((t) => ({
+      name: t.name,
+      description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
+      inputSchema: t.input_schema,
+      ...(WRITE_NAMES.has(t.name) ? {} : { annotations: { readOnlyHint: true } }),
+    }));
+  }
+
+  /** Runs one tool for a connector call. Writes go through the same checks as proposals, then execute at once. */
+  async mcpCall(name: string, input: Input): Promise<{ text: string; isError?: boolean }> {
+    if (!Assistant.mcpTools().some((t) => t.name === name)) return { text: `Nieznane narzędzie ${name}`, isError: true };
+    try {
+      if (!WRITE_NAMES.has(name)) return { text: await this.read(name, input || {}) };
+      const proposals: Proposal[] = [];
+      await this.propose(name, input || {}, proposals, new Map());
+      const { results } = await this.execute(proposals.map((p) => ({ tool: p.tool, input: p.input })));
+      const r = results[0];
+      const what = [proposals[0].title, ...proposals[0].lines, ...proposals[0].warnings.map((w) => `Uwaga: ${w}`)].join('\n');
+      return r.ok
+        ? { text: `${r.message}${r.leadId ? ` (firma ${r.leadId})` : ''}\n${what}` }
+        : { text: r.message, isError: true };
+    } catch (e) {
+      return { text: e instanceof Error ? e.message : String(e), isError: true };
+    }
   }
 
   /* ---------------------------------------------------------- knowledge & files */
@@ -1349,14 +1395,14 @@ export class Assistant {
             const p = await crm.savePerson({ id: Number(input.id) || undefined, name: input.name, role: input.role, email: input.email,
               phone: input.phone, aliases: input.aliases, notes: input.notes });
             if (input.ref) ids.set(input.ref, String(p.id));
-            leadId = undefined; message = `Zespół: ${p.name}`;
+            leadId = undefined; message = `Zespół: ${p.name} (id osoby ${p.id})`;
             break;
           }
           case 'create_task': {
             const t = await crm.saveTask({ task: input.task, due: input.due || '', eventId: input.event_id || '', leadId: input.lead_id || '',
               notes: input.notes || '', materials: input.materials || [], attachments: input.attachments || [],
               personId: this.personRef(input.person_id, ids) });
-            leadId = t.leadId || undefined; message = `Dodano zadanie: ${t.task}`;
+            leadId = t.leadId || undefined; message = `Dodano zadanie: ${t.task} (${t.id})`;
             break;
           }
           case 'update_task': {
