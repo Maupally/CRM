@@ -109,6 +109,13 @@ describe('Crm', () => {
     expect(text).toContain('Contacted 1 company');
     expect(text).toContain('Call 1');
     expect(text).toContain('Contacting - contact attempted (1)');
+    expect(text).toContain('Pipeline now:');
+    // a lead last touched before the period stays out of the list, even though it is in "contacting"
+    const old = await crm.createLead({ company: 'Stara Firma' });
+    await crm.logActivity(old.id, { type: 'Call', result: 'reached', date: '2026-09-10' });
+    const again = (await crm.report('2026-09-22', '2026-09-28')).text;
+    expect(again).not.toContain('Stara Firma');
+    expect(again).toContain('Alfa - Call, Email [new -> contacting]');
   });
 
   it('renames a segment together with its leads', async () => {
@@ -125,6 +132,23 @@ describe('Crm', () => {
     expect((await crm.toggleTask(t.id)).completed).toBe('2026-09-28');
     await crm.deleteEvent(e.id);
     expect(await crm.listTasks()).toHaveLength(0);
+  });
+
+  it('keeps people, ties tasks to them and keeps an email subject out of the body', async () => {
+    const p = await crm.savePerson({ name: 'Patryk Nowak', role: 'Dyrektor', email: 'Patryk@Szkola.pl', aliases: 'dyrektor' });
+    expect(p.email).toBe('patryk@szkola.pl');
+    const t = await crm.saveTask({ task: 'Wyślij dyrektorowi plan biegu', due: '2026-09-25', personId: p.id,
+      materials: [{ title: 'Mail do dyrektora', body: 'Temat: Plan biegu\n\nDzień dobry,\nprzesyłam plan.' }] });
+    expect(t.person).toMatchObject({ name: 'Patryk Nowak', email: 'patryk@szkola.pl' });
+    expect(t.materials[0]).toEqual({ title: 'Mail do dyrektora', subject: 'Plan biegu', body: 'Dzień dobry,\nprzesyłam plan.' });
+
+    // overdue project tasks reach the dashboard; ticking one off counts a contact with the person
+    expect((await crm.dashboard()).tasks.map((x) => x.id)).toContain(t.id);
+    await crm.toggleTask(t.id);
+    expect((await crm.getPerson(p.id)).contacts).toBe(1);
+    expect((await crm.dashboard()).tasksDoneToday).toBe(1);
+    await crm.deletePerson(p.id);
+    expect((await crm.listTasks()).find((x) => x.id === t.id)!.personId).toBe(0);
   });
 });
 

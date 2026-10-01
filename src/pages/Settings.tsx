@@ -1,25 +1,25 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Upload, Plus, Trash2 } from 'lucide-react';
+import { Download, Upload, Plus, Trash2, Sparkles } from 'lucide-react';
 import { api } from '../api';
-import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, useAction } from '../components/ui';
-import type { Segment, Template } from '../../shared/domain';
+import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, useAction, useToast } from '../components/ui';
+import type { Segment, Style, Template } from '../../shared/domain';
 
-type Tab = 'playbook' | 'szablony' | 'dane';
+type Tab = 'playbook' | 'szablony' | 'dane' | 'styl';
 
 export function SettingsPage() {
   const [sp, setSp] = useSearchParams();
-  const tab = (sp.get('tab') || 'playbook') as Tab;
+  const tab = (sp.get('tab') || 'styl') as Tab;
   return (
     <>
       <div className="page-head">
         <div><h1>Ustawienia</h1><div className="sub">Segmenty i pitch, szablony maili, import i kopia zapasowa.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'playbook' ? {} : { tab: t }, { replace: true })}
-          labels={{ playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
+        <Seg value={tab} options={['styl', 'playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'styl' ? {} : { tab: t }, { replace: true })}
+          labels={{ styl: 'Styl pisania', playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
       </div>
-      {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : <Data />}
+      {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : tab === 'styl' ? <StyleSettings /> : <Data />}
     </>
   );
 }
@@ -212,5 +212,75 @@ function Data() {
         )}
       </section>
     </div>
+  );
+}
+
+const STYLE_FIELDS: { key: keyof Style; label: string; hint: string }[] = [
+  { key: 'project', label: 'Instrukcje ogólne', hint: 'Kim jesteś, czym jest szkoła, oferta, fakty, zasady — to, co było w instrukcjach projektu „Maple Bear”.' },
+  { key: 'b2b', label: 'Maile do firm (B2B)', hint: 'Ton, długość, struktura, stałe zwroty — jak w czacie B2B.' },
+  { key: 'casual', label: 'Rozmowy swobodne', hint: 'Rodzice, nauczyciele, zespół — jak w czacie „conversation”.' },
+];
+
+/** How the assistant writes — moved over from the Claude project, editable here. */
+function StyleSettings() {
+  const q = useQuery({ queryKey: ['style'], queryFn: api.style });
+  const kb = useQuery({ queryKey: ['knowledge'], queryFn: api.knowledge });
+  const toast = useToast();
+  const [d, setD] = useState<Style | null>(null);
+  const [learn, setLearn] = useState<keyof Style | null>(null);
+  const [pick, setPick] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (q.data) setD(q.data); }, [q.data]);
+  const save = useAction(() => api.saveStyle(d!), { ok: 'Zapisano styl' });
+  if (q.isLoading || !d) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  const sources = (kb.data || []).filter((k) => k.textLength > 0 && !k.mime.includes('html'))
+    .sort((a, b) => Number(b.tags.includes('czat')) - Number(a.tags.includes('czat')));
+  const dirty = JSON.stringify(d) !== JSON.stringify(q.data);
+
+  const runLearn = async () => {
+    if (!learn) return;
+    setBusy(true);
+    try {
+      const r = await api.learnStyle(pick, learn);
+      setD({ ...d, [learn]: r.text });
+      toast('Gotowe — sprawdź i zapisz');
+      setLearn(null); setPick([]);
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="card pad col" style={{ gap: 16, maxWidth: 860 }}>
+      <div><h2>Styl pisania</h2>
+        <div className="soft">Asystent pisze maile i wiadomości według tych zasad. Przenieś je z projektu „Maple Bear”: w Bazie wiedzy
+          „Przenieś z Claude”, a potem tutaj „Ucz się z czatów” — albo wklej instrukcje ręcznie.</div></div>
+      {STYLE_FIELDS.map((f) => (
+        <div key={f.key} className="col tight">
+          <div className="row between wrap"><b>{f.label}</b>
+            <button className="btn sm ghost" onClick={() => { setLearn(f.key); setPick([]); }}><Sparkles size={14} /> Ucz się z czatów</button></div>
+          <span className="soft small">{f.hint}</span>
+          <textarea rows={8} value={d[f.key]} onChange={(e) => setD({ ...d, [f.key]: e.target.value })} placeholder="Pusto — asystent pisze po swojemu." />
+        </div>
+      ))}
+      <div className="row"><button className="btn primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined)}>Zapisz</button></div>
+
+      <Modal open={!!learn} onClose={() => setLearn(null)} wide title={`Ucz się: ${STYLE_FIELDS.find((x) => x.key === learn)?.label || ''}`}
+        footer={<><button className="btn" onClick={() => setLearn(null)}>Anuluj</button>
+          <button className="btn primary" disabled={!pick.length || busy} onClick={runLearn}>{busy ? 'Czytam…' : `Przygotuj (${pick.length})`}</button></>}>
+        <div className="soft small">Wybierz czaty lub dokumenty (do 6). Asystent przeczyta je i napisze zasady stylu — zastąpią obecną treść pola (przed zapisem możesz poprawić).</div>
+        <div className="col tight" style={{ maxHeight: 360, overflow: 'auto' }}>
+          {sources.map((k) => (
+            <label key={k.id} className="row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={pick.includes(k.id)} disabled={!pick.includes(k.id) && pick.length >= 6}
+                onChange={() => setPick(pick.includes(k.id) ? pick.filter((x) => x !== k.id) : [...pick, k.id])} />
+              <span className="grow trunc">{k.title}</span><span className="soft small">{k.tags}</span>
+            </label>
+          ))}
+          {!sources.length && <span className="soft small">Baza wiedzy jest pusta — najpierw „Przenieś z Claude” w Bazie wiedzy.</span>}
+        </div>
+      </Modal>
+    </section>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  BookOpen, Users,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   Plus, LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
 } from 'lucide-react';
@@ -19,6 +20,8 @@ import { CalendarPage } from './pages/Calendar';
 import { EventsPage } from './pages/Events';
 import { ReportsPage } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
+import { KnowledgePage } from './pages/Knowledge';
+import { PeoplePage } from './pages/People';
 
 export function App() {
   const qc = useQueryClient();
@@ -48,7 +51,7 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="login">
       <form className="card pad col loose" onSubmit={submit}>
-        <div className="brand" style={{ padding: 0 }}><span className="brand-mark">B2</span><div><b>B2B CRM</b><span className="eyebrow">Partnerstwa</span></div></div>
+        <div className="brand" style={{ padding: 0 }}><span className="brand-mark">L</span><b>Lumo</b></div>
         <label className="field">Hasło
           <input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" />
         </label>
@@ -72,6 +75,8 @@ const NAV: { group?: string; items: NavItem[] }[] = [
   { group: 'Plan', items: [
     { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
     { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+    { to: '/zespol', label: 'Zespół', icon: Users },
+    { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },
   ] },
   { group: 'Analiza', items: [
     { to: '/raporty', label: 'Raporty', icon: BarChart3 },
@@ -103,7 +108,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
   return (
     <div className="shell">
       <aside className="side">
-        <div className="brand"><span className="brand-mark">B2</span><div><b>B2B CRM</b><span className="eyebrow">Partnerstwa</span></div></div>
+        <div className="brand"><span className="brand-mark">L</span><b>Lumo</b></div>
         <nav className="nav">
           {NAV.map((g, i) => (
             <div key={i}>
@@ -127,7 +132,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
 
       <div className="main">
         <header className="topbar">
-          <span className="brand-mark only-sm" style={{ width: 32, height: 32 }}>B2</span>
+          <span className="brand-mark only-sm" style={{ width: 32, height: 32 }}>L</span>
           <button className="search-btn" onClick={() => setPalette(true)}>
             <Search size={16} /> <span className="trunc">Szukaj firmy, telefonu, maila…</span> <kbd className="hide-sm">/</kbd>
           </button>
@@ -154,6 +159,8 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/kalendarz" element={<CalendarPage />} />
             <Route path="/wydarzenia" element={<EventsPage />} />
             <Route path="/wydarzenia/:id" element={<EventsPage />} />
+            <Route path="/zespol" element={<PeoplePage />} />
+            <Route path="/wiedza" element={<KnowledgePage />} />
             <Route path="/raporty" element={<ReportsPage />} />
             <Route path="/ustawienia" element={<SettingsPage />} />
             <Route path="*" element={<div className="empty">Nie ma takiej strony.</div>} />
@@ -174,6 +181,8 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
           {[
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+            { to: '/zespol', label: 'Zespół', icon: Users },
+            { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },
             { to: '/raporty', label: 'Raporty', icon: BarChart3 },
             { to: '/ustawienia', label: 'Ustawienia i dane', icon: Settings },
           ].map(({ to, label, icon: I }) => (

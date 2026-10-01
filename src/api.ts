@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -38,6 +38,7 @@ export interface Config {
   segments: (Segment & { leads: number })[];
   templates: Template[];
   assistant?: boolean;
+  mail?: boolean;
 }
 
 export interface LeadCard {
@@ -59,6 +60,7 @@ export interface Dashboard {
   queue: Lead[];
   pipeline: Record<string, number>;
   tasks: Task[];
+  tasksDoneToday: number;
   events: CrmEvent[];
   doneToday: { activities: number; companies: number };
   doneWeek: { activities: number; companies: number };
@@ -90,8 +92,21 @@ export interface Proposal {
 export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
 export const api = {
-  assistant: (text: string, history: AssistantTurn[], leadId?: string, image?: { mediaType: string; data: string }, spoken?: boolean) =>
-    post<{ reply: string; proposals: Proposal[] }>('/assistant', { text, history, leadId, image, spoken }),
+  assistant: (text: string, history: AssistantTurn[], opts: { leadId?: string; image?: { mediaType: string; data: string };
+    spoken?: boolean; attachments?: number[]; containerId?: string } = {}) =>
+    post<{ reply: string; proposals: Proposal[]; files?: KnowledgeItem[]; containerId?: string }>('/assistant', { text, history, ...opts }),
+
+  knowledge: () => get<KnowledgeItem[]>('/knowledge'),
+  knowledgeItem: (id: number) => get<KnowledgeItem & { text: string }>(`/knowledge/${id}`),
+  uploadKnowledge: (file: File, meta: { title?: string; description?: string; tags?: string } = {}) => {
+    const f = new FormData();
+    f.append('file', file);
+    for (const [k, v] of Object.entries(meta)) if (v) f.append(k, v);
+    return req<KnowledgeItem>('POST', '/knowledge', f);
+  },
+  addNote: (d: { title?: string; text: string; description?: string; tags?: string }) => post<KnowledgeItem>('/knowledge', d),
+  updateKnowledge: (id: number, d: { title?: string; description?: string; tags?: string; text?: string }) => patch<KnowledgeItem>(`/knowledge/${id}`, d),
+  deleteKnowledge: (id: number) => del(`/knowledge/${id}`),
   assistantExecute: (items: { tool: string; input: Record<string, any> }[]) =>
     post<{ results: { ok: boolean; message: string; leadId?: string }[] }>('/assistant/execute', { items }),
   me: () => get<{ authenticated: boolean; passwordRequired: boolean }>('/me'),
@@ -123,11 +138,20 @@ export const api = {
     get<{ activities: Activity[]; events: CrmEvent[]; tasks: Task[] }>(`/agenda?from=${from}&to=${to}`),
   stats: () => get<Stats>('/stats'),
   report: (from: string, to: string) => get<{ from: string; to: string; text: string }>(`/report?from=${from}&to=${to}`),
+  reportSummary: (from: string, to: string, notes: string) =>
+    post<{ from: string; to: string; text: string; summary: string }>('/report/summary', { from, to, notes }),
 
   events: () => get<CrmEvent[]>('/events'),
   saveEvent: (d: Partial<CrmEvent>) => post<CrmEvent>('/events', d),
   deleteEvent: (id: string) => del(`/events/${id}`),
   tasks: () => get<Task[]>('/tasks'),
+  style: () => get<Style>('/style'),
+  saveStyle: (d: Partial<Style>) => req<Style>('PUT', '/style', d),
+  learnStyle: (ids: number[], mode: keyof Style) => post<{ text: string }>('/style/learn', { ids, mode }),
+  people: () => get<Person[]>('/people'),
+  savePerson: (d: Partial<Person>) => post<Person>('/people', d),
+  deletePerson: (id: number) => del(`/people/${id}`),
+  touchPerson: (id: number) => post<Person>(`/people/${id}/touch`),
   saveTask: (d: Partial<Task>) => post<Task>('/tasks', d),
   toggleTask: (id: string) => post<Task>(`/tasks/${id}/toggle`),
   deleteTask: (id: string) => del(`/tasks/${id}`),

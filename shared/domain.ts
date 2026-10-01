@@ -158,8 +158,56 @@ export interface Task {
   status: string;
   notes: string;
   completed: string;
+  leadId: string;
+  materials: Material[];
+  attachments: number[];
+  /** who the task is for (0 = nobody in particular) */
+  personId: number;
+  person?: { name: string; role: string; email: string; phone: string };
   eventTitle?: string;
   eventDate?: string;
+  company?: string;
+}
+
+/** A ready-to-use piece of text prepared for a task (post, SMS, email, text for teachers…). */
+export interface Material {
+  title: string;
+  body: string;
+  /** set for an email: the subject goes in its own field, never inside the body */
+  subject?: string;
+  /** email address, when the material is an email to someone outside the task's person */
+  to?: string;
+}
+
+/** Writing guidance moved over from the Claude project: general rules, B2B emails, relaxed messages. */
+export interface Style { project: string; b2b: string; casual: string }
+
+/** Someone the user works with — the director, a colleague, a teacher. */
+export interface Person {
+  id: number;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+  /** other ways the user calls them: "dyrektor, Patryk, szef" */
+  aliases: string;
+  notes: string;
+  /** how many times tasks/emails went to them, and when last */
+  contacts: number;
+  lastContact: string;
+}
+
+export interface KnowledgeItem {
+  id: number;
+  title: string;
+  filename: string;
+  mime: string;
+  size: number;
+  description: string;
+  tags: string;
+  createdAt: string;
+  hasFile: boolean;
+  textLength: number;
 }
 
 /* ------------------------------------------------------ normalisation */

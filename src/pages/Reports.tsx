@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Activity, AlarmClock, PhoneCall, Target, Copy, Send } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Activity, AlarmClock, PhoneCall, Target, Copy, Send, Sparkles, Loader2 } from 'lucide-react';
 import { api, type Bucket } from '../api';
-import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, typeLabel, useToast, useToday } from '../components/ui';
+import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, typeLabel, useConfig, useToast, useToday } from '../components/ui';
 import { COUNTED, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
 
 const TYPE_COLOR: Record<string, string> = {
@@ -118,12 +118,26 @@ function BucketTile({ label, b }: { label: string; b: Bucket }) {
   );
 }
 
+const lsGet = (k: string) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
+
 function Weekly() {
   const today = useToday();
   const toast = useToast();
+  const cfg = useConfig();
   const [from, setFrom] = useState(() => addDays(today, -6));
   const [to, setTo] = useState(today);
+  const key = `crm-report-notes:${from}:${to}`;
+  const [notes, setNotes] = useState(() => lsGet(`crm-report-notes:${addDays(today, -6)}:${today}`));
+  const [final, setFinal] = useState<{ key: string; text: string } | null>(null);
+  useEffect(() => { setNotes(lsGet(key)); }, [key]);
   const q = useQuery({ queryKey: ['report', from, to], queryFn: () => api.report(from, to), enabled: !!from && !!to });
+  const sum = useMutation({
+    mutationFn: () => api.reportSummary(from, to, notes),
+    onSuccess: (r) => setFinal({ key, text: r.text }),
+    onError: (e) => toast((e as Error).message, 'error'),
+  });
+  const text = final?.key === key ? final.text : q.data?.text;
   const presets: [string, string, string][] = [
     ['Ostatnie 7 dni', addDays(today, -6), today],
     ['Ten tydzień', startOfWeek(today), today],
@@ -144,12 +158,29 @@ function Weekly() {
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 160, height: 36 }} />
       </div>
       <div className="divider" />
-      <div className="row wrap" style={{ padding: '12px 20px' }}>
-        <span className="soft small grow">Tekst po angielsku, gotowy do wklejenia w maila.</span>
-        <button className="btn sm primary" disabled={!q.data} onClick={() => { copyText(q.data!.text); toast('Skopiowano raport'); }}><Copy size={14} /> Kopiuj</button>
-        <a className="btn sm" href={q.data ? `mailto:?subject=${encodeURIComponent('B2B weekly report')}&body=${encodeURIComponent(q.data.text)}` : undefined}><Send size={14} /> Wyślij</a>
+      <div className="col tight" style={{ padding: '12px 20px' }}>
+        <label className="field">Od siebie — co jeszcze się wydarzyło, co podkreślić
+          <textarea rows={3} value={notes} placeholder="np. Dzień otwarty opublikowany na FB, zaproszenia do partnerów wysłane. Rozmowa z dyrekcją o biegu."
+            onChange={(e) => { setNotes(e.target.value); lsSet(key, e.target.value); }} />
+        </label>
+        <div className="row wrap">
+          <button className="btn sm primary" onClick={() => sum.mutate()} disabled={sum.isPending || !q.data}>
+            {sum.isPending ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+            {cfg.data?.assistant ? (final?.key === key ? ' Podsumuj jeszcze raz' : ' Dodaj podsumowanie') : ' Dodaj moje uwagi'}
+          </button>
+          {final?.key === key && <button className="btn sm ghost" onClick={() => setFinal(null)}>Bez podsumowania</button>}
+          <span className="soft small grow">{cfg.data?.assistant
+            ? 'Asystent przejdzie po rozmowach, zadaniach i wydarzeniach z okresu i napisze krótkie podsumowanie — z Twoimi uwagami.'
+            : 'Twoje uwagi trafią na górę raportu.'} Raport jest po angielsku.</span>
+        </div>
       </div>
-      {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : <pre className="report">{q.data!.text}</pre>}
+      <div className="divider" />
+      <div className="row wrap" style={{ padding: '12px 20px' }}>
+        <span className="grow" />
+        <button className="btn sm" disabled={!text} onClick={() => { copyText(text!); toast('Skopiowano raport'); }}><Copy size={14} /> Kopiuj</button>
+        <a className="btn sm" href={text ? `mailto:?subject=${encodeURIComponent('B2B weekly report')}&body=${encodeURIComponent(text)}` : undefined}><Send size={14} /> Wyślij</a>
+      </div>
+      {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : <pre className="report">{text}</pre>}
     </section>
   );
 }

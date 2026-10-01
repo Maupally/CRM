@@ -2,7 +2,7 @@ import type { DB, Q, Row } from './db.js';
 import { nowIso } from './db.js';
 import {
   STAGES, TYPES, RESULTS, COUNTED, CLOSED_STAGES, EVENT_STATUS, TASK_STATUS, DEFAULT_SEGMENT, STAGE_LABEL,
-  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task,
+  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material, type Person, type Style,
   txt, longTxt, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
   fillTemplate, isoDay,
 } from '../shared/domain.js';
@@ -61,8 +61,32 @@ SELECT l.*,
      AND a.result IN ('reached', 'done') AND a.type <> 'Note') AS last_logged
 FROM crm.leads l`;
 
-const TASK_SQL = `SELECT t.*, e.title AS event_title, e.date AS event_date FROM crm.tasks t
-  LEFT JOIN crm.events e ON e.id = t.event_id`;
+const TASK_SQL = `SELECT t.*, e.title AS event_title, e.date AS event_date, l.company AS company,
+  p.name AS person_name, p.role AS person_role, p.email AS person_email, p.phone AS person_phone FROM crm.tasks t
+  LEFT JOIN crm.events e ON e.id = t.event_id
+  LEFT JOIN crm.leads l ON l.id = t.lead_id
+  LEFT JOIN crm.people p ON p.id = t.person_id`;
+
+/** Emails keep their subject in its own field; a "Temat: …" first line is lifted out of the body. */
+function cleanMaterial(m: Partial<Material>): Material {
+  let body = longTxt(m.body);
+  let subject = txt(m.subject);
+  const head = body.match(/^\s*(temat|subject)\s*:\s*(.+)\n+/i);
+  if (head) { subject = subject || txt(head[2]); body = body.slice(head[0].length).trim(); }
+  const out: Material = { title: txt(m.title), body };
+  if (subject) out.subject = subject;
+  if (txt(m.to)) out.to = txt(m.to);
+  return out;
+}
+
+function parseMaterials(raw: unknown): Material[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(String(raw));
+    return Array.isArray(v) ? v.filter((m) => m && (m.title || m.body)).map(cleanMaterial) : [];
+  } catch { return []; }
+}
+const parseIds = (raw: unknown): number[] => String(raw || '').split(',').map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0);
 
 export class Crm {
   /**
@@ -482,7 +506,8 @@ export class Crm {
     const [planned, leads, tasks, events, done, week] = await Promise.all([
       this.activities({ open: true, to: addDays(t, 7) }),
       this.listLeads(),
-      this.q.all(TASK_SQL + ` WHERE t.status <> 'done' AND t.due <> '' AND t.due <= ? ORDER BY t.due`, [addDays(t, 3)]),
+      this.q.all(TASK_SQL + ` WHERE (t.status <> 'done' AND t.due <> '' AND t.due <= ?) OR (t.status = 'done' AND t.completed = ?)
+        ORDER BY t.due`, [addDays(t, 7), t]),
       this.q.all(`SELECT * FROM crm.events WHERE date BETWEEN ? AND ? AND status <> 'cancelled' ORDER BY date, time`,
         [t, addDays(t, 30)]),
       this.q.get(`SELECT COUNT(*) AS n, COUNT(DISTINCT lead_id) AS c FROM crm.activities
@@ -505,7 +530,8 @@ export class Crm {
       upcoming: planned.filter((r) => r.date > t),
       queue,
       pipeline,
-      tasks: tasks.map((r) => this.toTask(r)),
+      tasks: tasks.map((r) => this.toTask(r)).filter((x) => x.status !== 'done'),
+      tasksDoneToday: tasks.filter((r) => r.status === 'done').length,
       events: events.map((e) => this.toEvent(e)),
       doneToday: { activities: Number(done!.n), companies: Number(done!.c) },
       doneWeek: { activities: Number(week!.n), companies: Number(week!.c) },
@@ -651,13 +677,68 @@ export class Crm {
     return { ok: true };
   }
 
+  /* ============================================================= people */
+
+  private toPerson(r: Row): Person {
+    return {
+      id: Number(r.id), name: r.name, role: r.role, email: r.email, phone: r.phone, aliases: r.aliases,
+      notes: r.notes, contacts: Number(r.contacts) || 0, lastContact: r.last_contact,
+    };
+  }
+
+  /** Most contacted first: the people the user deals with every week float to the top. */
+  async listPeople(): Promise<Person[]> {
+    return (await this.q.all('SELECT * FROM crm.people ORDER BY contacts DESC, name')).map((r) => this.toPerson(r));
+  }
+
+  async getPerson(id: number): Promise<Person> {
+    const r = await this.q.get('SELECT * FROM crm.people WHERE id = ?', [id]);
+    if (!r) throw notFound(`Nie ma osoby ${id} w zespole.`);
+    return this.toPerson(r);
+  }
+
+  async savePerson(d: Partial<Person>): Promise<Person> {
+    const name = txt(d.name);
+    const id = Number(d.id) || 0;
+    const cur = id ? await this.getPerson(id) : null;
+    const v = {
+      name: name || cur?.name || '', role: txt(d.role ?? cur?.role), email: normEmail(d.email ?? cur?.email ?? ''),
+      phone: txt(d.phone ?? cur?.phone), aliases: txt(d.aliases ?? cur?.aliases), notes: longTxt(d.notes ?? cur?.notes),
+    };
+    if (!v.name) throw bad('Podaj imię i nazwisko.');
+    if (cur) {
+      await this.q.run('UPDATE crm.people SET name=?, role=?, email=?, phone=?, aliases=?, notes=? WHERE id = ?',
+        [v.name, v.role, v.email, v.phone, v.aliases, v.notes, id]);
+      return this.getPerson(id);
+    }
+    const r = await this.q.get(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`, [v.name, v.role, v.email, v.phone, v.aliases, v.notes, nowIso()]);
+    return this.getPerson(Number(r!.id));
+  }
+
+  async deletePerson(id: number) {
+    if (!(await this.q.run('DELETE FROM crm.people WHERE id = ?', [id]))) throw notFound(`Nie ma osoby ${id}.`);
+    await this.q.run('UPDATE crm.tasks SET person_id = 0 WHERE person_id = ?', [id]);
+    return { ok: true };
+  }
+
+  /** Counts a message or finished task for someone, so frequent contacts come first. */
+  async touchPerson(id: number) {
+    await this.q.run('UPDATE crm.people SET contacts = contacts + 1, last_contact = ? WHERE id = ?', [this.today(), id]);
+    return this.getPerson(id);
+  }
+
   /* ============================================================= tasks */
 
   private toTask(r: Row): Task {
     return {
       id: r.id, eventId: r.event_id, task: r.task, owner: r.owner, due: r.due, status: r.status,
-      notes: r.notes, completed: r.completed,
+      notes: r.notes, completed: r.completed, leadId: r.lead_id || '',
+      materials: parseMaterials(r.materials), attachments: parseIds(r.attachments),
+      personId: Number(r.person_id) || 0,
+      ...(r.person_name ? { person: { name: r.person_name, role: r.person_role || '', email: r.person_email || '', phone: r.person_phone || '' } } : {}),
       ...(r.event_title !== undefined ? { eventTitle: r.event_title || '', eventDate: r.event_date || '' } : {}),
+      ...(r.company ? { company: r.company } : {}),
     };
   }
 
@@ -670,30 +751,49 @@ export class Crm {
     return this.toTask((await this.q.get(TASK_SQL + ' WHERE t.id = ?', [id]))!);
   }
 
+  /**
+   * Create or update a task. Omitted fields keep their current value, so the assistant
+   * can e.g. only move the due date or only add materials.
+   */
   async saveTask(d: Partial<Task>): Promise<Task> {
-    const task = longTxt(d.task);
+    const id = txt(d.id);
+    const cur = id ? await this.q.get('SELECT * FROM crm.tasks WHERE id = ?', [id]) : undefined;
+    if (id && !cur) throw notFound(`Nie ma zadania ${id}.`);
+    const pick = <T>(v: T | undefined, fallback: T) => (v === undefined ? fallback : v);
+
+    const task = longTxt(pick(d.task, cur?.task ?? ''));
     if (!task) throw bad('Opisz zadanie.');
-    const status = txt(d.status) || 'todo';
+    const status = txt(pick(d.status, cur?.status ?? 'todo')) || 'todo';
     if (!(TASK_STATUS as readonly string[]).includes(status)) throw bad(`Nieznany status: ${status}`);
-    const due = txt(d.due) ? this.checkDate(txt(d.due), 'data') : '';
-    const eventId = txt(d.eventId);
+    const dueRaw = txt(pick(d.due, cur?.due ?? ''));
+    const due = dueRaw ? this.checkDate(dueRaw, 'data') : '';
+    const eventId = txt(pick(d.eventId, cur?.event_id ?? ''));
     if (eventId && !(await this.q.get('SELECT 1 FROM crm.events WHERE id = ?', [eventId]))) {
       throw notFound(`Nie ma wydarzenia ${eventId}.`);
     }
-    const id = txt(d.id);
-    if (id) {
-      const cur = await this.q.get('SELECT * FROM crm.tasks WHERE id = ?', [id]);
-      if (!cur) throw notFound(`Nie ma zadania ${id}.`);
+    const leadId = txt(pick(d.leadId, cur?.lead_id ?? ''));
+    if (leadId) await this.leadRow(leadId);
+    const materials = d.materials !== undefined
+      ? JSON.stringify(d.materials.filter((m) => m && (m.title || m.body)).map(cleanMaterial))
+      : (cur?.materials ?? '');
+    const attachments = d.attachments !== undefined ? d.attachments.map(Number).filter((n) => n > 0).join(',') : (cur?.attachments ?? '');
+    const owner = txt(pick(d.owner, cur?.owner ?? '')) || this.owner;
+    const notes = longTxt(pick(d.notes, cur?.notes ?? ''));
+    const personId = Number(pick(d.personId, Number(cur?.person_id) || 0)) || 0;
+    if (personId) await this.getPerson(personId);
+
+    if (cur) {
       const completed = status === 'done' ? (cur.completed || this.today()) : '';
-      await this.q.run(`UPDATE crm.tasks SET event_id=?, task=?, owner=?, due=?, status=?, notes=?, completed=?
-        WHERE id = ?`, [eventId, task, txt(d.owner) || this.owner, due, status, longTxt(d.notes), completed, id]);
+      await this.q.run(`UPDATE crm.tasks SET event_id=?, lead_id=?, task=?, owner=?, due=?, status=?, notes=?, completed=?,
+        materials=?, attachments=?, person_id=? WHERE id = ?`, [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, personId, id]);
+      if (status === 'done' && cur.status !== 'done' && personId) await this.touchPerson(personId);
       return this.taskById(id);
     }
     const newId = await this.tx(async (c) => {
       const nid = await c.nextCode('tasks', 'TS');
-      await c.q.run(`INSERT INTO crm.tasks (id, event_id, task, owner, due, status, notes, completed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, task, txt(d.owner) || c.owner, due, status,
-        longTxt(d.notes), status === 'done' ? c.today() : '']);
+      await c.q.run(`INSERT INTO crm.tasks (id, event_id, lead_id, task, owner, due, status, notes, completed, materials, attachments, person_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, leadId, task, owner, due, status, notes,
+        status === 'done' ? c.today() : '', materials, attachments, personId]);
       return nid;
     });
     return this.taskById(newId);
@@ -704,6 +804,7 @@ export class Crm {
     if (!cur) throw notFound(`Nie ma zadania ${id}.`);
     const next = cur.status === 'done' ? 'todo' : 'done';
     await this.q.run('UPDATE crm.tasks SET status = ?, completed = ? WHERE id = ?', [next, next === 'done' ? this.today() : '', id]);
+    if (next === 'done' && Number(cur.person_id)) await this.touchPerson(Number(cur.person_id));
     return this.taskById(id);
   }
 
@@ -817,6 +918,22 @@ export class Crm {
       groups.get(k)!.push(r);
     }
     return [...groups.values()];
+  }
+
+  /** How the assistant writes: general instructions, B2B emails, and relaxed messages (parents, teachers). */
+  async style(): Promise<Style> {
+    const rows = await this.q.all(`SELECT key, value FROM crm.settings WHERE key IN ('style.project', 'style.b2b', 'style.casual')`);
+    const v = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    return { project: v['style.project'] || '', b2b: v['style.b2b'] || '', casual: v['style.casual'] || '' };
+  }
+
+  async saveStyle(d: Partial<Style>): Promise<Style> {
+    for (const k of ['project', 'b2b', 'casual'] as const) {
+      if (d[k] === undefined) continue;
+      await this.q.run(`INSERT INTO crm.settings (key, value) VALUES (?, ?)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [`style.${k}`, longTxt(d[k]).slice(0, 60_000)]);
+    }
+    return this.style();
   }
 
   async config() {

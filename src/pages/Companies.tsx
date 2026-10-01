@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Download, X, Building2 } from 'lucide-react';
+import { Plus, X, Building2, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { DateChips, ReasonPicker } from '../components/ActivityForms';
 import {
@@ -9,7 +9,7 @@ import {
 } from '../components/ui';
 import { STAGES, CLOSED_STAGES, searchKey, type Lead } from '../../shared/domain';
 
-type ViewId = 'wszystkie' | 'kolejka' | 'wgrze' | 'zalegle' | 'bezkroku' | 'partnerzy' | 'bezkontaktu' | 'odrzucone';
+type ViewId = 'wszystkie' | 'kolejka' | 'wgrze' | 'zalegle' | 'bezkroku' | 'partnerzy' | 'bezkontaktu';
 const IN_PLAY = ['contacting', 'scheduled visit', 'negotiation'];
 const open = (l: Lead) => !CLOSED_STAGES.includes(l.stage);
 
@@ -20,8 +20,7 @@ const VIEWS: { id: ViewId; label: string; test: (l: Lead, today: string) => bool
   { id: 'zalegle', label: 'Zaległe follow-upy', test: (l, t) => !!l.nextContact && l.nextContact < t, sort: 'next' },
   { id: 'bezkroku', label: 'Bez następnego kroku', test: (l) => IN_PLAY.includes(l.stage) && !l.openCount, sort: 'last' },
   { id: 'partnerzy', label: 'Partnerzy', test: (l) => l.stage === 'active', sort: 'company' },
-  { id: 'bezkontaktu', label: 'Bez danych kontaktowych', test: (l) => open(l) && !l.phone && !l.email, sort: 'company' },
-  { id: 'odrzucone', label: 'Odrzucone', test: (l) => l.stage === 'disqualified', sort: 'last' },
+  { id: 'bezkontaktu', label: 'Bez kontaktu', test: (l) => open(l) && !l.phone && !l.email, sort: 'company' },
 ];
 
 type SortKey = 'priority' | 'company' | 'city' | 'stage' | 'next' | 'last';
@@ -35,6 +34,7 @@ export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
   const [limit, setLimit] = useState(100);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<'' | 'stage' | 'segment' | 'plan'>('');
+  const [showFilters, setShowFilters] = useState(false);
 
   const viewId = (sp.get('widok') || 'wszystkie') as ViewId;
   const view = VIEWS.find((v) => v.id === viewId) || VIEWS[0];
@@ -103,7 +103,6 @@ export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
       <div className="page-head">
         <div><h1>Firmy</h1><div className="sub">{q.data!.length} w bazie</div></div>
         <span className="spacer" />
-        <a className="btn hide-sm" href="/api/export.xlsx"><Download size={16} /> Eksport</a>
         <button className="btn primary" onClick={onAdd}><Plus size={16} /> Dodaj firmę</button>
       </div>
 
@@ -117,23 +116,30 @@ export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
           ))}
         </div>
         <div className="toolbar">
-          <input type="search" placeholder="Szukaj: nazwa, miasto, osoba, notatki, telefon…" value={f.q} onChange={(e) => set({ q: e.target.value })} />
-          <select value={f.stage} onChange={(e) => set({ etap: e.target.value })}>
-            <option value="">Każdy etap</option>
-            {STAGES.map((s) => <option key={s} value={s}>{stageLabel(s)}</option>)}
-          </select>
-          <select value={f.segment} onChange={(e) => set({ segment: e.target.value })}>
-            <option value="">Każdy segment</option>
-            {cfg.data?.segments.map((s) => <option key={s.name} value={s.name}>{s.name} ({s.leads})</option>)}
-          </select>
-          <select value={f.city} onChange={(e) => set({ miasto: e.target.value })}>
-            <option value="">Każde miasto</option>
-            {cities.map((c) => <option key={c}>{c}</option>)}
-          </select>
+          <input type="search" placeholder="Szukaj firmy, osoby, telefonu…" value={f.q} onChange={(e) => set({ q: e.target.value })} />
+          <button className={`btn sm ${showFilters || f.stage || f.segment || f.city ? 'primary' : ''}`} onClick={() => setShowFilters((v) => !v)}>
+            <SlidersHorizontal size={14} /> Filtry{[f.stage, f.segment, f.city].filter(Boolean).length ? ` (${[f.stage, f.segment, f.city].filter(Boolean).length})` : ''}
+          </button>
           {filtered && <button className="btn ghost sm" onClick={() => set({ q: '', etap: '', segment: '', miasto: '' })}><X size={14} /> Wyczyść</button>}
           <span className="grow" />
-          <span className="soft small">{rows.length} wyników</span>
+          <span className="soft small">{rows.length}</span>
         </div>
+        {(showFilters || f.stage || f.segment || f.city) && (
+          <div className="toolbar" style={{ paddingTop: 0 }}>
+            <select value={f.stage} onChange={(e) => set({ etap: e.target.value })}>
+              <option value="">Każdy etap</option>
+              {STAGES.map((s) => <option key={s} value={s}>{stageLabel(s)}</option>)}
+            </select>
+            <select value={f.segment} onChange={(e) => set({ segment: e.target.value })}>
+              <option value="">Każdy segment</option>
+              {cfg.data?.segments.map((s) => <option key={s.name} value={s.name}>{s.name} ({s.leads})</option>)}
+            </select>
+            <select value={f.city} onChange={(e) => set({ miasto: e.target.value })}>
+              <option value="">Każde miasto</option>
+              {cities.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* desktop: table */}
         <div className="table-wrap hide-sm">
@@ -143,11 +149,8 @@ export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
                 <th className="chk"><input type="checkbox" checked={allSel} onChange={() => setSel(allSel ? new Set() : new Set(shown.map((l) => l.id)))} aria-label="Zaznacz wszystkie" /></th>
                 {th('company', 'Firma')}
                 {th('stage', 'Etap')}
-                <th>Segment</th>
-                {th('city', 'Miasto')}
-                <th>Telefon</th>
-                {th('last', 'Ostatni kontakt')}
                 {th('next', 'Następny krok')}
+                {th('last', 'Ostatni kontakt')}
                 {th('priority', 'Prio', 'num')}
               </tr>
             </thead>
@@ -158,17 +161,14 @@ export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
                   <td className="chk" onClick={(e) => { e.stopPropagation(); toggle(l.id); }}>
                     <input type="checkbox" checked={sel.has(l.id)} readOnly aria-label="Zaznacz" />
                   </td>
-                  <td style={{ maxWidth: 360 }}>
+                  <td style={{ maxWidth: 440 }}>
                     <div className="row"><Avatar name={l.company} size="sm" />
                       <div className="grow"><div className="trunc" style={{ fontWeight: 600 }}>{l.company}</div>
-                        {l.person && <div className="trunc small soft">{l.person}</div>}</div></div>
+                        <div className="trunc small soft">{[l.city, l.segment, l.person].filter(Boolean).join(' · ') || '—'}</div></div></div>
                   </td>
                   <td><StagePill stage={l.stage} /></td>
-                  <td className="soft small nowrap">{l.segment}</td>
-                  <td className="nowrap">{l.city}</td>
-                  <td className="nowrap mono small">{l.phone || (l.email ? <span className="faint">tylko e-mail</span> : <span className="faint">—</span>)}</td>
-                  <td className="nowrap soft">{l.lastContact ? relDay(l.lastContact, today) : ''}</td>
-                  <td className="nowrap">{l.nextContact ? <DueTag date={l.nextContact} today={today} /> : null}</td>
+                  <td className="nowrap">{l.nextContact ? <DueTag date={l.nextContact} today={today} /> : <span className="faint">—</span>}</td>
+                  <td className="nowrap soft">{l.lastContact ? relDay(l.lastContact, today) : <span className="faint">—</span>}</td>
                   <td className="num"><Prio n={l.priority} /></td>
                 </tr>
               ))}
