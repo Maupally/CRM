@@ -63,6 +63,14 @@ notatkę, daty i treść maila można poprawić przed zapisem. Bez zatwierdzenia
   w prawym dolnym rogu”, „zrób do tego stronę www w HTML”, „streść”. Gotowe pliki wracają w czacie
   i lądują w Bazie wiedzy (podgląd, pobieranie). Rozmowa zostaje po zamknięciu — „Nowa rozmowa” czyści.
 
+## Zespół
+
+**Więcej → Zespół** (`/zespol`): dyrekcja, koordynatorzy, nauczyciele — imię, funkcja, e-mail, telefon
+i jak ich nazywasz („dyrektor”, „Patryk”). Asystent sprawdza tę listę, gdy w poleceniu pada imię
+albo funkcja, i przypina osobę do zadania; gdy kogoś nie zna, proponuje dodanie. W zadaniu widać,
+do kogo jest, z telefonem i mailem. Mail w zadaniu ma osobne pola Do / Temat / Treść (każde do
+skopiowania) i nigdy nie ma stopki. Najczęstsze kontakty są na górze listy.
+
 ## Baza wiedzy
 
 **Więcej → Baza wiedzy** (`/wiedza`). Tu trafia to, co było w projekcie „Maple Bear” w czatach Claude:

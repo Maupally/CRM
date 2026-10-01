@@ -608,3 +608,7 @@ button.plain { background: none; border: 0; padding: 0; color: inherit; font: in
 .project-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px 6px; }
 .project-head .title { font-weight: 600; }
 .bubble .file-card a, .bubble .file-card button { color: var(--ink); }
+
+.copy-field { display: flex; flex-direction: column; gap: 2px; }
+.copy-field .mtext.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person-pick { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }

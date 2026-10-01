@@ -145,6 +145,12 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'get_people',
+    description: 'Zespół i ludzie, z którymi użytkownik pracuje (dyrektor, koordynatorzy, nauczyciele): id, imię i nazwisko, funkcja, e-mail, telefon, ' +
+      'inne nazwy (np. „dyrektor”, „szef”), ile razy do nich pisał. Sprawdź zawsze, gdy w poleceniu pada imię lub funkcja osoby.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'get_my_day',
     description: 'Zadania użytkownika: zaległe, na dziś i na najbliższe 7 dni (z activity_id), plus co już zrobiono dziś.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
@@ -245,12 +251,18 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
           type: 'array',
           items: {
             type: 'object',
-            properties: { title: { type: 'string', description: 'np. „Post na Facebooka”, „Mail do rodziców”, „Tekst dla nauczycieli”' }, body: { type: 'string' } },
+            properties: {
+              title: { type: 'string', description: 'np. „Post na Facebooka”, „Mail do dyrektora”, „Tekst dla nauczycieli”' },
+              subject: { type: 'string', description: 'TYLKO dla maila: temat. Nigdy nie wpisuj tematu w body.' },
+              to: { type: 'string', description: 'Dla maila do kogoś spoza Zespołu: adres e-mail' },
+              body: { type: 'string', description: 'Sama treść, gotowa do wklejenia. Bez linii „Temat:” i BEZ stopki/podpisu.' },
+            },
             required: ['title', 'body'],
             additionalProperties: false,
           },
         },
         attachments: { type: 'array', items: { type: 'integer' }, description: 'ID z Bazy wiedzy' },
+        person_id: { type: 'string', description: 'Do kogo (id z get_people albo tymczasowe OS1 z save_person)' },
       },
       required: ['task'],
       additionalProperties: false,
@@ -270,14 +282,31 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
           type: 'array',
           items: {
             type: 'object',
-            properties: { title: { type: 'string' }, body: { type: 'string' } },
+            properties: { title: { type: 'string' }, subject: { type: 'string' }, to: { type: 'string' }, body: { type: 'string' } },
             required: ['title', 'body'],
             additionalProperties: false,
           },
         },
         add_attachments: { type: 'array', items: { type: 'integer' } },
+        person_id: { type: 'string', description: 'Do kogo (id z get_people albo OS1)' },
       },
       required: ['task_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'save_person',
+    description: 'PROPOZYCJA dodania osoby do Zespołu albo uzupełnienia jej danych (gdy podasz id). Nowa osoba dostaje tymczasowe id OS1, ' +
+      'którego możesz użyć jako person_id w create_task.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id istniejącej osoby (tylko przy zmianie)' },
+        name: { type: 'string' }, role: { type: 'string', description: 'np. Dyrektor szkoły, Koordynator wydarzeń' },
+        email: { type: 'string' }, phone: { type: 'string' },
+        aliases: { type: 'string', description: 'jak użytkownik ją nazywa, np. „dyrektor, Patryk”' },
+        notes: { type: 'string' },
+      },
       additionalProperties: false,
     },
   },
@@ -482,7 +511,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
  * tools and the code sandbox, and a deeper think. Quick requests skip all of that.
  */
 const WRITE_VERB = /\b(napisz|napisa[cć]|przygotuj(?! mnie)|przygotow(a[cć]|ani[ea])|zredaguj|stw[oó]rz|wygeneruj|popraw (ten |t[eę] )?(tekst|post|mail|tre[sś][cć])|przer[oó]b)/i;
-const CONTENT_NOUN = /tekst|post(a|y|u)?\b|zaprosze|og[lł]oszeni|ulotk|plakat|stron[aęy]\b|\bwww\b|html|\bqr\b|pdf|gotowc|materia[lł]|baz[aeiy] wiedzy|ofert|prezentacj|\bsms|newsletter|kampani|do (wszystkich )?(szk[oó][lł]|przedszk|rodzic|nauczyciel)/i;
+const CONTENT_NOUN = /\bmail|tekst|post(a|y|u)?\b|zaprosze|og[lł]oszeni|ulotk|plakat|stron[aęy]\b|\bwww\b|html|\bqr\b|pdf|gotowc|materia[lł]|baz[aeiy] wiedzy|ofert|prezentacj|\bsms|newsletter|kampani|do (wszystkich )?(szk[oó][lł]|przedszk|rodzic|nauczyciel)/i;
 /** "we sent the invitations", "tick it off" — reporting done work, not asking for new content */
 const DONE = /\b(odhacz|zrobion|zrobi[lł]|wys[lł]a[lł]|wys[lł]ali|opublikowa|ju[zż]\b|gotowe\b|przesu[nń]|zamknij)/i;
 
@@ -523,13 +552,15 @@ Zasady:
 - Relacja z rozmowy (dłuższa wypowiedź „rozmawiałem z…, powiedzieli, że…”): wyciągnij z niej wszystko, co warto zapisać — log_activity ze skrótem (co ustalono, obiekcje, terminy), osobę decyzyjną i dane kontaktowe przez update_company, trwałe fakty o firmie przez add_note, następny krok jako follow_up. Jeśli padło zobowiązanie wysłania maila, dodaj draft_email.
 - Poranny briefing („co dziś”, „briefing”, „od czego zacząć”): użyj get_briefing. Powiedz najpierw ile jest zadań i ile zaległych, potem w kolejności ważności (zaległe, spotkania, telefony) po jednym zdaniu na firmę: kto, po co, co było ostatnio. Na koniec wydarzenia w najbliższych dniach, jeśli są. Maksymalnie ok. 10 pozycji — resztę podsumuj liczbą.
 - Pytania o bazę („które…”, „ile…”, „kto…”): użyj query_companies i odpowiedz liczbą plus kilkoma przykładami. Gdy użytkownik chce coś zrobić z tą grupą, użyj plan_many albo pojedynczych propozycji.
-- Mail („wyślij im…”, „napisz do…”): draft_email na podstawie pasującego szablonu (get_templates) i kontekstu rozmowy. Link do kalendarza weź z szablonu. Podpis: imię użytkownika, Maple Bear Katowice.
+- Mail („wyślij im…”, „napisz do…”): draft_email na podstawie pasującego szablonu (get_templates) i kontekstu rozmowy. Link do kalendarza weź z szablonu. Bez podpisu i stopki — użytkownik ma stopkę w poczcie.
 - Zdjęcie wizytówki / stoiska / notatki: odczytaj z obrazu firmę, osobę, stanowisko, telefon, e-mail, stronę, miasto. Sprawdź find_companies — gdy firmy nie ma, create_company (segment dobierz do branży, gdy to oczywiste); gdy jest, update_company tylko z nowymi danymi.
 - Raport („zrób raport”): get_report i oddaj tekst raportu w całości; jeśli użytkownik chce coś dopisać, dopisz to w odpowiednim miejscu raportu. Zmiany w wydarzeniach (np. „bieg potwierdzony”) zaproponuj też przez update_event (ID z get_events).
 - Poprawki i dopowiedzenia („popraw datę na środę”, „i jeszcze dopisz, że…”): każda nowa wiadomość zastępuje wszystkie niezatwierdzone propozycje, więc zaproponuj od nowa CAŁY zestaw — poprzednie akcje z poprawkami plus nowe.
 - Zadania i projekty: wydarzenia (Bieg, Dzień otwarty…) to projekty z listą zadań. „Wrzuć mi na dziś…”, „muszę przygotować…” → create_task w odpowiednim wydarzeniu (event_id z get_events) z terminem. Gdy zadanie to przygotowanie treści — nie odkładaj tego: od razu napisz gotowe materiały (materials) na podstawie Bazy wiedzy i podepnij pliki (attachments), np. plakat. „Zrobione”, „przesuń na jutro”, „co mi zostało w projekcie X” → get_tasks + update_task. Zadań nie wpisuj w notatki wydarzenia.
 - Teksty dla nauczycieli/rodziców/szkół: gotowe do wysłania dalej bez poprawek — z datą, godziną, miejscem, linkiem/zapisami z materiałów. Gdy brakuje faktu (np. linku zapisów), zostaw widoczne pole [link do zapisów] i powiedz o tym.
 - Mail do grupy firm (szkoły, przedszkola, klienci z bazy) → draft_campaign. Mail do jednej firmy → draft_email.
+- Ludzie (dyrektor, Patryk, koordynatorka…): gdy w poleceniu pada imię albo funkcja, sprawdź get_people i ustaw person_id w zadaniu. Gdy osoby nie ma w Zespole — zaproponuj save_person (z tym, co wiesz) i użyj OS1 jako person_id; jeśli nie znasz e-maila ani telefonu, napisz krótko, że trzeba je uzupełnić.
+- Zadanie typu „wyślij maila do…”: materiał-mail ma temat w polu subject, a w body samą treść gotową do wklejenia. Nigdy nie pisz „Temat:” w treści. Nigdy nie dodawaj stopki ani podpisu (użytkownik ma ją w poczcie) — kończ na ostatnim zdaniu treści lub zwrocie typu „Pozdrawiam”.
 - Pliki: użytkownik może dołączyć plik do wiadomości (dostaniesz go i jest w $INPUT_DIR). Kod QR na PDF/plakat → stamp_qr. Sam kod QR → make_qr. Strona www / landing → napisz kompletny HTML i save_file. Inne przeróbki plików, wykresy, tabele, dokumenty Word/Excel/PowerPoint → code_execution; pliki wynikowe zapisuj w $OUTPUT_DIR (trafią do Bazy wiedzy). Na koniec krótko powiedz, co powstało.
 - Poza ściągą do rozmowy, briefingiem, raportem i przygotowanymi treściami odpowiadaj 1–2 krótkimi zdaniami po polsku. Szczegóły propozycji użytkownik widzi na kartach — nie powtarzaj ich. Na pytania o dane odpowiadaj zwięźle, bez tabel.
 
@@ -937,13 +968,19 @@ export class Assistant {
       return JSON.stringify(hits.map((h) => ({ id: h.id, title: h.title, file: h.filename || undefined, type: h.mime || 'notatka',
         description: h.description || undefined, snippet: h.snippet })));
     }
+    if (name === 'get_people') {
+      const people = await this.crm.listPeople();
+      if (!people.length) return 'Zespół jest pusty — nikt nie został jeszcze dodany.';
+      return JSON.stringify(people.map((p) => ({ id: String(p.id), name: p.name, role: p.role || undefined, email: p.email || undefined,
+        phone: p.phone || undefined, aliases: p.aliases || undefined, notes: p.notes || undefined, contacts: p.contacts })));
+    }
     if (name === 'get_tasks') {
       const all = await this.crm.listTasks();
       const st = input.status || 'open';
       return JSON.stringify(all.filter((t) => (!input.event_id || t.eventId === input.event_id) && (!input.lead_id || t.leadId === input.lead_id) &&
         (st === 'all' || (st === 'done' ? t.status === 'done' : t.status !== 'done'))).slice(0, 80)
         .map((t) => ({ task_id: t.id, task: t.task, due: t.due || null, status: t.status, event: t.eventTitle || undefined,
-          event_id: t.eventId || undefined, company: t.company || undefined, materials: t.materials.map((m) => m.title),
+          event_id: t.eventId || undefined, company: t.company || undefined, person: t.person?.name, materials: t.materials.map((m) => m.title),
           attachments: t.attachments.length || undefined })));
     }
     if (name === 'get_my_day') {
@@ -1129,6 +1166,7 @@ export class Assistant {
         lines.push([where, input.due ? `termin ${WD[weekday(input.due)]} ${shortDate(input.due)}` : 'bez terminu'].filter(Boolean).join(' · '));
         const mats = Array.isArray(input.materials) ? input.materials : [];
         if (mats.length) lines.push(`Gotowe materiały: ${mats.map((m: Input) => m.title).join(', ')}`);
+        if (input.person_id) lines.push(`Do: ${await this.personName(txt(input.person_id), pending)}`);
         for (const id of input.attachments || []) {
           const k = await this.kb.get(Number(id)).catch(() => null);
           if (!k) throw new Error(`Nie ma materiału ${id} w Bazie wiedzy.`);
@@ -1146,6 +1184,7 @@ export class Assistant {
         if (input.task) lines.push(`Opis → ${input.task}`);
         if (input.add_materials?.length) lines.push(`Nowe materiały: ${input.add_materials.map((m: Input) => m.title).join(', ')}`);
         if (input.add_attachments?.length) lines.push(`Nowe załączniki: ${input.add_attachments.length}`);
+        if (input.person_id) lines.push(`Do: ${await this.personName(txt(input.person_id), pending)}`);
         if (t.eventTitle) lines.push(`Projekt: ${t.eventTitle}`);
         break;
       }
@@ -1166,6 +1205,28 @@ export class Assistant {
         input = { ...input, lead_ids: who.map((l) => l.id), emails: who.map((l) => normEmail(l.email)), mail_enabled: mailEnabled() };
         break;
       }
+      case 'save_person': {
+        if (input.id) {
+          const p = await this.crm.getPerson(Number(input.id)).catch(() => null);
+          if (!p) throw new Error(`Nie ma osoby ${input.id} — sprawdź get_people.`);
+          title = `Zespół: uzupełnij ${p.name}`;
+          for (const [k, label] of [['name', 'Imię'], ['role', 'Funkcja'], ['email', 'E-mail'], ['phone', 'Telefon'], ['aliases', 'Nazywany']] as const) {
+            if (txt(input[k])) lines.push(`${label} → ${txt(input[k])}`);
+          }
+          break;
+        }
+        if (!txt(input.name)) throw new Error('Podaj imię (i nazwisko) osoby.');
+        const ref = `OS${[...pending.keys()].filter((k) => k.startsWith('OS')).length + 1}`;
+        pending.set(ref, txt(input.name));
+        input = { ...input, ref };
+        title = `Zespół: dodaj ${txt(input.name)}`;
+        for (const [k, label] of [['role', 'Funkcja'], ['email', 'E-mail'], ['phone', 'Telefon'], ['aliases', 'Nazywany']] as const) {
+          if (txt(input[k])) lines.push(`${label}: ${txt(input[k])}`);
+        }
+        if (!txt(input.email) && !txt(input.phone)) warnings.push('Brak e-maila i telefonu — uzupełnij na karcie albo później w Zespole.');
+        out.push({ key: ref, tool: name, input, title, lines, warnings });
+        return `Propozycja przygotowana; tymczasowe id osoby: ${ref}.`;
+      }
       case 'change_stage': {
         const company = await this.companyName(txt(input.id), pending);
         title = `Etap: ${company}`;
@@ -1179,6 +1240,26 @@ export class Assistant {
     const key = `P${out.length + 1}`;
     out.push({ key, tool: name, input, title, lines, warnings });
     return 'Propozycja przygotowana — użytkownik ją zatwierdzi.';
+  }
+
+  private async personName(ref: string, pending: Map<string, string>) {
+    if (/^OS\d+$/.test(ref)) {
+      if (!pending.has(ref)) throw new Error(`Nie ma propozycji osoby ${ref}.`);
+      return `${pending.get(ref)} (nowa osoba w Zespole)`;
+    }
+    const p = await this.crm.getPerson(Number(ref)).catch(() => null);
+    if (!p) throw new Error(`Nie ma osoby ${ref} w Zespole — sprawdź get_people albo zaproponuj save_person.`);
+    return [p.name, p.role, p.email, p.phone].filter(Boolean).join(' · ');
+  }
+
+  private personRef(ref: unknown, ids: Map<string, string>): number {
+    const r = txt(ref);
+    if (!r) return 0;
+    if (/^OS\d+$/.test(r)) {
+      if (!ids.has(r)) throw new Error('Najpierw zatwierdź dodanie tej osoby do Zespołu.');
+      return Number(ids.get(r));
+    }
+    return Number(r) || 0;
   }
 
   /* ---------------------------------------------------------- execute */
@@ -1264,9 +1345,17 @@ export class Assistant {
             leadId = undefined; message = `Zmieniono wydarzenie: ${saved.title}`;
             break;
           }
+          case 'save_person': {
+            const p = await crm.savePerson({ id: Number(input.id) || undefined, name: input.name, role: input.role, email: input.email,
+              phone: input.phone, aliases: input.aliases, notes: input.notes });
+            if (input.ref) ids.set(input.ref, String(p.id));
+            leadId = undefined; message = `Zespół: ${p.name}`;
+            break;
+          }
           case 'create_task': {
             const t = await crm.saveTask({ task: input.task, due: input.due || '', eventId: input.event_id || '', leadId: input.lead_id || '',
-              notes: input.notes || '', materials: input.materials || [], attachments: input.attachments || [] });
+              notes: input.notes || '', materials: input.materials || [], attachments: input.attachments || [],
+              personId: this.personRef(input.person_id, ids) });
             leadId = t.leadId || undefined; message = `Dodano zadanie: ${t.task}`;
             break;
           }
@@ -1274,6 +1363,7 @@ export class Assistant {
             const cur = (await crm.listTasks()).find((x) => x.id === input.task_id);
             if (!cur) throw new Error(`Nie ma zadania ${input.task_id}.`);
             const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task,
+              personId: input.person_id ? this.personRef(input.person_id, ids) : undefined,
               materials: input.add_materials?.length ? [...cur.materials, ...input.add_materials] : undefined,
               attachments: input.add_attachments?.length ? [...new Set([...cur.attachments, ...input.add_attachments.map(Number)])] : undefined });
             leadId = undefined; message = t.status === 'done' ? `Odhaczono: ${t.task}` : `Zmieniono: ${t.task}`;

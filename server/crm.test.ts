@@ -133,6 +133,23 @@ describe('Crm', () => {
     await crm.deleteEvent(e.id);
     expect(await crm.listTasks()).toHaveLength(0);
   });
+
+  it('keeps people, ties tasks to them and keeps an email subject out of the body', async () => {
+    const p = await crm.savePerson({ name: 'Patryk Nowak', role: 'Dyrektor', email: 'Patryk@Szkola.pl', aliases: 'dyrektor' });
+    expect(p.email).toBe('patryk@szkola.pl');
+    const t = await crm.saveTask({ task: 'Wyślij dyrektorowi plan biegu', due: '2026-09-25', personId: p.id,
+      materials: [{ title: 'Mail do dyrektora', body: 'Temat: Plan biegu\n\nDzień dobry,\nprzesyłam plan.' }] });
+    expect(t.person).toMatchObject({ name: 'Patryk Nowak', email: 'patryk@szkola.pl' });
+    expect(t.materials[0]).toEqual({ title: 'Mail do dyrektora', subject: 'Plan biegu', body: 'Dzień dobry,\nprzesyłam plan.' });
+
+    // overdue project tasks reach the dashboard; ticking one off counts a contact with the person
+    expect((await crm.dashboard()).tasks.map((x) => x.id)).toContain(t.id);
+    await crm.toggleTask(t.id);
+    expect((await crm.getPerson(p.id)).contacts).toBe(1);
+    expect((await crm.dashboard()).tasksDoneToday).toBe(1);
+    await crm.deletePerson(p.id);
+    expect((await crm.listTasks()).find((x) => x.id === t.id)!.personId).toBe(0);
+  });
 });
 
 describe('import from the sheet', () => {

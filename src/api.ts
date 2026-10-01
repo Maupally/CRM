@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -60,6 +60,7 @@ export interface Dashboard {
   queue: Lead[];
   pipeline: Record<string, number>;
   tasks: Task[];
+  tasksDoneToday: number;
   events: CrmEvent[];
   doneToday: { activities: number; companies: number };
   doneWeek: { activities: number; companies: number };
@@ -144,6 +145,10 @@ export const api = {
   saveEvent: (d: Partial<CrmEvent>) => post<CrmEvent>('/events', d),
   deleteEvent: (id: string) => del(`/events/${id}`),
   tasks: () => get<Task[]>('/tasks'),
+  people: () => get<Person[]>('/people'),
+  savePerson: (d: Partial<Person>) => post<Person>('/people', d),
+  deletePerson: (id: number) => del(`/people/${id}`),
+  touchPerson: (id: number) => post<Person>(`/people/${id}/touch`),
   saveTask: (d: Partial<Task>) => post<Task>('/tasks', d),
   toggleTask: (id: string) => post<Task>(`/tasks/${id}/toggle`),
   deleteTask: (id: string) => del(`/tasks/${id}`),

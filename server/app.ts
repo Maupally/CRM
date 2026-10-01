@@ -107,6 +107,7 @@ export function createApp(o: AppOptions) {
   api.get('/report', async (c) => c.json(await (await crm()).report(c.req.query('from'), c.req.query('to'))));
   api.get('/events', async (c) => c.json(await (await crm()).listEvents()));
   api.get('/tasks', async (c) => c.json(await (await crm()).listTasks()));
+  api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
   api.get('/segments', async (c) => c.json(await (await crm()).listSegments()));
   api.get('/templates', async (c) => c.json(await (await crm()).listTemplates()));
   api.get('/duplicates', async (c) => c.json(await (await crm()).duplicates()));
@@ -136,6 +137,9 @@ export function createApp(o: AppOptions) {
   api.post('/tasks', async (c) => c.json(await (await crm()).saveTask(await body(c))));
   api.post('/tasks/:id/toggle', async (c) => c.json(await (await crm()).toggleTask(c.req.param('id'))));
   api.delete('/tasks/:id', async (c) => c.json(await (await crm()).deleteTask(c.req.param('id'))));
+  api.post('/people', async (c) => c.json(await (await crm()).savePerson(await body(c))));
+  api.delete('/people/:id', async (c) => c.json(await (await crm()).deletePerson(Number(c.req.param('id')))));
+  api.post('/people/:id/touch', async (c) => c.json(await (await crm()).touchPerson(Number(c.req.param('id')))));
 
   /* ---- playbook */
   api.post('/segments', async (c) => c.json(await (await crm()).saveSegment(await body(c))));
