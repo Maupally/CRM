@@ -4,6 +4,7 @@ import { Upload, StickyNote, Trash2, Download, ExternalLink, Sparkles, BookOpen 
 import { api } from '../api';
 import { FileCard, fileUrl } from '../components/Files';
 import { openAssistant } from '../components/Assistant';
+import { ClaudeImport } from '../components/ClaudeImport';
 import { Empty, ErrorBox, Loading, Modal, useAction, useToast } from '../components/ui';
 import { searchKey, type KnowledgeItem } from '../../shared/domain';
 
@@ -13,6 +14,7 @@ export function KnowledgePage() {
   const [find, setFind] = useState('');
   const [open, setOpen] = useState<KnowledgeItem | null>(null);
   const [note, setNote] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const qc = useAction(async (files: File[]) => {
@@ -43,6 +45,7 @@ export function KnowledgePage() {
       <div className="page-head">
         <div><h1>Baza wiedzy</h1><div className="sub">Plakaty, prezentacje, gotowe teksty, oferta — asystent z tego korzysta, gdy pisze i przygotowuje zadania.</div></div>
         <span className="spacer" />
+        <button className="btn" onClick={() => setImporting(true)}><Download size={16} /> Przenieś z Claude</button>
         <button className="btn" onClick={() => setNote(true)}><StickyNote size={16} /> Notatka</button>
         <button className="btn primary" onClick={() => input.current?.click()} disabled={busy}><Upload size={16} /> {busy ? 'Wgrywam…' : 'Wgraj pliki'}</button>
         <input ref={input} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.csv,.html,image/*" onChange={(e) => { upload(e.target.files); e.target.value = ''; }} />
@@ -84,6 +87,7 @@ export function KnowledgePage() {
 
       <ItemSheet item={open} onClose={() => setOpen(null)} />
       <NoteSheet open={note} onClose={() => setNote(false)} />
+      <ClaudeImport open={importing} onClose={() => setImporting(false)} />
     </>
   );
 }

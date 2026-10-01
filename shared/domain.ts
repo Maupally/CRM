@@ -179,6 +179,9 @@ export interface Material {
   to?: string;
 }
 
+/** Writing guidance moved over from the Claude project: general rules, B2B emails, relaxed messages. */
+export interface Style { project: string; b2b: string; casual: string }
+
 /** Someone the user works with — the director, a colleague, a teacher. */
 export interface Person {
   id: number;

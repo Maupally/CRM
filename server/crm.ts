@@ -2,7 +2,7 @@ import type { DB, Q, Row } from './db.js';
 import { nowIso } from './db.js';
 import {
   STAGES, TYPES, RESULTS, COUNTED, CLOSED_STAGES, EVENT_STATUS, TASK_STATUS, DEFAULT_SEGMENT, STAGE_LABEL,
-  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material, type Person,
+  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material, type Person, type Style,
   txt, longTxt, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
   fillTemplate, isoDay,
 } from '../shared/domain.js';
@@ -918,6 +918,22 @@ export class Crm {
       groups.get(k)!.push(r);
     }
     return [...groups.values()];
+  }
+
+  /** How the assistant writes: general instructions, B2B emails, and relaxed messages (parents, teachers). */
+  async style(): Promise<Style> {
+    const rows = await this.q.all(`SELECT key, value FROM crm.settings WHERE key IN ('style.project', 'style.b2b', 'style.casual')`);
+    const v = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    return { project: v['style.project'] || '', b2b: v['style.b2b'] || '', casual: v['style.casual'] || '' };
+  }
+
+  async saveStyle(d: Partial<Style>): Promise<Style> {
+    for (const k of ['project', 'b2b', 'casual'] as const) {
+      if (d[k] === undefined) continue;
+      await this.q.run(`INSERT INTO crm.settings (key, value) VALUES (?, ?)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [`style.${k}`, longTxt(d[k]).slice(0, 60_000)]);
+    }
+    return this.style();
   }
 
   async config() {

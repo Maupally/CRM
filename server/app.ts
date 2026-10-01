@@ -122,6 +122,12 @@ export function createApp(o: AppOptions) {
     const proto = c.req.header('x-forwarded-proto') || u.protocol.replace(':', '');
     return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}` });
   });
+  api.get('/style', async (c) => c.json(await (await crm()).style()));
+  api.put('/style', async (c) => c.json(await (await crm()).saveStyle(await body(c))));
+  api.post('/style/learn', async (c) => {
+    const d = await body<{ ids?: number[]; mode?: string }>(c);
+    return c.json({ text: await new Assistant(await crm()).learnStyle((d.ids || []).map(Number), d.mode === 'casual' ? 'casual' : d.mode === 'project' ? 'project' : 'b2b') });
+  });
   api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
   api.get('/segments', async (c) => c.json(await (await crm()).listSegments()));
   api.get('/templates', async (c) => c.json(await (await crm()).listTemplates()));

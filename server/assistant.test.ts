@@ -266,6 +266,20 @@ describe('knowledge base, files and project tasks', () => {
   });
 });
 
+describe('writing style', () => {
+  it('passes the user style from the Claude project into the prompt', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-09-28');
+    await crm.saveStyle({ b2b: 'Krótko, per Pan/Pani, zawsze konkretna propozycja spotkania.' });
+    const a = new Assistant(crm, 'test-key');
+    const fake = fakeClient([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }] }]);
+    (a as any).client = fake;
+    await a.ask('napisz maila do Armady');
+    expect(fake.requests[0].system[1].text).toContain('per Pan/Pani');
+    expect(fake.requests[0].system[1].cache_control).toEqual({ type: 'ephemeral' });
+  });
+});
+
 describe('web lookups', () => {
   it('gives the assistant web search, without the code sandbox, for an unknown address', async () => {
     const db = await openDb('memory://');

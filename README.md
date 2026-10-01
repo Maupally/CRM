@@ -63,12 +63,17 @@ notatkę, daty i treść maila można poprawić przed zapisem. Bez zatwierdzenia
   w prawym dolnym rogu”, „zrób do tego stronę www w HTML”, „streść”. Gotowe pliki wracają w czacie
   i lądują w Bazie wiedzy (podgląd, pobieranie). Rozmowa zostaje po zamknięciu — „Nowa rozmowa” czyści.
 
-## Czat Claude (konektor)
+## Przeniesienie z Claude i styl pisania
 
-**Ustawienia → Czat Claude**: adres konektora (tajny, zmienia się razem z hasłem). W claude.ai:
-Ustawienia → Konektory → Dodaj własny konektor → wklej adres. Potem w czacie lub w projekcie
-„Maple Bear” włącz „CRM” w narzędziach — Claude z całą wiedzą projektu czyta i zapisuje w CRM
-(zadania z gotowymi mailami, notatki, rozmowy, zespół). Serwer MCP: `server/mcp.ts`, `/api/mcp/<token>`.
+Wszystko dzieje się w Lumo. Wiedzę z projektu „Maple Bear” przenosisz raz:
+1. claude.ai → Ustawienia → Prywatność → **Eksportuj dane**; z maila pobierz plik .zip.
+2. **Baza wiedzy → Przenieś z Claude** → wybierz plik, zaznacz projekt i czaty (B2B, conversation,
+   templates). Plik czyta przeglądarka; do CRM trafiają tylko zaznaczone rzeczy: dokumenty projektu,
+   jego instrukcje, rozmowy (jako notatki) i artefakty HTML (jako narzędzia, np. kalkulator).
+3. **Ustawienia → Styl pisania → Ucz się z czatów**: asystent czyta wybrane rozmowy i zapisuje
+   zasady pisania — osobno maile B2B i rozmowy swobodne (rodzice, nauczyciele).
+
+(Dodatkowo `/api/mcp/<token>` to konektor MCP dla claude.ai — opcjonalny, nieużywany w UI.)
 
 ## Internet
 

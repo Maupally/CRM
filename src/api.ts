@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -145,6 +145,9 @@ export const api = {
   saveEvent: (d: Partial<CrmEvent>) => post<CrmEvent>('/events', d),
   deleteEvent: (id: string) => del(`/events/${id}`),
   tasks: () => get<Task[]>('/tasks'),
+  style: () => get<Style>('/style'),
+  saveStyle: (d: Partial<Style>) => req<Style>('PUT', '/style', d),
+  learnStyle: (ids: number[], mode: keyof Style) => post<{ text: string }>('/style/learn', { ids, mode }),
   people: () => get<Person[]>('/people'),
   savePerson: (d: Partial<Person>) => post<Person>('/people', d),
   deletePerson: (id: number) => del(`/people/${id}`),
