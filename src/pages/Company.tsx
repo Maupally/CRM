@@ -175,6 +175,33 @@ function History({ activities, lead, today }: { activities: Activity[]; lead: Le
   );
 }
 
+/** A history entry: the first line always shows; a mail or a long note opens to its full text. */
+function NoteBody({ note, mail }: { note: string; mail: boolean }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const nl = note.indexOf('\n');
+  const head = nl > -1 ? note.slice(0, nl) : note;
+  const rest = nl > -1 ? note.slice(nl + 1).trim() : '';
+  const long = !!rest || head.length > 180;
+  if (!long) return <div className="note">{note}</div>;
+  return (
+    <div className="note-wrap">
+      <button className={`note-head plain ${open ? 'open' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className={open ? '' : 'clamp2'}>{mail ? <b>{head.replace(/^Mail(\s*\([^)]*\))?:\s*/, '')}</b> : head}</span>
+        <ChevronDown size={15} className="faint chev" />
+      </button>
+      {open && (
+        <>
+          {rest && <div className="note">{rest}</div>}
+          <div className="row" style={{ gap: 4, marginTop: 4 }}>
+            <button className="btn sm ghost" onClick={() => { copyText(mail ? rest || head : note); toast('Skopiowano'); }}><Copy size={13} /> Kopiuj{mail ? ' treść' : ''}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function TimelineRow({ a, today }: { a: Activity; today: string }) {
   const [edit, setEdit] = useState(false);
   const [note, setNote] = useState(a.note);
@@ -211,7 +238,7 @@ function TimelineRow({ a, today }: { a: Activity; today: string }) {
               <span>{relDay(a.date, today)}</span>
               {a.stageTo && <span className="row" style={{ gap: 4 }}><StagePill stage={a.stageFrom} /> → <StagePill stage={a.stageTo} /></span>}
             </div>
-            {a.note && <div className="note">{a.note}</div>}
+            {a.note && <NoteBody note={a.note} mail={a.type === 'Email'} />}
           </>
         )}
       </div>

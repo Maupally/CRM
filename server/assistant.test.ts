@@ -168,7 +168,7 @@ describe('assistant: groups, mail, events, photos', () => {
     const done = await as.execute(r.proposals.map((p) => ({ tool: p.tool, input: p.input })));
     expect(done.results.every((x) => x.ok)).toBe(true);
     expect((await crm.getLead(a2.id)).nextContact).toBe('2026-10-06');
-    expect((await crm.leadCard(a1.id)).activities.some((x) => x.type === 'Email' && x.note === 'Mail: Współpraca')).toBe(true);
+    expect((await crm.leadCard(a1.id)).activities.some((x) => x.type === 'Email' && x.note.startsWith('Mail: Współpraca') && x.note.split('\n\n').length > 1)).toBe(true);
     const saved = (await crm.listEvents()).find((e) => e.id === ev.id)!;
     expect(saved).toMatchObject({ status: 'confirmed', notes: 'Potwierdzone przez organizatora.' });
     await db.close();

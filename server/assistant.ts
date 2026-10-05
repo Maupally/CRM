@@ -1408,7 +1408,9 @@ export class Assistant {
             break;
           }
           case 'draft_email': {
-            const c = await crm.logActivity(input.id, { type: 'Email', result: 'done', note: `Mail: ${txt(input.subject)}` });
+            // the whole mail goes into the history, so the company card shows what was actually sent
+            const head = `Mail: ${txt(input.subject) || '(bez tematu)'}${txt(input.to) ? ` — do ${txt(input.to)}` : ''}`;
+            const c = await crm.logActivity(input.id, { type: 'Email', result: 'done', note: [head, longTxt(input.body)].filter(Boolean).join('\n\n') });
             message = `Mail zapisany w historii: ${c.lead.company}`;
             break;
           }

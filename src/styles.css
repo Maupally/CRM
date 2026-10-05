@@ -614,3 +614,11 @@ button.plain { background: none; border: 0; padding: 0; color: inherit; font: in
 .person-pick { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .preview-frame.tall { height: min(75vh, 900px); }
+
+.note-wrap { margin-top: 3px; }
+.note-head { display: flex; align-items: flex-start; gap: 6px; width: 100%; text-align: left; }
+.note-head > span { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+.note-head .chev { flex: none; margin-top: 3px; transition: transform .15s; }
+.note-head.open .chev { transform: rotate(180deg); }
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note-wrap .note { margin-top: 6px; padding: 10px 12px; background: var(--paper); border-radius: 12px; }

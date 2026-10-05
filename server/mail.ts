@@ -68,7 +68,7 @@ export async function sendCampaign(db: DB, crm: Crm, kb: Knowledge, c: Campaign)
       [campaign, id, email, personalSubject, ok ? 'sent' : 'failed', error, nowIso()]);
     if (ok) {
       sent.add(email);
-      await crm.logActivity(id, { type: 'Email', result: 'done', note: `Mail (${campaign}): ${personalSubject}` });
+      await crm.logActivity(id, { type: 'Email', result: 'done', note: `Mail (${campaign}): ${personalSubject}\n\n${personalBody}` });
     }
     results.push({ leadId: id, email, ok, error: error || undefined });
     await new Promise((r) => setTimeout(r, 150));     // stay well under Resend's rate limit
