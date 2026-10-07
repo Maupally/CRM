@@ -349,6 +349,16 @@ describe('connector for Claude chats', () => {
     expect(seen.last).toMatchObject({ tool: 'log_chat', ok: false });
     expect(seen.badUrl).toMatchObject({ tool: 'tools/call' });
 
+    // the network: a new name gets saved at once, pinned to the event, and found later by what they do
+    const ev = await crm.saveEvent({ title: 'Bieg', date: '2026-10-10' });
+    expect((await call(30, 'save_person', { name: 'Marta', kind: 'external', role: 'Animatorka', services: 'animacje dla dzieci',
+      event_id: ev.id, event_role: 'animacje' })).isError).toBeUndefined();
+    expect((await call(31, 'get_events', {})).text).toContain('Marta');
+    const help = JSON.parse((await call(32, 'find_help', { need: 'animacje na piknik' })).text);
+    expect(help.people[0]).toMatchObject({ name: 'Marta', kind: 'external' });
+    expect(help.people[0].past_events[0]).toContain('animacje');
+    expect((await call(33, 'link_person_event', { person_id: help.people[0].id, event_id: 'EV-9999' })).isError).toBe(true);
+
     // B2C progress from claude.ai
     expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
     expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');

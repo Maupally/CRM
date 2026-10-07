@@ -11,7 +11,9 @@ import { Assistant } from './assistant.js';
 export const mcpToken = (secret: string) => createHmac('sha256', secret).update('mcp-connector').digest('hex').slice(0, 32);
 
 const INSTRUCTIONS = `CRM Martina (Maple Bear Katowice, partnerstwa B2B, wydarzenia, zespół).
-- Zanim coś zapiszesz dla firmy, znajdź ją (find_companies). Ludzie z zespołu (dyrektor, Patryk…) → get_people.
+- Zanim coś zapiszesz dla firmy, znajdź ją (find_companies). Ludzie (dyrektor, Patryk, dostawcy, animatorzy…) → get_people.
+- Buduj siatkę ludzi na bieżąco: gdy pada imię, którego nie ma w get_people, od razu zapisz tę osobę (save_person: kind team/external, rola, firma, services = co robi/zapewnia, event_id gdy chodzi o wydarzenie) — nie czekaj na telefon czy e-mail, o kontakt dopytaj w tej samej odpowiedzi i dopisz go później (save_person z id). Gdy ktoś pomaga przy wydarzeniu — przypnij go (link_person_event z rolą).
+- Przy planowaniu wydarzenia rozbij je na potrzeby (animacje, druk z logo, sprzęt, catering, promocja…) i dla każdej sprawdź find_help — podsuń konkretne osoby i firmy z siatki, z tym, co robili wcześniej. Czego nikt nie pokrywa — powiedz wprost i zapytaj, kogo użytkownik zna.
 - Każde narzędzie zapisujące od razu zmienia dane w CRM — opisz użytkownikowi, co zapisujesz.
 - Gotowe maile zapisuj jako materiały zadania (create_task / update_task): temat w polu subject, w body sama treść, bez linii „Temat:” i bez stopki/podpisu. Adresata ustaw przez person_id (osoba z Zespołu) albo pole to (e-mail).
 - Postępy B2C (rodzice, rekrutacja): b2c_status; gdy użytkownik mówi, ile zrobił → b2c_progress.

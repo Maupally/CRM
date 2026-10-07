@@ -206,6 +206,13 @@ export function createApp(o: AppOptions) {
       d.mode === 'casual' ? 'casual' : d.mode === 'project' ? 'project' : 'b2b', (d.chats || []).map(Number)) });
   });
   api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
+  api.get('/events/:id/people', async (c) => c.json(await (await crm()).eventPeople(c.req.param('id'))));
+  api.post('/events/:id/people', async (c) => {
+    const d = await body<{ personId?: number; role?: string }>(c);
+    return c.json(await (await crm()).linkPersonEvent(c.req.param('id'), Number(d.personId), d.role || ''));
+  });
+  api.delete('/events/:id/people/:pid', async (c) => c.json(await (await crm()).unlinkPersonEvent(c.req.param('id'), num(c.req.param('pid')))));
+  api.get('/help', async (c) => c.json(await (await crm()).findHelp(c.req.query('q') || '')));
 
   /* ---- B2C progress */
   const b2c = async () => { const k = await crm(); return new B2c(k.db, () => k.today()); };

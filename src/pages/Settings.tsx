@@ -302,6 +302,8 @@ function StyleSettings() {
 const PROJECT_RULES = `Masz podłączony Opal5 — mój CRM (konektor „Opal5”). Zasady:
 1. Zanim napiszesz do firmy, sprawdź ją w CRM (find_companies, get_company), żeby znać historię kontaktu.
 2. Gdy ustalimy coś z firmą albo coś zrobię (telefon, mail, spotkanie), zapisz to w CRM (log_activity, add_note), a następny krok zaplanuj (plan_activity, create_task).
+2a. Buduj moją siatkę ludzi: gdy pada nowe imię (np. animatorka Marta, Marcin z Event 360), od razu zapisz osobę w Opal5 (save_person: kto to, firma, co robi/zapewnia, przy jakim wydarzeniu), a o telefon i e-mail dopytaj. Kto pomaga przy wydarzeniu — przypnij go (link_person_event).
+2b. Gdy planuję wydarzenie, rozbij je na potrzeby (animacje, druk z logo, sprzęt, catering, promocja) i dla każdej sprawdź find_help — podsuń, kto i która firma to załatwi, na podstawie wcześniejszych wydarzeń.
 3. Maile do wysłania zapisuj jako materiał zadania: temat osobno, treść bez stopki i podpisu, adresat z Zespołu (get_people).
 4. „Co mam dziś?” → get_my_day.
 5. B2C: gdy powiem, ile zrobiłem (np. „zadzwoniłem do 5 rodziców”), dopisz to w Opal5 (b2c_progress). Pytany o postępy B2C — sprawdź b2c_status.`;

@@ -57,6 +57,9 @@ export interface AssistantReply {
   savedTo?: { id: number; title: string };
 }
 
+const PERSON_FIELDS = [['name', 'Imię'], ['role', 'Funkcja'], ['company', 'Firma'], ['services', 'Robi / zapewnia'], ['email', 'E-mail'],
+  ['phone', 'Telefon'], ['aliases', 'Nazywany']] as const;
+
 /* ------------------------------------------------------------------ tools */
 
 const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
@@ -269,9 +272,16 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: 'get_people',
-    description: 'Zespół i ludzie, z którymi użytkownik pracuje (dyrektor, koordynatorzy, nauczyciele): id, imię i nazwisko, funkcja, e-mail, telefon, ' +
-      'inne nazwy (np. „dyrektor”, „szef”), ile razy do nich pisał. Sprawdź zawsze, gdy w poleceniu pada imię lub funkcja osoby.',
+    description: 'Ludzie użytkownika: Zespół szkoły (dyrektor, koordynatorzy, nauczyciele) i kontakty zewnętrzne (dostawcy, animatorzy, ludzie z firm): ' +
+      'id, imię, funkcja, firma, co robią/zapewniają (services), e-mail, telefon, inne nazwy, przy jakich wydarzeniach pomagali. ' +
+      'Sprawdź zawsze, gdy w poleceniu pada imię lub funkcja osoby.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'find_help',
+    description: 'Kto może pomóc z potrzebą („animacje dla dzieci”, „druk z logo”, „namiot”, „catering”): ludzie z siatki użytkownika i firmy z CRM, ' +
+      'dopasowani po tym, co robią, firmie i wcześniejszych wydarzeniach. Używaj przy planowaniu wydarzeń — dla każdej potrzeby osobno.',
+    input_schema: { type: 'object', properties: { need: { type: 'string' } }, required: ['need'], additionalProperties: false },
   },
   {
     name: 'get_my_day',
@@ -419,16 +429,23 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: 'save_person',
-    description: 'PROPOZYCJA dodania osoby do Zespołu albo uzupełnienia jej danych (gdy podasz id). Nowa osoba dostaje tymczasowe id OS1, ' +
-      'którego możesz użyć jako person_id w create_task.',
+    description: 'PROPOZYCJA dodania osoby (z Zespołu szkoły albo kontaktu zewnętrznego: dostawca, animator, człowiek z firmy) albo uzupełnienia jej danych (gdy podasz id). ' +
+      'Zapisuj od razu z tym, co wiadomo — kontakt można dopisać później. Z event_id od razu przypina ją do wydarzenia. ' +
+      'Nowa osoba dostaje tymczasowe id OS1, którego możesz użyć jako person_id w create_task.',
     input_schema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'id istniejącej osoby (tylko przy zmianie)' },
-        name: { type: 'string' }, role: { type: 'string', description: 'np. Dyrektor szkoły, Koordynator wydarzeń' },
+        name: { type: 'string' }, role: { type: 'string', description: 'np. Dyrektor szkoły, Animatorka, Właściciel wypożyczalni' },
+        kind: { type: 'string', enum: ['team', 'external'], description: 'team — ktoś ze szkoły; external — z zewnątrz' },
+        company: { type: 'string', description: 'firma, np. Event 360' },
+        lead_id: { type: 'string', description: 'id tej firmy w CRM, jeśli jest (find_companies)' },
+        services: { type: 'string', description: 'co robi / zapewnia, po przecinku: „ławy, stoły, namioty”, „animacje dla dzieci, malowanie twarzy”' },
         email: { type: 'string' }, phone: { type: 'string' },
         aliases: { type: 'string', description: 'jak użytkownik ją nazywa, np. „dyrektor, Patryk”' },
         notes: { type: 'string' },
+        event_id: { type: 'string', description: 'wydarzenie, przy którym pomaga (EV-…)' },
+        event_role: { type: 'string', description: 'co robi przy tym wydarzeniu, np. „animacje”' },
       },
       additionalProperties: false,
     },
@@ -613,6 +630,16 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         add_note: { type: 'string', description: 'Tekst dopisywany do notatek wydarzenia' },
       },
       required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'link_person_event',
+    description: 'PROPOZYCJA przypięcia osoby (z get_people) do wydarzenia z tym, co tam robi — buduje historię, kto pomagał przy jakich wydarzeniach.',
+    input_schema: {
+      type: 'object',
+      properties: { person_id: { type: 'string' }, event_id: { type: 'string' }, role: { type: 'string', description: 'np. animacje, ławy i stoły, druk' } },
+      required: ['person_id', 'event_id'],
       additionalProperties: false,
     },
   },
@@ -1428,8 +1455,11 @@ export class Assistant {
     }
     if (name === 'get_events') {
       const [events, tasks] = await Promise.all([this.crm.listEvents(), this.crm.listTasks()]);
-      return JSON.stringify(events.filter((e) => e.date >= addDays(this.crm.today(), -30)).map((e) => ({
+      const recent = events.filter((e) => e.date >= addDays(this.crm.today(), -30));
+      const people = new Map(await Promise.all(recent.map(async (e) => [e.id, await this.crm.eventPeople(e.id)] as const)));
+      return JSON.stringify(recent.map((e) => ({
         id: e.id, title: e.title, type: e.type, date: e.date, time: e.time, location: e.location, status: e.status, notes: e.notes,
+        people: people.get(e.id)?.length ? people.get(e.id)!.map((p) => `${p.name} (id ${p.personId})${p.role ? ` — ${p.role}` : ''}`) : undefined,
         open_tasks: tasks.filter((t2) => t2.eventId === e.id && t2.status !== 'done').map((t2) => ({ task_id: t2.id, task: t2.task, due: t2.due })),
       })));
     }
@@ -1445,8 +1475,15 @@ export class Assistant {
     if (name === 'get_people') {
       const people = await this.crm.listPeople();
       if (!people.length) return 'Zespół jest pusty — nikt nie został jeszcze dodany.';
-      return JSON.stringify(people.map((p) => ({ id: String(p.id), name: p.name, role: p.role || undefined, email: p.email || undefined,
-        phone: p.phone || undefined, aliases: p.aliases || undefined, notes: p.notes || undefined, contacts: p.contacts })));
+      return JSON.stringify(people.map((p) => ({ id: String(p.id), name: p.name, kind: p.kind, role: p.role || undefined,
+        company: p.company || undefined, lead_id: p.leadId || undefined, services: p.services || undefined, email: p.email || undefined,
+        phone: p.phone || undefined, aliases: p.aliases || undefined, notes: p.notes || undefined, contacts: p.contacts,
+        events: p.events.length ? p.events.map((e) => `${e.eventId} ${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) : undefined })));
+    }
+    if (name === 'find_help') {
+      const r = await this.crm.findHelp(String(input.need || ''));
+      if (!r.people.length && !r.companies.length) return 'Nikt w siatce ani w CRM nie pasuje. Zapytaj użytkownika, kogo zna, i zapisz tę osobę (save_person z services).';
+      return JSON.stringify(r);
     }
     if (name === 'get_tasks') {
       const all = await this.crm.listTasks();
@@ -1684,22 +1721,28 @@ export class Assistant {
           const p = await this.crm.getPerson(Number(input.id)).catch(() => null);
           if (!p) throw new Error(`Nie ma osoby ${input.id} — sprawdź get_people.`);
           title = `Zespół: uzupełnij ${p.name}`;
-          for (const [k, label] of [['name', 'Imię'], ['role', 'Funkcja'], ['email', 'E-mail'], ['phone', 'Telefon'], ['aliases', 'Nazywany']] as const) {
-            if (txt(input[k])) lines.push(`${label} → ${txt(input[k])}`);
-          }
+          for (const [k, label] of PERSON_FIELDS) if (txt(input[k])) lines.push(`${label} → ${txt(input[k])}`);
+          await this.eventLine(input, lines);
           break;
         }
         if (!txt(input.name)) throw new Error('Podaj imię (i nazwisko) osoby.');
         const ref = `OS${[...pending.keys()].filter((k) => k.startsWith('OS')).length + 1}`;
         pending.set(ref, txt(input.name));
         input = { ...input, ref };
-        title = `Zespół: dodaj ${txt(input.name)}`;
-        for (const [k, label] of [['role', 'Funkcja'], ['email', 'E-mail'], ['phone', 'Telefon'], ['aliases', 'Nazywany']] as const) {
-          if (txt(input[k])) lines.push(`${label}: ${txt(input[k])}`);
-        }
+        title = `${input.kind === 'external' ? 'Kontakty' : 'Zespół'}: dodaj ${txt(input.name)}`;
+        for (const [k, label] of PERSON_FIELDS.slice(1)) if (txt(input[k])) lines.push(`${label}: ${txt(input[k])}`);
+        await this.eventLine(input, lines);
         if (!txt(input.email) && !txt(input.phone)) warnings.push('Brak e-maila i telefonu — uzupełnij na karcie albo później w Zespole.');
         out.push({ key: ref, tool: name, input, title, lines, warnings });
         return `Propozycja przygotowana; tymczasowe id osoby: ${ref}.`;
+      }
+      case 'link_person_event': {
+        const who = await this.personName(txt(input.person_id), pending);
+        const e = (await this.crm.listEvents()).find((x) => x.id === txt(input.event_id));
+        if (!e) throw new Error(`Nie ma wydarzenia ${input.event_id} — sprawdź get_events.`);
+        title = `Wydarzenie ${e.title}: ${who.split(' · ')[0]}`;
+        if (txt(input.role)) lines.push(`Robi: ${txt(input.role)}`);
+        break;
       }
       case 'change_stage': {
         const company = await this.companyName(txt(input.id), pending);
@@ -1714,6 +1757,13 @@ export class Assistant {
     const key = `P${out.length + 1}`;
     out.push({ key, tool: name, input, title, lines, warnings });
     return 'Propozycja przygotowana — użytkownik ją zatwierdzi.';
+  }
+
+  private async eventLine(input: Input, lines: string[]) {
+    if (!txt(input.event_id)) return;
+    const e = (await this.crm.listEvents()).find((x) => x.id === txt(input.event_id));
+    if (!e) throw new Error(`Nie ma wydarzenia ${input.event_id} — sprawdź get_events.`);
+    lines.push(`Wydarzenie: ${e.title}${txt(input.event_role) ? ` — ${txt(input.event_role)}` : ''}`);
   }
 
   private async personName(ref: string, pending: Map<string, string>) {
@@ -1823,9 +1873,17 @@ export class Assistant {
           }
           case 'save_person': {
             const p = await crm.savePerson({ id: Number(input.id) || undefined, name: input.name, role: input.role, email: input.email,
-              phone: input.phone, aliases: input.aliases, notes: input.notes });
+              phone: input.phone, aliases: input.aliases, notes: input.notes, kind: input.kind, company: input.company,
+              services: input.services, leadId: input.lead_id });
             if (input.ref) ids.set(input.ref, String(p.id));
+            if (txt(input.event_id)) await crm.linkPersonEvent(txt(input.event_id), p.id, txt(input.event_role));
             leadId = undefined; message = `Zespół: ${p.name} (id osoby ${p.id})`;
+            break;
+          }
+          case 'link_person_event': {
+            const pid = this.personRef(input.person_id, ids);
+            await crm.linkPersonEvent(txt(input.event_id), pid, txt(input.role));
+            leadId = undefined; message = `Przypięto osobę ${pid} do wydarzenia ${input.event_id}`;
             break;
           }
           case 'create_task': {

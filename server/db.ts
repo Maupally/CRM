@@ -195,6 +195,19 @@ CREATE TABLE IF NOT EXISTS crm.people (
   last_contact  TEXT NOT NULL DEFAULT '',
   created_at    TEXT NOT NULL
 );
+-- The network: school team vs outside contacts (suppliers, animators, partners), their company and what they can do.
+ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'team';
+ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
+ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS services TEXT NOT NULL DEFAULT '';
+ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS lead_id TEXT NOT NULL DEFAULT '';
+-- Who did what at which event — so the next event can be planned from experience.
+CREATE TABLE IF NOT EXISTS crm.event_people (
+  event_id      TEXT NOT NULL,
+  person_id     BIGINT NOT NULL,
+  role          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (event_id, person_id)
+);
 
 -- Knowledge base: files and notes the assistant can search and attach.
 CREATE TABLE IF NOT EXISTS crm.knowledge (

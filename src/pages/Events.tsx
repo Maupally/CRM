@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, MapPin, Pencil, Trash2, X, PartyPopper } from 'lucide-react';
+import { Plus, MapPin, Pencil, Trash2, X, PartyPopper, Phone } from 'lucide-react';
 import { api } from '../api';
-import { Empty, ErrorBox, Loading, Modal, relDay, useAction, useToday, weekdayName } from '../components/ui';
+import { Avatar, Empty, ErrorBox, Loading, Modal, relDay, telHref, useAction, useToday, weekdayName } from '../components/ui';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
 import { EVENT_STATUS, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
 
@@ -100,6 +100,7 @@ function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; ta
         {e.cost && <div className="soft">Koszt: {e.cost}</div>}
         {e.notes && <div className="pre">{e.notes}</div>}
       </div>
+      <EventPeople eventId={e.id} />
       <div className="group-label">Checklista · {open.length} otwartych</div>
       <ul className="list">
         {[...open, ...done].map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} />)}
@@ -151,5 +152,42 @@ function EventForm({ value, onClose }: { value: Partial<CrmEvent> | null; onClos
         <label className="field wide">Notatki<textarea rows={3} value={d.notes || ''} onChange={s('notes')} /></label>
       </div>
     </Modal>
+  );
+}
+
+/** Who helps with this event and with what — the history the next event is planned from. */
+function EventPeople({ eventId }: { eventId: string }) {
+  const q = useQuery({ queryKey: ['event-people', eventId], queryFn: () => api.eventPeople(eventId) });
+  const people = useQuery({ queryKey: ['people'], queryFn: api.people });
+  const [pid, setPid] = useState('');
+  const [role, setRole] = useState('');
+  const add = useAction(() => api.linkEventPerson(eventId, Number(pid), role), { onDone: () => { setPid(''); setRole(''); } });
+  const drop = useAction((id: number) => api.unlinkEventPerson(eventId, id));
+  const on = new Set((q.data || []).map((p) => p.personId));
+  return (
+    <>
+      <div className="group-label">Kto pomaga · {q.data?.length || 0}</div>
+      <ul className="list">
+        {(q.data || []).map((p) => (
+          <li key={p.personId} className="li">
+            <Avatar name={p.name} size="sm" />
+            <div className="grow" style={{ minWidth: 0 }}>
+              <Link to={`/zespol?osoba=${p.personId}`} className="title trunc" style={{ display: 'block' }}>{p.name}</Link>
+              <div className="meta trunc">{[p.role, p.company].filter(Boolean).join(' · ') || 'bez roli'}</div>
+            </div>
+            {p.phone && <a className="btn sm icon" href={telHref(p.phone)} aria-label="Zadzwoń"><Phone size={14} /></a>}
+            <button className="btn sm ghost icon" onClick={() => drop.mutate(p.personId)} aria-label="Odepnij"><X size={14} /></button>
+          </li>
+        ))}
+      </ul>
+      <form className="row wrap" style={{ padding: '4px 20px 12px' }} onSubmit={(ev) => { ev.preventDefault(); if (pid) add.mutate(undefined); }}>
+        <select value={pid} onChange={(ev) => setPid(ev.target.value)} style={{ flex: 1, minWidth: 160 }}>
+          <option value="">Dodaj osobę…</option>
+          {(people.data || []).filter((p) => !on.has(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.company ? ` (${p.company})` : ''}</option>)}
+        </select>
+        <input type="text" placeholder="co robi, np. animacje" value={role} onChange={(ev) => setRole(ev.target.value)} style={{ flex: 1, minWidth: 140 }} />
+        <button className="btn" disabled={!pid || add.isPending}>Dodaj</button>
+      </form>
+    </>
   );
 }

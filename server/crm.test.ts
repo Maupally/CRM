@@ -207,3 +207,32 @@ describe('login', () => {
     expect((await locked.request('/api/leads', { headers: { cookie } })).status).toBe(200);
   });
 });
+
+describe('network of people', () => {
+  it('keeps who does what, links them to events and finds help for a need', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const ev = await crm.saveEvent({ title: 'Bieg Terry\'ego Foxa', date: '2026-10-10' });
+    const marta = await crm.savePerson({ name: 'Marta', kind: 'external', role: 'Animatorka', services: 'animacje dla dzieci, malowanie twarzy' });
+    const marcin = await crm.savePerson({ name: 'Marcin', kind: 'external', company: 'Event 360', services: 'ławy, stoły, namioty' });
+    await crm.savePerson({ name: 'Patryk Kundera', role: 'Wicedyrektor', services: 'tatuaże, grafika' });
+    await crm.createLead({ company: 'Drukarnia Logo-Print', city: 'Katowice', industry: 'druk reklamowy, nadruki z logo' });
+
+    await crm.linkPersonEvent(ev.id, marta.id, 'animacje');
+    await crm.linkPersonEvent(ev.id, marcin.id, 'ławy i stoły');
+    await crm.linkPersonEvent(ev.id, marta.id, '');             // again without a role keeps the role
+    expect((await crm.eventPeople(ev.id)).map((p) => `${p.name}:${p.role}`)).toEqual(['Marcin:ławy i stoły', 'Marta:animacje']);
+    expect((await crm.getPerson(marta.id)).events).toEqual([{ eventId: ev.id, title: 'Bieg Terry\'ego Foxa', date: '2026-10-10', role: 'animacje' }]);
+    expect((await crm.getPerson(marcin.id))).toMatchObject({ kind: 'external', company: 'Event 360' });
+
+    const anim = await crm.findHelp('animacje na piknik wielokulturowy');
+    expect(anim.people[0].name).toBe('Marta');
+    expect(anim.people[0].past_events[0]).toContain('Bieg');
+    const print = await crm.findHelp('wydrukować rzeczy z logotypem');
+    expect(print.companies[0].company).toBe('Drukarnia Logo-Print');
+    expect((await crm.findHelp('stoły')).people[0].name).toBe('Marcin');
+
+    await crm.deletePerson(marta.id);
+    expect(await crm.eventPeople(ev.id)).toHaveLength(1);
+  });
+});

@@ -218,7 +218,22 @@ export interface Person {
   /** how many times tasks/emails went to them, and when last */
   contacts: number;
   lastContact: string;
+  /** team = people at the school; external = suppliers, animators, partners' people */
+  kind: PersonKind;
+  /** their firm, e.g. "Event 360" (and its card in Firmy, when it is there) */
+  company: string;
+  leadId: string;
+  /** what they can do or provide: "ławy, stoły, namioty" */
+  services: string;
+  /** events they helped with, newest first */
+  events: PersonEvent[];
 }
+
+export const PERSON_KINDS = ['team', 'external'] as const;
+export type PersonKind = (typeof PERSON_KINDS)[number];
+export const PERSON_KIND_LABEL: Record<PersonKind, string> = { team: 'Zespół szkoły', external: 'Kontakty zewnętrzne' };
+export interface PersonEvent { eventId: string; title: string; date: string; role: string }
+export interface EventPerson { personId: number; name: string; role: string; company: string; phone: string; email: string }
 
 export interface KnowledgeItem {
   id: number;

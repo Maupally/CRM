@@ -2,8 +2,8 @@ import type { DB, Q, Row } from './db.js';
 import { nowIso } from './db.js';
 import {
   STAGES, TYPES, RESULTS, COUNTED, CLOSED_STAGES, EVENT_STATUS, TASK_STATUS, DEFAULT_SEGMENT, STAGE_LABEL,
-  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material, type Person, type Style,
-  txt, longTxt, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
+  type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material, type Person, type PersonEvent, type EventPerson, type Style,
+  txt, longTxt, searchKey, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
   fillTemplate, isoDay,
 } from '../shared/domain.js';
 import { buildReport } from './report.js';
@@ -673,28 +673,93 @@ export class Crm {
       const n = await c.q.run('DELETE FROM crm.events WHERE id = ?', [id]);
       if (!n) throw notFound(`Nie ma wydarzenia ${id}.`);
       await c.q.run('DELETE FROM crm.tasks WHERE event_id = ?', [id]);
+      await c.q.run('DELETE FROM crm.event_people WHERE event_id = ?', [id]);
     });
     return { ok: true };
   }
 
   /* ============================================================= people */
 
-  private toPerson(r: Row): Person {
+  private toPerson(r: Row, events: PersonEvent[] = []): Person {
     return {
       id: Number(r.id), name: r.name, role: r.role, email: r.email, phone: r.phone, aliases: r.aliases,
       notes: r.notes, contacts: Number(r.contacts) || 0, lastContact: r.last_contact,
+      kind: r.kind === 'external' ? 'external' : 'team', company: r.company || '', leadId: r.lead_id || '', services: r.services || '',
+      events,
     };
+  }
+
+  private async personEvents(id?: number): Promise<Map<number, PersonEvent[]>> {
+    const rows = await this.q.all(`SELECT ep.person_id, ep.event_id, ep.role, e.title, e.date FROM crm.event_people ep
+      JOIN crm.events e ON e.id = ep.event_id ${id ? 'WHERE ep.person_id = ?' : ''} ORDER BY e.date DESC`, id ? [id] : []);
+    const m = new Map<number, PersonEvent[]>();
+    for (const r of rows) {
+      const k = Number(r.person_id);
+      m.set(k, [...(m.get(k) || []), { eventId: r.event_id, title: r.title, date: r.date, role: r.role }]);
+    }
+    return m;
   }
 
   /** Most contacted first: the people the user deals with every week float to the top. */
   async listPeople(): Promise<Person[]> {
-    return (await this.q.all('SELECT * FROM crm.people ORDER BY contacts DESC, name')).map((r) => this.toPerson(r));
+    const ev = await this.personEvents();
+    return (await this.q.all('SELECT * FROM crm.people ORDER BY contacts DESC, name')).map((r) => this.toPerson(r, ev.get(Number(r.id))));
   }
 
   async getPerson(id: number): Promise<Person> {
     const r = await this.q.get('SELECT * FROM crm.people WHERE id = ?', [id]);
     if (!r) throw notFound(`Nie ma osoby ${id} w zespole.`);
-    return this.toPerson(r);
+    return this.toPerson(r, (await this.personEvents(id)).get(id));
+  }
+
+  /** Puts someone on an event with what they do there (animacje, ławy i stoły…); again = new role. */
+  async linkPersonEvent(eventId: string, personId: number, role = '') {
+    await this.getPerson(personId);
+    if (!(await this.q.get('SELECT id FROM crm.events WHERE id = ?', [eventId]))) throw notFound(`Nie ma wydarzenia ${eventId}.`);
+    await this.q.run(`INSERT INTO crm.event_people (event_id, person_id, role, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT (event_id, person_id) DO UPDATE SET role = CASE WHEN EXCLUDED.role = '' THEN crm.event_people.role ELSE EXCLUDED.role END`,
+      [eventId, personId, txt(role), nowIso()]);
+    return this.eventPeople(eventId);
+  }
+
+  async unlinkPersonEvent(eventId: string, personId: number) {
+    await this.q.run('DELETE FROM crm.event_people WHERE event_id = ? AND person_id = ?', [eventId, personId]);
+    return this.eventPeople(eventId);
+  }
+
+  async eventPeople(eventId: string): Promise<EventPerson[]> {
+    const rows = await this.q.all(`SELECT p.id, p.name, p.company, p.phone, p.email, ep.role FROM crm.event_people ep
+      JOIN crm.people p ON p.id = ep.person_id WHERE ep.event_id = ? ORDER BY p.name`, [eventId]);
+    return rows.map((r) => ({ personId: Number(r.id), name: r.name, role: r.role, company: r.company, phone: r.phone, email: r.email }));
+  }
+
+  /**
+   * Who can help with a need ("animacje", "druk z logo", "namiot"): people and companies ranked by how well
+   * their services, role, notes and past events match — the user's own network first.
+   */
+  async findHelp(query: string) {
+    // Polish words bend ("wydrukować" ↔ "druk", "logotypem" ↔ "logo"): compare word stems both ways
+    const stem = (w: string) => w.slice(0, Math.max(4, w.length - 2));
+    const tokens = (t: string) => searchKey(t).split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+    const words = tokens(query);
+    if (!words.length) return { people: [], companies: [] };
+    const hit = (q: string, t: string) => t.includes(stem(q)) || q.includes(stem(t));
+    const score = (fields: [string, number][]) => {
+      let s = 0;
+      for (const [text, weight] of fields) { const ts = tokens(text); for (const q of words) if (ts.some((t) => hit(q, t))) s += weight; }
+      return s;
+    };
+    const people = (await this.listPeople()).map((p) => ({ p, s: score([[p.services, 4], [p.role, 3], [p.company, 2], [p.notes, 1],
+      [p.events.map((e) => `${e.role} ${e.title}`).join(' '), 2]]) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8);
+    const companies = (await this.listLeads()).map((l) => ({ l, s: score([[l.company, 3], [l.industry, 3], [l.segment, 2], [l.notes, 1], [l.extra, 1]]) }))
+      .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 6);
+    return {
+      people: people.map(({ p }) => ({ id: String(p.id), name: p.name, kind: p.kind, role: p.role, company: p.company || undefined,
+        services: p.services || undefined, phone: p.phone || undefined, email: p.email || undefined,
+        past_events: p.events.slice(0, 4).map((e) => `${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) })),
+      companies: companies.map(({ l }) => ({ id: l.id, company: l.company, industry: l.industry || undefined, segment: l.segment || undefined,
+        stage: l.stage, city: l.city || undefined, person: l.person || undefined, phone: l.phone || undefined })),
+    };
   }
 
   async savePerson(d: Partial<Person>): Promise<Person> {
@@ -704,21 +769,26 @@ export class Crm {
     const v = {
       name: name || cur?.name || '', role: txt(d.role ?? cur?.role), email: normEmail(d.email ?? cur?.email ?? ''),
       phone: txt(d.phone ?? cur?.phone), aliases: txt(d.aliases ?? cur?.aliases), notes: longTxt(d.notes ?? cur?.notes),
+      kind: (d.kind ?? cur?.kind) === 'external' ? 'external' : 'team', company: txt(d.company ?? cur?.company),
+      services: txt(d.services ?? cur?.services), leadId: txt(d.leadId ?? cur?.leadId),
     };
     if (!v.name) throw bad('Podaj imię i nazwisko.');
+    if (v.leadId && !(await this.q.get('SELECT id FROM crm.leads WHERE id = ?', [v.leadId]))) throw bad(`Nie ma firmy ${v.leadId}.`);
+    const cols = [v.name, v.role, v.email, v.phone, v.aliases, v.notes, v.kind, v.company, v.services, v.leadId];
     if (cur) {
-      await this.q.run('UPDATE crm.people SET name=?, role=?, email=?, phone=?, aliases=?, notes=? WHERE id = ?',
-        [v.name, v.role, v.email, v.phone, v.aliases, v.notes, id]);
+      await this.q.run('UPDATE crm.people SET name=?, role=?, email=?, phone=?, aliases=?, notes=?, kind=?, company=?, services=?, lead_id=? WHERE id = ?',
+        [...cols, id]);
       return this.getPerson(id);
     }
-    const r = await this.q.get(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`, [v.name, v.role, v.email, v.phone, v.aliases, v.notes, nowIso()]);
+    const r = await this.q.get(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, kind, company, services, lead_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, [...cols, nowIso()]);
     return this.getPerson(Number(r!.id));
   }
 
   async deletePerson(id: number) {
     if (!(await this.q.run('DELETE FROM crm.people WHERE id = ?', [id]))) throw notFound(`Nie ma osoby ${id}.`);
     await this.q.run('UPDATE crm.tasks SET person_id = 0 WHERE person_id = ?', [id]);
+    await this.q.run('DELETE FROM crm.event_people WHERE person_id = ?', [id]);
     return { ok: true };
   }
 

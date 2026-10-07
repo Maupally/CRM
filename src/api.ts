@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -168,6 +168,9 @@ export const api = {
   savePerson: (d: Partial<Person>) => post<Person>('/people', d),
   deletePerson: (id: number) => del(`/people/${id}`),
   touchPerson: (id: number) => post<Person>(`/people/${id}/touch`),
+  eventPeople: (id: string) => get<EventPerson[]>(`/events/${id}/people`),
+  linkEventPerson: (id: string, personId: number, role = '') => post<EventPerson[]>(`/events/${id}/people`, { personId, role }),
+  unlinkEventPerson: (id: string, personId: number) => del(`/events/${id}/people/${personId}`),
   b2c: () => get<B2cItem[]>('/b2c'),
   saveB2c: (d: Partial<B2cItem>) => post<B2cItem>('/b2c', d),
   deleteB2c: (id: number) => del(`/b2c/${id}`),
