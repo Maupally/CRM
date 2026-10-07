@@ -6,23 +6,51 @@ import { api } from '../api';
 import { Modal, useToast } from './ui';
 import { searchKey } from '../../shared/domain';
 
-/* claude.ai data export (Settings → Privacy → Export data): a zip with projects.json and conversations.json.
-   Everything is read here in the browser — the export can be large — and only the chosen parts go to the CRM. */
+/* claude.ai data export (Settings → Privacy → Export data). Older exports are one zip with projects.json and
+   conversations.json; newer ones come as several zips (projects-000.zip, conversations-000.zip, design_chats-000.zip,
+   frames-000.zip, memories-000.zip…), possibly with the project files themselves. Everything is read here in the
+   browser — the export can be large — and only the chosen parts go to the CRM. */
 
 interface Doc { filename: string; content: string }
-interface Project { uuid: string; name: string; prompt: string; docs: Doc[] }
+interface Blob_ { name: string; mime: string; data: Uint8Array }
+interface Project { uuid: string; name: string; prompt: string; docs: Doc[]; files: Blob_[] }
 interface Artifact { id: string; title: string; type: string; content: string }
-interface Chat { uuid: string; name: string; date: string; transcript: string; artifacts: Artifact[]; size: number; project: string }
+interface Chat { uuid: string; name: string; date: string; transcript: string; artifacts: Artifact[]; size: number; project: string; design?: boolean }
+interface Parsed { projects: Project[]; chats: Chat[]; tools: Artifact[]; memory: string }
 
 const MAX_NOTE = 190_000;
+const MAX_FILE = 4 * 1024 * 1024;
+const TEXT_EXT = /\.(md|markdown|txt|csv|tsv|json|xml|yaml|yml|js|ts|css|py)$/i;
+const MIME: Record<string, string> = {
+  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', html: 'text/html', htm: 'text/html',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+const base = (path: string) => path.split('/').pop() || path;
 
-function parseProjects(raw: unknown): Project[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((p: any) => ({
-    uuid: String(p.uuid || p.name), name: String(p.name || 'Projekt'), prompt: String(p.prompt_template || p.description || ''),
-    docs: (Array.isArray(p.docs) ? p.docs : []).filter((d: any) => d && d.content)
-      .map((d: any) => ({ filename: String(d.filename || 'dokument'), content: String(d.content) })),
-  }));
+/** Pulls the records out of whatever shape a JSON file has: a list, {conversations: […]}, or one object. */
+function records(v: unknown): any[] {
+  if (Array.isArray(v)) return v.filter((x) => x && typeof x === 'object');
+  if (v && typeof v === 'object') {
+    const lists = Object.values(v).filter((x) => Array.isArray(x) && x.some((y) => y && typeof y === 'object' && !Array.isArray(y))) as any[][];
+    const looksLikeOne = 'uuid' in (v as object) || 'chat_messages' in (v as object) || 'prompt_template' in (v as object) || 'messages' in (v as object);
+    if (looksLikeOne || !lists.length) return [v];
+    return lists.flat();
+  }
+  return [];
+}
+
+const messagesOf = (c: any): any[] => (Array.isArray(c.chat_messages) ? c.chat_messages : Array.isArray(c.messages) ? c.messages : []);
+const isChat = (r: any) => messagesOf(r).length > 0 && messagesOf(r).some((m: any) => m && (m.sender || m.role));
+const isProject = (r: any) => !isChat(r) && (('prompt_template' in r) || Array.isArray(r.docs) || (r.name && 'is_private' in r));
+
+function toProject(p: any): Project {
+  return {
+    uuid: String(p.uuid || p.id || p.name), name: String(p.name || 'Projekt'), prompt: String(p.prompt_template || p.instructions || p.description || ''),
+    docs: (Array.isArray(p.docs) ? p.docs : []).filter((d: any) => d && (d.content || d.text))
+      .map((d: any) => ({ filename: String(d.filename || d.file_name || d.name || 'dokument'), content: String(d.content || d.text) })),
+    files: [],
+  };
 }
 
 /** Artifacts are created and then edited with str-replace updates; replay them to get the final version. */
@@ -50,24 +78,73 @@ function collectArtifacts(messages: any[]): Artifact[] {
   return [...map.values()];
 }
 
-function parseChats(raw: unknown): Chat[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((c: any) => {
-    const msgs = Array.isArray(c.chat_messages) ? c.chat_messages : [];
-    const lines = msgs.map((m: any) => {
-      const text = String(m.text || (Array.isArray(m.content) ? m.content.filter((x: any) => x?.type === 'text').map((x: any) => x.text).join('\n') : ''))
-        .replace(/<antArtifact\b[^>]*>[\s\S]*?<\/antArtifact>/g, '[artefakt]').trim();
-      return text ? `${m.sender === 'human' ? 'Ja' : 'Claude'}: ${text}` : '';
-    }).filter(Boolean);
-    let transcript = lines.join('\n\n');
-    if (transcript.length > MAX_NOTE) transcript = '…\n' + transcript.slice(-MAX_NOTE);          // keep the most recent part
-    return {
-      uuid: String(c.uuid), name: String(c.name || 'Bez tytułu'), date: String(c.updated_at || c.created_at || '').slice(0, 10),
-      transcript, artifacts: collectArtifacts(msgs), size: lines.length,
-      // newer exports say which project a chat belongs to; older ones do not
-      project: String(c.project_uuid || c.project?.uuid || ''),
-    };
-  }).filter((c) => c.size > 0).sort((a, b) => b.date.localeCompare(a.date));
+function textOf(m: any): string {
+  if (typeof m.text === 'string' && m.text.trim()) return m.text;
+  if (typeof m.content === 'string') return m.content;
+  return Array.isArray(m.content) ? m.content.filter((x: any) => x?.type === 'text').map((x: any) => x.text).join('\n') : '';
+}
+
+function toChat(c: any, design: boolean): Chat {
+  const msgs = messagesOf(c);
+  const lines = msgs.map((m: any) => {
+    const text = textOf(m).replace(/<antArtifact\b[^>]*>[\s\S]*?<\/antArtifact>/g, '[artefakt]').trim();
+    const human = m.sender === 'human' || m.role === 'user' || m.role === 'human';
+    return text ? `${human ? 'Ja' : 'Claude'}: ${text}` : '';
+  }).filter(Boolean);
+  let transcript = lines.join('\n\n');
+  if (transcript.length > MAX_NOTE) transcript = '…\n' + transcript.slice(-MAX_NOTE);          // keep the most recent part
+  return {
+    uuid: String(c.uuid || c.id || Math.random()), name: String(c.name || c.title || 'Bez tytułu'),
+    date: String(c.updated_at || c.created_at || '').slice(0, 10), transcript, artifacts: collectArtifacts(msgs), size: lines.length,
+    // newer exports say which project a chat belongs to; older ones do not
+    project: String(c.project_uuid || c.project?.uuid || c.project_id || ''), design,
+  };
+}
+
+/** Reads one or more export files (zips or loose JSON) into projects, chats, design frames and memory. */
+async function readExport(list: File[]): Promise<Parsed> {
+  const out: Parsed = { projects: [], chats: [], tools: [], memory: '' };
+  const loose: { zip: string; path: string; data: Uint8Array }[] = [];
+  for (const f of list) {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const entries: Record<string, Uint8Array> = /\.zip$/i.test(f.name) || (bytes[0] === 0x50 && bytes[1] === 0x4b) ? unzipSync(bytes) : { [f.name]: bytes };
+    const zip = f.name.toLowerCase();
+    for (const [path, data] of Object.entries(entries)) {
+      if (path.endsWith('/') || !data.length || /(^|\/)(__MACOSX|\.)/.test(path)) continue;
+      const where = `${zip}/${path}`.toLowerCase();
+      if (/\.json$/i.test(path)) {
+        let v: unknown;
+        try { v = JSON.parse(strFromU8(data)); } catch { continue; }
+        if (/memor/.test(where)) { out.memory += `${strFromU8(data)}\n`; continue; }
+        for (const r of records(v)) {
+          if (isChat(r)) out.chats.push(toChat(r, /design/.test(where)));
+          else if (isProject(r)) out.projects.push(toProject(r));
+          else if (/frame/.test(where) && typeof (r.html || r.content) === 'string' && /<\w/.test(r.html || r.content)) {
+            out.tools.push({ id: String(r.id || r.uuid || out.tools.length), title: String(r.title || r.name || 'Projekt z Design'), type: 'text/html', content: String(r.html || r.content) });
+          }
+        }
+      } else {
+        loose.push({ zip, path, data });
+      }
+    }
+  }
+  // project files that came as real files: attach to the project named in the path, or to the only project
+  for (const l of loose) {
+    const name = base(l.path);
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    if (/\.html?$/i.test(name) && /frame|design/.test(l.zip + l.path)) {
+      out.tools.push({ id: l.path, title: name.replace(/\.html?$/i, ''), type: 'text/html', content: strFromU8(l.data) });
+      continue;
+    }
+    const lower = l.path.toLowerCase();
+    const owner = out.projects.find((p) => lower.includes(p.uuid.toLowerCase()) || lower.includes(p.name.toLowerCase()))
+      || (out.projects.length === 1 ? out.projects[0] : undefined);
+    if (!owner) continue;
+    if (TEXT_EXT.test(name)) owner.docs.push({ filename: name, content: strFromU8(l.data) });
+    else if (MIME[ext] && l.data.length <= MAX_FILE) owner.files.push({ name, mime: MIME[ext], data: l.data });
+  }
+  out.chats = out.chats.filter((c) => c.size > 0).sort((a, b) => b.date.localeCompare(a.date));
+  return out;
 }
 
 export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -75,6 +152,10 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const qc = useQueryClient();
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [tools, setTools] = useState<Artifact[]>([]);
+  const [memory, setMemory] = useState('');
+  const [takeTools, setTakeTools] = useState(true);
+  const [takeMemory, setTakeMemory] = useState(true);
   const [pickP, setPickP] = useState<Set<string>>(new Set());
   const [pickC, setPickC] = useState<Set<string>>(new Set());
   const [find, setFind] = useState('');
@@ -82,23 +163,23 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const [busy, setBusy] = useState('');
   const [done, setDone] = useState<string | null>(null);
 
-  const read = async (f: File | undefined) => {
-    if (!f) return;
-    setBusy('Czytam plik…');
+  const read = async (list: FileList | null) => {
+    const fs = [...(list || [])];
+    if (!fs.length) return;
+    setBusy('Czytam pliki…');
     try {
-      const files = unzipSync(new Uint8Array(await f.arrayBuffer()), { filter: (x) => /(projects|conversations)\.json$/.test(x.name) });
-      const get = (n: string) => { const k = Object.keys(files).find((x) => x.endsWith(n)); return k ? JSON.parse(strFromU8(files[k])) : []; };
-      const ps = parseProjects(get('projects.json'));
-      const chosen = new Set(ps.filter((p) => /maple/i.test(p.name)).map((p) => p.uuid));
-      const cs = parseChats(get('conversations.json'));
-      setProjects(ps);
-      setChats(cs);
+      const r = await readExport(fs);
+      const chosen = new Set(r.projects.filter((p) => /maple/i.test(p.name)).map((p) => p.uuid));
+      setProjects(r.projects);
+      setChats(r.chats);
+      setTools(r.tools);
+      setMemory(r.memory.trim());
       setPickP(chosen);
       // every chat of the chosen project is selected up front — that is the whole point of moving over
-      setPickC(new Set(cs.filter((c) => c.project && chosen.has(c.project)).map((c) => c.uuid)));
-      if (!ps.length) toast('W pliku nie ma projektów — wybierz same czaty', 'error');
+      setPickC(new Set(r.chats.filter((c) => c.project && chosen.has(c.project)).map((c) => c.uuid)));
+      if (!r.projects.length && !r.chats.length && !r.tools.length) toast('Nic nie znalazłem — czy to pliki z eksportu claude.ai?', 'error');
     } catch (e) {
-      toast(`To nie wygląda na eksport z claude.ai (${(e as Error).message})`, 'error');
+      toast(`Nie udało się odczytać (${(e as Error).message})`, 'error');
     } finally {
       setBusy('');
     }
@@ -111,8 +192,15 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   }, [chats, find, onlyProject, pickP, linked]);
 
 
+  const uploadHtml = async (title: string, content: string, description: string) => {
+    const file = new File([content], `${title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'artefakt'}.html`, { type: 'text/html' });
+    if (file.size > MAX_FILE) return false;
+    await api.uploadKnowledge(file, { title, tags: 'narzędzie', description });
+    return true;
+  };
+
   const run = async () => {
-    let docs = 0, notes = 0, tools = 0, prompts = 0;
+    let docs = 0, notes = 0, toolsN = 0, prompts = 0, files = 0;
     try {
       const style = await api.style();
       let project = style.project;
@@ -123,6 +211,21 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
           await api.addNote({ title: d.filename.replace(/\.[a-z0-9]+$/i, ''), text: d.content.slice(0, MAX_NOTE), tags: `projekt ${p.name}`, description: `Z projektu „${p.name}”` });
           docs++;
         }
+        for (const f of p.files) {
+          setBusy(`Projekt ${p.name}: ${f.name}…`);
+          await api.uploadKnowledge(new File([f.data as Uint8Array<ArrayBuffer>], f.name, { type: f.mime }), { tags: `projekt ${p.name}`, description: `Z projektu „${p.name}”` });
+          files++;
+        }
+      }
+      if (takeMemory && memory) {
+        await api.addNote({ title: 'Pamięć Claude (o mnie i mojej pracy)', text: memory.slice(0, MAX_NOTE), tags: 'pamięć claude' });
+        docs++;
+      }
+      if (takeTools) {
+        for (const t of tools) {
+          setBusy(`Design: ${t.title}…`);
+          if (await uploadHtml(t.title, t.content, 'Projekt z Claude Design')) toolsN++;
+        }
       }
       if (prompts) await api.saveStyle({ project });
       for (const c of chats.filter((x) => pickC.has(x.uuid))) {
@@ -132,10 +235,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
         for (const a of c.artifacts) {
           const html = /html/.test(a.type) || /^\s*<!doctype html|^\s*<html/i.test(a.content);
           if (html) {
-            const file = new File([a.content], `${a.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'artefakt'}.html`, { type: 'text/html' });
-            if (file.size > 4 * 1024 * 1024) continue;
-            await api.uploadKnowledge(file, { title: a.title, tags: 'narzędzie', description: `Artefakt z czatu „${c.name}”` });
-            tools++;
+            if (await uploadHtml(a.title, a.content, `Artefakt z czatu „${c.name}”`)) toolsN++;
           } else {
             await api.addNote({ title: a.title, text: a.content.slice(0, MAX_NOTE), tags: 'artefakt', description: `Artefakt z czatu „${c.name}”` });
             docs++;
@@ -143,7 +243,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
         }
       }
       qc.invalidateQueries();
-      setDone(`Przeniesiono: ${docs} dokumentów, ${notes} czatów, ${tools} narzędzi${prompts ? ', instrukcje projektu' : ''}.`);
+      setDone(`Przeniesiono: ${docs} dokumentów, ${files} plików, ${notes} czatów, ${toolsN} narzędzi${prompts ? ', instrukcje projektu' : ''}.`);
     } catch (e) {
       toast((e as Error).message, 'error');
     } finally {
@@ -154,13 +254,13 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const toggle = (set: Set<string>, id: string, fn: (s: Set<string>) => void) => {
     const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); fn(n);
   };
-  const close = () => { setProjects(null); setChats([]); setDone(null); setFind(''); onClose(); };
+  const close = () => { setProjects(null); setChats([]); setTools([]); setMemory(''); setDone(null); setFind(''); onClose(); };
 
   return (
     <Modal open={open} onClose={close} wide title="Przenieś z Claude"
       footer={projects && !done ? <>
         <button className="btn" onClick={close}>Anuluj</button>
-        <button className="btn primary" disabled={!!busy || (!pickP.size && !pickC.size)} onClick={run}>
+        <button className="btn primary" disabled={!!busy || (!pickP.size && !pickC.size && !(takeTools && tools.length) && !(takeMemory && memory))} onClick={run}>
           {busy ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Przenieś {pickP.size + pickC.size ? `(${pickP.size + pickC.size})` : ''}
         </button></> : <button className="btn primary" onClick={close}>{done ? 'Gotowe' : 'Zamknij'}</button>}>
       {done ? (
@@ -173,12 +273,12 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
         <div className="col">
           <ol className="steps">
             <li>Na komputerze: <b>claude.ai → Ustawienia → Prywatność → Eksportuj dane</b> (Settings → Privacy → Export data).</li>
-            <li>Po kilku minutach przyjdzie mail z linkiem — pobierz plik <b>.zip</b>.</li>
-            <li>Wybierz go tutaj. Plik czytam w przeglądarce; do CRM trafia tylko to, co zaznaczysz.</li>
+            <li>Po kilku minutach przyjdzie mail z linkami — pobierz <b>wszystkie pliki .zip</b> (projects, conversations, design_chats, frames, memories…). Linki działają 24 h.</li>
+            <li>Wybierz je tutaj — wszystkie naraz. Czytam je w przeglądarce; do Opal5 trafia tylko to, co zaznaczysz.</li>
           </ol>
           <label className="btn primary" style={{ alignSelf: 'flex-start' }}>
-            {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz plik eksportu (.zip)'}
-            <input type="file" accept=".zip,application/zip" hidden onChange={(e) => { read(e.target.files?.[0]); e.target.value = ''; }} />
+            {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz pliki eksportu (.zip)'}
+            <input type="file" multiple accept=".zip,application/zip,.json,application/json" hidden onChange={(e) => { read(e.target.files); e.target.value = ''; }} />
           </label>
         </div>
       ) : (
@@ -189,9 +289,22 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
               {projects.map((p) => (
                 <label key={p.uuid} className="row" style={{ gap: 8 }}>
                   <input type="checkbox" checked={pickP.has(p.uuid)} onChange={() => toggle(pickP, p.uuid, setPickP)} />
-                  <span className="grow">{p.name}</span><span className="soft small">{p.docs.length} dok.{p.prompt ? ' · instrukcje' : ''}</span>
+                  <span className="grow">{p.name}</span><span className="soft small">{p.docs.length} dok.{p.files.length ? ` · ${p.files.length} plików` : ''}{p.prompt ? ' · instrukcje' : ''}</span>
                 </label>
               ))}
+            </div>
+          )}
+          {(tools.length > 0 || memory) && (
+            <div className="col tight">
+              <b>Z Claude Design i pamięci</b>
+              {tools.length > 0 && (
+                <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={takeTools} onChange={() => setTakeTools(!takeTools)} />
+                  <span className="grow">Projekty z Claude Design jako narzędzia (do edycji w Studio)</span><span className="soft small">{tools.length}</span></label>
+              )}
+              {memory && (
+                <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={takeMemory} onChange={() => setTakeMemory(!takeMemory)} />
+                  <span className="grow">Pamięć Claude (co wie o Tobie i Twojej pracy)</span></label>
+              )}
             </div>
           )}
           <div className="col tight">
@@ -213,7 +326,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
               {shown.map((c) => (
                 <label key={c.uuid} className="row" style={{ gap: 8 }}>
                   <input type="checkbox" checked={pickC.has(c.uuid)} onChange={() => toggle(pickC, c.uuid, setPickC)} />
-                  <span className="grow trunc">{c.name}</span>
+                  <span className="grow trunc">{c.design ? '🎨 ' : ''}{c.name}</span>
                   <span className="soft small nowrap">{c.date} · {c.size} wiad.{c.artifacts.length ? ` · ${c.artifacts.length} artef.` : ''}</span>
                 </label>
               ))}
