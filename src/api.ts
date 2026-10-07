@@ -114,7 +114,7 @@ export const api = {
   deleteKnowledge: (id: number) => del(`/knowledge/${id}`),
   assistantExecute: (items: { tool: string; input: Record<string, any> }[]) =>
     post<{ results: { ok: boolean; message: string; leadId?: string }[] }>('/assistant/execute', { items }),
-  me: () => get<{ authenticated: boolean; passwordRequired: boolean }>('/me'),
+  me: () => get<{ authenticated: boolean; passwordRequired: boolean; setupNeeded?: boolean }>('/me'),
   login: (password: string) => post('/login', { password }),
   logout: () => post('/logout'),
 

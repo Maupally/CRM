@@ -18,6 +18,8 @@ export interface AppOptions {
   password?: string;
   secret?: string;
   secureCookies?: boolean;
+  /** Online (Vercel) the app never runs open: without a password it shows how to set one and serves nothing else. */
+  requirePassword?: boolean;
 }
 
 const COOKIE = 'crm_session';
@@ -38,6 +40,7 @@ export function appFromEnv() {
     password: process.env.APP_PASSWORD || '',
     secret: process.env.SESSION_SECRET,
     secureCookies: process.env.SECURE_COOKIES === '1' || !!process.env.VERCEL,
+    requirePassword: !!process.env.VERCEL || process.env.REQUIRE_PASSWORD === '1',
   });
 }
 
@@ -57,6 +60,13 @@ export function createApp(o: AppOptions) {
   });
 
   /* ---- auth */
+  const setupNeeded = !password && !!o.requirePassword;
+  if (setupNeeded) {
+    api.get('/me', (c) => c.json({ authenticated: false, passwordRequired: true, setupNeeded: true }));
+    api.all('*', (c) => c.json({ error: 'Opal5 jest zablokowany, dopóki nie ustawisz hasła (APP_PASSWORD w Vercel).' }, 503));
+    return new Hono().route('/api', api);
+  }
+
   const authed = async (c: Context) => {
     if (!password) return true;
     const v = await getSignedCookie(c, secret, COOKIE);

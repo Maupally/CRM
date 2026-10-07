@@ -37,8 +37,29 @@ export function App() {
 
   if (me.isLoading) return <Loading />;
   if (me.error) return <div className="login"><div className="error-box">{(me.error as Error).message}</div></div>;
+  if (me.data?.setupNeeded) return <SetPassword />;
   if (!me.data?.authenticated) return <Login onDone={() => { qc.clear(); me.refetch(); }} />;
   return <Shell passwordRequired={!!me.data.passwordRequired} />;
+}
+
+/** Online without a password nothing is served — this says how to set one. */
+function SetPassword() {
+  return (
+    <div className="login">
+      <div className="card pad col loose" style={{ maxWidth: 460 }}>
+        <div className="brand" style={{ padding: 0 }}><span className="brand-mark">O5</span><b>Opal5</b></div>
+        <h2 style={{ margin: 0 }}>Ustaw hasło</h2>
+        <div className="soft">Opal5 jest zablokowany, dopóki nie ustawisz hasła — inaczej każdy z linkiem widziałby Twoje dane.</div>
+        <ol className="steps">
+          <li>Wejdź na <b>vercel.com</b> → projekt <b>crm</b> → <b>Settings → Environment Variables</b>.</li>
+          <li>Dodaj zmienną <code>APP_PASSWORD</code> z Twoim hasłem (min. 12 znaków) i zapisz.</li>
+          <li><b>Deployments</b> → przy ostatnim wdrożeniu „…” → <b>Redeploy</b>.</li>
+          <li>Odśwież tę stronę i zaloguj się. Na telefonie i komputerze logujesz się raz na 30 dni.</li>
+        </ol>
+        <div className="hint">Po ustawieniu hasła zmieni się adres konektora dla claude.ai — skopiuj go na nowo z Ustawienia → Claude.</div>
+      </div>
+    </div>
+  );
 }
 
 function Login({ onDone }: { onDone: () => void }) {

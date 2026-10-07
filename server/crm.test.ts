@@ -188,3 +188,22 @@ describe('connection strings', () => {
       .toBe('postgresql://u:p@ep-x.neon.tech/db?application_name=crm');
   });
 });
+
+describe('login', () => {
+  it('online without a password serves nothing; with one it needs the login', async () => {
+    const { createApp } = await import('./app.js');
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const open = createApp({ crm: async () => crm, requirePassword: true });
+    expect(await (await open.request('/api/me')).json()).toMatchObject({ setupNeeded: true, authenticated: false });
+    expect((await open.request('/api/leads')).status).toBe(503);
+    expect((await open.request('/api/mcp/x', { method: 'POST', body: '{}' })).status).toBe(503);
+
+    const locked = createApp({ crm: async () => crm, password: 'tajne-haslo-123', requirePassword: true });
+    expect((await locked.request('/api/leads')).status).toBe(401);
+    expect((await locked.request('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'zle' }) })).status).toBe(401);
+    const ok = await locked.request('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'tajne-haslo-123' }) });
+    const cookie = ok.headers.get('set-cookie')!.split(';')[0];
+    expect((await locked.request('/api/leads', { headers: { cookie } })).status).toBe(200);
+  });
+});
