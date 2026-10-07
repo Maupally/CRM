@@ -11,6 +11,7 @@ import { Designs } from './designs.js';
 import { Threads, guessMode } from './threads.js';
 import { B2c } from './b2c.js';
 import { Processes } from './processes.js';
+import { suggestProcesses, suggestText } from './suggest.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -289,6 +290,13 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
     description: 'Procedury (kto co robi, w jakiej kolejności, ile dni na krok) i trwające procesy: na którym są kroku, kto ma ruch, termin, ' +
       'czy utknęły (spóźnione, zablokowane, nikt nieprzypisany). only_stuck = tylko to, co utknęło.',
     input_schema: { type: 'object', properties: { only_stuck: { type: 'boolean' } }, additionalProperties: false },
+  },
+  {
+    name: 'suggest_processes',
+    description: 'Co system zauważył w historii: zadania, które powtarzają się przy podobnych wydarzeniach (→ propozycja nowej procedury z krokami, osobami ' +
+      'i terminem „ile dni przed”), procedury do uruchomienia teraz dla nadchodzących wydarzeń oraz poprawki z zakończonych procesów (realny czas kroków, ' +
+      'kto naprawdę je robi). Przedstaw użytkownikowi konkretnie i zaproponuj save_process / start_process.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'get_person_work',
@@ -1542,6 +1550,7 @@ export class Assistant {
         events: p.events.length ? p.events.map((e) => `${e.eventId} ${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) : undefined })));
     }
     if (name === 'get_processes') return new Processes(this.crm).status(!!input.only_stuck);
+    if (name === 'suggest_processes') return suggestText(this.crm);
     if (name === 'get_person_work') return JSON.stringify(await new Processes(this.crm).personWork(Number(input.person_id)));
     if (name === 'find_help') {
       const r = await this.crm.findHelp(String(input.need || ''));
@@ -1563,7 +1572,9 @@ export class Assistant {
         ({ activity_id: a.id, company: a.company, company_id: a.leadId, date: a.date, type: a.type, note: a.note });
       return JSON.stringify({
         today: d.today, overdue: d.overdue.map(item), due_today: d.due.map(item), next_7_days: d.upcoming.map(item),
-        done_today: d.doneToday, top_call_queue: d.queue.slice(0, 5).map((l) => ({ id: l.id, company: l.company, city: l.city })),
+        done_today: d.doneToday, process_suggestions: await suggestProcesses(this.crm).then((x) => x.length ? `${x.length} — sprawdź suggest_processes i zaproponuj` : undefined).catch(() => undefined),
+        stuck_processes: await new Processes(this.crm).runs().then((r) => r.filter((x) => x.stuck.length).map((x) => `${x.title}: ${x.stuck.join('; ')}`)).then((x) => x.length ? x : undefined),
+        top_call_queue: d.queue.slice(0, 5).map((l) => ({ id: l.id, company: l.company, city: l.city })),
       });
     }
     throw new Error(`Nieznane narzędzie ${name}`);

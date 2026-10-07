@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ArrowDown, ArrowUp, Check, GitBranch, Pencil, Trash2, Workflow, X } from 'lucide-react';
-import { api } from '../api';
+import { AlertTriangle, ArrowDown, ArrowUp, Check, Copy, GitBranch, Lightbulb, Pencil, Trash2, Workflow, X } from 'lucide-react';
+import { api, type ProcessSuggestion } from '../api';
 import { TaskDetail } from '../components/TaskDetail';
-import { Empty, ErrorBox, Loading, Modal, StatTile, relDay, useAction, useToday } from '../components/ui';
+import { Empty, ErrorBox, Loading, Modal, StatTile, copyText, relDay, useAction, useToast, useToday } from '../components/ui';
 import { shortDate, type Process, type ProcessRun, type ProcessStep, type Task } from '../../shared/domain';
 
 /**
@@ -37,6 +37,8 @@ export function ProcessesPage() {
         <StatTile label="Utknęło" value={stuck.length} icon={AlertTriangle} tone={stuck.length ? 'red' : ''} hint="spóźnione, zablokowane albo bez osoby" />
         <StatTile label="Procedury" value={procs.data?.length || 0} icon={GitBranch} />
       </div>
+
+      <Suggestions />
 
       <section className="card" style={{ marginBottom: 18 }}>
         <div className="card-head"><h2>Trwające procesy</h2>
@@ -158,5 +160,39 @@ function ProcessForm({ value, onClose }: { value: Process | null; onClose: () =>
         ))}
       </div>
     </Modal>
+  );
+}
+
+/** What the CRM learned from past work: procedures to write down, start now or fix. Accepting goes by voice. */
+function Suggestions() {
+  const q = useQuery({ queryKey: ['process-suggestions'], queryFn: api.processSuggestions });
+  const toast = useToast();
+  if (!q.data?.length) return null;
+  const say = (s: ProcessSuggestion) => s.kind === 'new' ? `Zapisz procedurę „${s.title}” z podpowiedzi Opal5`
+    : s.kind === 'start' ? `Uruchom ${s.title.replace(' → ', ' dla ')}` : `Popraw procedurę „${s.title}” według podpowiedzi Opal5`;
+  const label = { new: 'Nowa procedura', start: 'Czas uruchomić', adjust: 'Do poprawy' } as const;
+  return (
+    <section className="card" style={{ marginBottom: 18 }}>
+      <div className="card-head"><h2 className="row" style={{ gap: 8 }}><Lightbulb size={18} style={{ color: 'var(--warn)' }} /> Podpowiedzi z doświadczeń</h2></div>
+      <ul className="list">
+        {q.data.map((s, i) => (
+          <li key={i} className="li" style={{ alignItems: 'flex-start' }}>
+            <div className="grow" style={{ minWidth: 0 }}>
+              <div className="row" style={{ gap: 8 }}><span className={`tag ${s.kind === 'start' ? 'overdue' : ''}`}>{label[s.kind]}</span><b className="trunc">{s.title}</b></div>
+              <div className="meta" style={{ whiteSpace: 'normal' }}>{s.why}</div>
+              {s.steps && (
+                <ol className="proc-steps">
+                  {s.steps.map((x, k) => <li key={k}><b>{x.title}</b> <span className="soft">— {x.person || 'nikt'} · ok. {x.daysBefore} dni przed · było {x.seen}×</span></li>)}
+                </ol>
+              )}
+              {s.changes && <ul className="proc-steps">{s.changes.map((c, k) => <li key={k}>{c}</li>)}</ul>}
+            </div>
+            <button className="btn sm" title="Skopiuj polecenie i wklej w claude.ai" onClick={() => { copyText(say(s)); toast('Skopiowano — wklej w claude.ai'); }}>
+              <Copy size={13} /> Polecenie
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

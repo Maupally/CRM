@@ -10,6 +10,7 @@ import { Designs } from './designs.js';
 import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
 import { Processes } from './processes.js';
+import { suggestProcesses } from './suggest.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -224,6 +225,7 @@ export function createApp(o: AppOptions) {
     return c.json(await (await procs()).save(d));
   });
   api.delete('/processes/:id', async (c) => c.json(await (await procs()).remove(num(c.req.param('id')))));
+  api.get('/processes/suggestions', async (c) => c.json(await suggestProcesses(await crm())));
   api.get('/runs', async (c) => c.json(await (await procs()).runs({ all: c.req.query('all') === '1' })));
   api.post('/runs/:id/cancel', async (c) => c.json(await (await procs()).cancel(num(c.req.param('id')))));
   api.get('/people/:id/work', async (c) => c.json(await (await procs()).personWork(num(c.req.param('id')))));

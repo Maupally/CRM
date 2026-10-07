@@ -91,6 +91,11 @@ export interface Proposal {
 }
 export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
+export interface ProcessSuggestion {
+  kind: 'new' | 'adjust' | 'start'; title: string; why: string; processId?: number; eventId?: string;
+  steps?: { title: string; personId: number; person: string; days: number; daysBefore: number; seen: number }[]; changes?: string[];
+}
+
 export interface PersonWork {
   person: string; role: string; open: number;
   items: { task_id: string; task: string; due?: string; late_days?: number; blocked?: string; company?: string; event?: string; process?: string; state: string }[];
@@ -179,6 +184,7 @@ export const api = {
   processes: () => get<Process[]>('/processes'),
   saveProcess: (d: Partial<Process>) => post<Process>('/processes', d),
   deleteProcess: (id: number) => del(`/processes/${id}`),
+  processSuggestions: () => get<ProcessSuggestion[]>('/processes/suggestions'),
   runs: (all = false) => get<ProcessRun[]>(`/runs${all ? '?all=1' : ''}`),
   cancelRun: (id: number) => post<ProcessRun>(`/runs/${id}/cancel`),
   personWork: (id: number) => get<PersonWork>(`/people/${id}/work`),

@@ -303,3 +303,46 @@ describe('procedures', () => {
     await expect(pr.remove(proc.id)).resolves.toEqual({ ok: true });
   });
 });
+
+describe('learning procedures from history', () => {
+  it('proposes a procedure from repeated checklists, when to start it, and fixes from finished runs', async () => {
+    const { suggestProcesses } = await import('./suggest.js');
+    const { Processes } = await import('./processes.js');
+    const db = await openDb('memory://');
+    let today = '2026-10-07';
+    const crm = new Crm(db, 'Martin', () => today);
+    const roma = await crm.savePerson({ name: 'Roma' });
+    const patryk = await crm.savePerson({ name: 'Patryk' });
+    for (const [title, date] of [['Dzień otwarty wrzesień', '2026-09-10'], ['Dzień otwarty czerwiec', '2026-06-12']] as const) {
+      const e = await crm.saveEvent({ title, type: 'Open day', date, status: 'done' });
+      await crm.saveTask({ eventId: e.id, task: 'Post na Facebooku o dniu otwartym', personId: roma.id, due: new Date(Date.parse(date) - 14 * 864e5).toISOString().slice(0, 10) });
+      await crm.saveTask({ eventId: e.id, task: 'Zamówić catering', personId: patryk.id, due: new Date(Date.parse(date) - 7 * 864e5).toISOString().slice(0, 10) });
+      await crm.saveTask({ eventId: e.id, task: 'Wydrukować plakaty', personId: patryk.id, due: new Date(Date.parse(date) - 10 * 864e5).toISOString().slice(0, 10) });
+    }
+    const next = await crm.saveEvent({ title: 'Dzień otwarty październik', type: 'Open day', date: '2026-10-21' });
+
+    let s = await suggestProcesses(crm);
+    const fresh = s.find((x) => x.kind === 'new')!;
+    expect(fresh.title).toBe('Przygotowanie: Dzień otwarty');
+    expect(fresh.steps!.map((x) => [x.title, x.person, x.daysBefore])).toEqual([
+      ['Post na Facebooku o dniu otwartym', 'Roma', 14], ['Wydrukować plakaty', 'Patryk', 10], ['Zamówić catering', 'Patryk', 7]]);
+    expect(s.find((x) => x.kind === 'start')).toMatchObject({ eventId: next.id });
+
+    // once saved, the "new" one goes away and "start" points at it
+    const pr = new Processes(crm);
+    const proc = await pr.save({ name: 'Przygotowanie: Dzień otwarty', steps: fresh.steps!.map((x) => ({ title: x.title, personId: x.personId, days: 2 })) });
+    s = await suggestProcesses(crm);
+    expect(s.some((x) => x.kind === 'new')).toBe(false);
+    expect(s.find((x) => x.kind === 'start')).toMatchObject({ processId: proc.id });
+
+    // two runs where step 1 took 6 days instead of 2 → adjust
+    for (const t of ['A', 'B']) {
+      today = '2026-10-01';
+      const run = await pr.start({ processId: proc.id, title: t });
+      today = '2026-10-07';
+      for (const st of run.steps) await crm.toggleTask(st.taskId);
+    }
+    s = await suggestProcesses(crm);
+    expect(s.find((x) => x.kind === 'adjust')!.changes![0]).toContain('w praktyce zwykle 6');
+  });
+});

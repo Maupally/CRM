@@ -18,6 +18,7 @@ type Item = { kind: 'act'; date: string; a: OpenItem } | { kind: 'task'; date: s
 export function DashboardPage() {
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard });
   const runs = useQuery({ queryKey: ['runs', false], queryFn: () => api.runs() });
+  const tips = useQuery({ queryKey: ['process-suggestions'], queryFn: api.processSuggestions });
   const cfg = useConfig();
   const [open, setOpen] = useState<OpenItem | null>(null);
   const [task, setTask] = useState<Task | null>(null);
@@ -76,6 +77,14 @@ export function DashboardPage() {
         <StatTile label="Partnerzy" value={d.pipeline['active']} icon={Handshake} to="/firmy?widok=partnerzy" hint="aktywne współprace" />
       </div>
 
+      {!!tips.data?.filter((x) => x.kind === 'start').length && (
+        <Link to="/procesy" className="card pad row" style={{ marginBottom: 18, color: 'inherit', gap: 10 }}>
+          <Sparkles size={18} style={{ color: 'var(--warn)', flexShrink: 0 }} />
+          <span className="grow"><b>Czas uruchomić procedurę</b>
+            <span className="soft small" style={{ display: 'block' }}>{tips.data.filter((x) => x.kind === 'start').map((x) => x.title).join(' · ')}</span></span>
+          <ArrowRight size={16} />
+        </Link>
+      )}
       {stuck.length > 0 && (
         <Link to="/procesy" className="card pad row" style={{ marginBottom: 18, borderColor: 'var(--bad)', color: 'inherit', gap: 10 }}>
           <AlertTriangle size={18} style={{ color: 'var(--bad)', flexShrink: 0 }} />
