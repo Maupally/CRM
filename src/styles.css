@@ -668,3 +668,11 @@ a.qa { text-decoration: none; color: inherit; }
   .chats.has-sel .chat-list { display: none; }
   .chats:not(.has-sel) .chat-view { display: none; }
 }
+
+/* drag and drop */
+.drop-zone { position: relative; }
+.drop-zone.drop-over::after {
+  content: attr(data-drop); position: absolute; inset: 0; z-index: 20; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent); border: 2px dashed var(--accent); border-radius: inherit;
+  color: var(--accent); font-weight: 700; pointer-events: none;
+}

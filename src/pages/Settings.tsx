@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Upload, Plus, Trash2, Sparkles } from 'lucide-react';
 import { api } from '../api';
+import { useFileDrop } from '../components/Files';
 import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, useAction, useToast } from '../components/ui';
 import type { Segment, Style, Template } from '../../shared/domain';
 
@@ -155,6 +156,7 @@ function Templates() {
 function Data() {
   const dup = useQuery({ queryKey: ['duplicates'], queryFn: api.duplicates });
   const [file, setFile] = useState<File | null>(null);
+  const xlsxDrop = useFileDrop((f) => setFile(f.find((x) => x.name.toLowerCase().endsWith('.xlsx')) || null));
   const [result, setResult] = useState<Awaited<ReturnType<typeof api.importXlsx>> | null>(null);
   const imp = useAction(() => api.importXlsx(file!), { ok: 'Import zakończony', onDone: (r) => { setResult(r); setFile(null); } });
 
@@ -171,8 +173,8 @@ function Data() {
           <h2>Import z arkusza</h2>
           <div className="soft">W Google Sheets: Plik → Pobierz → Microsoft Excel (.xlsx), potem wgraj plik tutaj.
             <b> Import zastępuje wszystkie dane w CRM.</b> Najpierw pobierz kopię.</div>
-          <label className="btn" style={{ width: 'fit-content' }}>
-            <Upload size={16} /> {file ? file.name : 'Wybierz plik .xlsx'}
+          <label className={`btn drop-zone ${xlsxDrop.over ? 'drop-over' : ''}`} data-drop="Upuść" style={{ width: 'fit-content' }} {...xlsxDrop.props}>
+            <Upload size={16} /> {file ? file.name : 'Wybierz albo przeciągnij plik .xlsx'}
             <input type="file" accept=".xlsx" hidden onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </label>
           <div>

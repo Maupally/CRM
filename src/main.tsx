@@ -27,3 +27,8 @@ createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+// A file dropped outside a drop area would make the browser open it and leave the app.
+for (const ev of ['dragover', 'drop'] as const) {
+  window.addEventListener(ev, (e) => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); });
+}

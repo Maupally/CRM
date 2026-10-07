@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Mic, MicOff, Send, Sparkles, Check, X, AlertTriangle, Loader2, Camera, Sunrise, MessageSquareText, Volume2, Car,
+  Mic, MicOff, Send, Sparkles, Check, X, AlertTriangle, Loader2, Camera, Sunrise, MessageSquareText, Volume2,
   Copy, Mail, Square, Paperclip, RotateCcw, Users, Palette, MessagesSquare,
 } from 'lucide-react';
 import { api, type AssistantTurn, type Proposal } from '../api';
 import { Modal, useConfig, useToast, copyText } from './ui';
-import { FileCard } from './Files';
+import { FileCard, useFileDrop } from './Files';
 import { MaterialView } from './TaskDetail';
 import type { KnowledgeItem, Material } from '../../shared/domain';
 
@@ -212,7 +212,6 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [photo, setPhoto] = useState<{ mediaType: string; data: string; preview: string } | null>(null);
-  const [handsFree, setHandsFree] = useState(() => lsGet('crm-handsfree') === '1');
   const bottom = useRef<HTMLDivElement>(null);
   const camera = useRef<HTMLInputElement>(null);
   const msgsRef = useRef(msgs);
@@ -224,7 +223,7 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
     lsDel(CHAT_KEY); stopSpeaking(); mic.cancel();
   };
 
-  const attach = async (list: FileList | null) => {
+  const attach = async (list: FileList | File[] | null) => {
     const picked = [...(list || [])];
     if (!picked.length) return;
     const big = picked.filter((f) => f.size > MAX_UPLOAD);
@@ -272,7 +271,6 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
       const failed = r.results.filter((x) => !x.ok);
       const msg = failed.length ? `Zapisano ${r.results.length - failed.length}, błędy: ${failed.length}` : 'Zapisano';
       toast(msg, failed.length ? 'error' : 'ok');
-      if (handsFree) speak(failed.length ? `${msg}. ${failed.map((x) => x.message).join('. ')}` : 'Zapisane.', () => listenAgain.current());
     } catch (e) {
       setMsgs((x) => x.map((mm, i) => i === index ? { ...mm, status: 'pending' } : mm));
       toast((e as Error).message, 'error');
@@ -280,10 +278,7 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
   };
   const reject = (index: number) => {
     setMsgs((x) => x.map((m, i) => i === index ? { ...m, status: 'rejected' } : m));
-    if (handsFree) speak('Odrzucone.', () => listenAgain.current());
   };
-
-  const listenAgain = useRef<() => void>(() => {});
 
   const send = useCallback(async (text: string, opts: { debrief?: boolean } = {}) => {
     const typed = text.trim();
@@ -301,7 +296,7 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
     setBusy(true);
     try {
       const r = await api.assistant(said || 'Co z tym zrobić?', hist, {
-        leadId, image: img ? { mediaType: img.mediaType, data: img.data } : undefined, spoken: handsFree,
+        leadId, image: img ? { mediaType: img.mediaType, data: img.data } : undefined,
         attachments: att.map((f) => f.id), containerId,
       });
       if (r.containerId) setContainerId(r.containerId);
@@ -309,19 +304,12 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
       const proposals = r.proposals.map((p) => ({ ...p, on: true }));
       setMsgs((x) => [...x, { role: 'assistant', text: r.reply, files: r.files?.length ? r.files : undefined, savedTo: r.savedTo, proposals, status: proposals.length ? 'pending' : undefined }]);
       if (r.savedTo) qc.invalidateQueries({ queryKey: ['threads'] });
-      if (handsFree) {
-        const ask = proposals.length
-          ? ` ${proposals.length === 1 ? 'Jedna zmiana' : `Zmiany, ${proposals.length}`}: ${proposals.map((p) => p.title).join('; ')}. Powiedz: zatwierdź, odrzuć albo co poprawić.`
-          : '';
-        speak(r.reply + ask, () => listenAgain.current());
-      }
     } catch (e) {
       setMsgs((x) => [...x, { role: 'assistant', text: (e as Error).message }]);
-      if (handsFree) speak((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [busy, leadId, photo, files, handsFree, containerId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [busy, leadId, photo, files, containerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onHeard = useCallback((text: string, long: boolean) => {
     const pi = pendingIndex();
@@ -332,23 +320,13 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
   }, [send]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mic = useDictation(onHeard);
-  listenAgain.current = () => { if (handsFree && open && mic.supported) mic.start('short'); };
 
   useEffect(() => {
     if (open && enabled && preset) { send(preset); return; }
-    if (open && enabled && mic.supported && handsFree && !busy) mic.start('short');
     if (!open) { mic.cancel(); stopSpeaking(); }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [msgs, busy, mic.interim]);
-
-  const toggleHandsFree = () => {
-    const v = !handsFree;
-    setHandsFree(v);
-    lsSet('crm-handsfree', v ? '1' : '0');
-    if (v) speak('Tryb głośnomówiący włączony. Mów, co zrobić.', () => { if (mic.supported) mic.start('short'); });
-    else { stopSpeaking(); mic.cancel(); }
-  };
 
   const edit = (index: number, key: string, patch: Record<string, any>) =>
     setMsgs((x) => x.map((m, i) => i !== index ? m : {
@@ -359,6 +337,8 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
       ...m, proposals: m.proposals!.map((p) => p.key === key ? { ...p, on: !p.on } : p),
     }));
 
+  const dnd = useFileDrop((f) => attach(f), busy || uploading);
+
   const pickPhoto = async (f: File | undefined) => {
     if (!f) return;
     try { setPhoto(await shrinkImage(f)); } catch { toast('Nie udało się wczytać zdjęcia', 'error'); }
@@ -367,9 +347,6 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
   return (
     <Modal open={open} onClose={onClose} wide title={
       <span className="row wrap"><Sparkles size={18} style={{ color: 'var(--accent)' }} /> Asystent
-        <button className={`chip ${handsFree ? 'on' : ''}`} onClick={toggleHandsFree} title="Czyta odpowiedzi na głos i słucha dalej">
-          <Car size={14} /> {handsFree ? 'Głośnomówiący: wł.' : 'Głośnomówiący'}
-        </button>
         {msgs.length > 0 && <button className="chip" onClick={newChat} title="Zacznij od nowa"><RotateCcw size={14} /> Nowa rozmowa</button>}
       </span>
     }>
@@ -379,7 +356,7 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
           <div className="soft">W Vercel: <b>Settings → Environment Variables</b> → dodaj <code>ANTHROPIC_API_KEY</code> (klucz z console.anthropic.com), potem <b>Redeploy</b>.</div>
         </div>
       ) : (
-        <div className="asst">
+        <div className={`asst drop-zone ${dnd.over ? 'drop-over' : ''}`} data-drop="Upuść pliki — dołączę je do wiadomości" {...dnd.props}>
           <div className="quick-actions">
             <button className="qa" onClick={() => send('Poranny briefing: co mam dziś i od czego zacząć?')} disabled={busy}><Sunrise size={18} />Briefing</button>
             <button className="qa" onClick={() => mic.state === 'long' ? mic.stop() : mic.start('long')} disabled={busy || !mic.supported || mic.state === 'short'}>

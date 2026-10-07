@@ -4,6 +4,7 @@ import { Upload, Check, Loader2, Download } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { Modal, useToast } from './ui';
+import { useFileDrop } from './Files';
 import { searchKey } from '../../shared/domain';
 
 /* claude.ai data export (Settings → Privacy → Export data). Older exports are one zip with projects.json and
@@ -177,7 +178,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const [busy, setBusy] = useState('');
   const [done, setDone] = useState<string | null>(null);
 
-  const read = async (list: FileList | null) => {
+  const read = async (list: FileList | File[] | null) => {
     const fs = [...(list || [])];
     if (!fs.length) return;
     setBusy('Czytam pliki…');
@@ -287,6 +288,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const toggle = (set: Set<string>, id: string, fn: (s: Set<string>) => void) => {
     const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); fn(n);
   };
+  const dnd = useFileDrop((f) => read(f), !!busy || !!done);
   const close = () => { setLinks([]); setClicked(new Set()); setProjects(null); setChats([]); setTools([]); setMemory(''); setDone(null); setFind(''); onClose(); };
 
   return (
@@ -296,6 +298,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
         <button className="btn primary" disabled={!!busy || (!pickP.size && !pickC.size && !(takeTools && tools.length) && !(takeMemory && memory))} onClick={run}>
           {busy ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Przenieś {pickP.size + pickC.size ? `(${pickP.size + pickC.size})` : ''}
         </button></> : <button className="btn primary" onClick={close}>{done ? 'Gotowe' : 'Zamknij'}</button>}>
+      <div className={`drop-zone ${dnd.over ? 'drop-over' : ''}`} data-drop="Upuść pliki eksportu (.zip / .json)" {...dnd.props}>
       {done ? (
         <div className="col">
           <div><b>{done}</b></div>
@@ -317,7 +320,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
           </div>
           <div className="soft small">Gdy wszystkie się pobiorą (folder Pobrane), wybierz je tutaj — wszystkie naraz:</div>
           <label className="btn primary" style={{ alignSelf: 'flex-start' }}>
-            {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz pobrane pliki .zip'}
+            {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz albo przeciągnij pobrane pliki .zip'}
             <input type="file" multiple accept=".zip,application/zip,.json,application/json" hidden onChange={(e) => { read(e.target.files); e.target.value = ''; }} />
           </label>
           <div className="hint">Jeśli link pokaże błąd (wygasł albo był już użyty), zrób nowy eksport w claude.ai → Ustawienia → Prywatność → Eksportuj dane.</div>
@@ -331,7 +334,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
               Masz tylko plik z linkami (.json)? Wybierz go — pokażę przyciski do pobrania każdego pliku.</li>
           </ol>
           <label className="btn primary" style={{ alignSelf: 'flex-start' }}>
-            {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz pliki eksportu (.zip)'}
+            {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz albo przeciągnij pliki eksportu (.zip)'}
             <input type="file" multiple accept=".zip,application/zip,.json,application/json" hidden onChange={(e) => { read(e.target.files); e.target.value = ''; }} />
           </label>
         </div>
@@ -390,6 +393,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
           {busy && <div className="soft small row"><Loader2 size={14} className="spin" /> {busy}</div>}
         </div>
       )}
+      </div>
     </Modal>
   );
 }

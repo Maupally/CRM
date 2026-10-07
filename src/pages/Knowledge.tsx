@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Upload, StickyNote, Trash2, Download, ExternalLink, Sparkles, BookOpen, Palette } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { FileCard, fileUrl } from '../components/Files';
+import { FileCard, fileUrl, useFileDrop } from '../components/Files';
 import { openAssistant } from '../components/Assistant';
 import { ClaudeImport } from '../components/ClaudeImport';
 import { Empty, ErrorBox, Loading, Modal, useAction, useToast } from '../components/ui';
@@ -32,7 +32,7 @@ export function KnowledgePage() {
   const generated = rows.filter((r) => r.tags.includes('wygenerowane'));
   const own = rows.filter((r) => !r.tags.includes('wygenerowane') && !isTool(r));
 
-  const upload = async (list: FileList | null) => {
+  const upload = async (list: FileList | File[] | null) => {
     const files = [...(list || [])];
     if (!files.length) return;
     const tooBig = files.filter((f) => f.size > 4 * 1024 * 1024);
@@ -40,9 +40,10 @@ export function KnowledgePage() {
     setBusy(true);
     try { await qc.mutateAsync(files); } finally { setBusy(false); }
   };
+  const dnd = useFileDrop((f) => upload(f), busy);
 
   return (
-    <>
+    <div className={`drop-zone ${dnd.over ? 'drop-over' : ''}`} data-drop="Upuść pliki — dodam je do Bazy wiedzy" {...dnd.props}>
       <div className="page-head">
         <div><h1>Baza wiedzy</h1><div className="sub">Plakaty, prezentacje, gotowe teksty, oferta — asystent z tego korzysta, gdy pisze i przygotowuje zadania.</div></div>
         <span className="spacer" />
@@ -89,7 +90,7 @@ export function KnowledgePage() {
       <ItemSheet item={open} onClose={() => setOpen(null)} />
       <NoteSheet open={note} onClose={() => setNote(false)} />
       <ClaudeImport open={importing} onClose={() => setImporting(false)} />
-    </>
+    </div>
   );
 }
 

@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { FileText, FileImage, FileCode, File as FileIcon, Download, ExternalLink, StickyNote } from 'lucide-react';
 import type { KnowledgeItem } from '../../shared/domain';
 
@@ -32,4 +33,26 @@ export function FileCard({ f, onOpen }: { f: KnowledgeItem; onOpen?: () => void 
       {f.hasFile && <a className="btn sm ghost icon" href={fileUrl(f.id)} aria-label="Pobierz"><Download size={15} /></a>}
     </div>
   );
+}
+
+/**
+ * Drag and drop files onto an area. Spread `props` on the element (it needs `position: relative`
+ * via the `drop-zone` class); `over` is true while files hover above it.
+ */
+export function useFileDrop(onFiles: (files: File[]) => void, disabled = false) {
+  const [over, setOver] = useState(false);
+  const depth = useRef(0);
+  const hasFiles = (e: React.DragEvent) => [...e.dataTransfer.types].includes('Files');
+  const props = {
+    onDragEnter: (e: React.DragEvent) => { if (!hasFiles(e) || disabled) return; e.preventDefault(); depth.current++; setOver(true); },
+    onDragOver: (e: React.DragEvent) => { if (!hasFiles(e) || disabled) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; },
+    onDragLeave: (e: React.DragEvent) => { if (!hasFiles(e)) return; depth.current = Math.max(0, depth.current - 1); if (!depth.current) setOver(false); },
+    onDrop: (e: React.DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); e.stopPropagation();
+      depth.current = 0; setOver(false);
+      if (!disabled && e.dataTransfer.files.length) onFiles([...e.dataTransfer.files]);
+    },
+  };
+  return { over, props };
 }

@@ -6,7 +6,7 @@ import {
   Send, Smartphone, Sparkles, Trash2, X, Mail, Globe, FileText, MessageSquare, Eye,
 } from 'lucide-react';
 import { api } from '../api';
-import { FileCard } from '../components/Files';
+import { FileCard, useFileDrop } from '../components/Files';
 import { Empty, ErrorBox, Loading, Modal, relDay, useAction, useToast, useToday } from '../components/ui';
 import { DESIGN_KINDS, DESIGN_KIND_LABEL, type DesignKind, type KnowledgeItem } from '../../shared/domain';
 
@@ -135,6 +135,14 @@ function StudioEditor({ id }: { id: number }) {
   const restore = useAction((v: number) => api.restoreDesign(id, v), { ok: 'Przywrócono', onDone: () => setVersion(null) });
   const save = useAction(() => api.saveDesign(id), { ok: 'Zapisano w Bazie wiedzy (Narzędzia)' });
 
+  const attach = async (list: FileList | File[] | null) => {
+    for (const f of [...(list || [])]) {
+      if (f.size > 4 * 1024 * 1024) { toast(`Za duże (maks. 4 MB): ${f.name}`, 'error'); continue; }
+      try { const k = await api.uploadKnowledge(f, { tags: 'studio' }); setFiles((x) => [...x, k]); } catch (e) { toast((e as Error).message, 'error'); }
+    }
+  };
+  const dnd = useFileDrop((f) => attach(f), busy);
+
   if (q.isLoading) return <Loading />;
   if (q.error || !d) return <ErrorBox error={q.error} />;
 
@@ -161,12 +169,6 @@ function StudioEditor({ id }: { id: number }) {
     } finally { setBusy(false); setSent(''); }
   };
 
-  const attach = async (list: FileList | null) => {
-    for (const f of [...(list || [])]) {
-      if (f.size > 4 * 1024 * 1024) { toast(`Za duże (maks. 4 MB): ${f.name}`, 'error'); continue; }
-      try { const k = await api.uploadKnowledge(f, { tags: 'studio' }); setFiles((x) => [...x, k]); } catch (e) { toast((e as Error).message, 'error'); }
-    }
-  };
 
   return (
     <div className="studio">
@@ -183,7 +185,7 @@ function StudioEditor({ id }: { id: number }) {
       </div>
 
       <div className={`studio-body show-${pane}`}>
-        <section className="card studio-chat">
+        <section className={`card studio-chat drop-zone ${dnd.over ? 'drop-over' : ''}`} data-drop="Upuść pliki — logo, zdjęcia, PDF" {...dnd.props}>
           <div className="studio-msgs">
             {!d.chat.length && !busy && (
               <div className="col tight">
