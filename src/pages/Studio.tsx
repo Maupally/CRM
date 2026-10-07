@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { FileCard, useFileDrop } from '../components/Files';
-import { Empty, ErrorBox, Loading, Modal, relDay, useAction, useToast, useToday } from '../components/ui';
+import { Empty, ErrorBox, Loading, Modal, relDay, useAction, useConfig, useToast, useToday } from '../components/ui';
 import { DESIGN_KINDS, DESIGN_KIND_LABEL, type DesignKind, type KnowledgeItem } from '../../shared/domain';
 
 const KIND_ICON = { www: Globe, deck: Presentation, email: Mail, doc: FileText } as const;
@@ -115,6 +115,7 @@ function StudioEditor({ id }: { id: number }) {
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
+  const ai = !!useConfig().data?.assistant;
   const q = useQuery({ queryKey: ['studio', id], queryFn: () => api.design(id) });
   const [draft, setDraft] = useState('');
   const [files, setFiles] = useState<KnowledgeItem[]>([]);
@@ -215,6 +216,9 @@ function StudioEditor({ id }: { id: number }) {
               ))}
             </div>
           )}
+          {!ai ? (
+            <div className="hint" style={{ padding: 14 }}>Poprawki rób w claude.ai — poproś „zapisz w Opal5 Studio pod tytułem „{d.title}””, a pojawi się tu nowa wersja. Stąd pobierzesz PDF, PowerPoint i Word.</div>
+          ) : (
           <div className="ask" style={{ padding: 12 }}>
             <button className="btn icon ghost" onClick={() => clip.current?.click()} disabled={busy} aria-label="Dołącz plik" title="Dołącz plik (logo, zdjęcie, PDF)"><Paperclip size={18} /></button>
             <input ref={clip} type="file" multiple hidden accept="image/*,.pdf,.docx,.txt,.md,.html" onChange={(e) => { attach(e.target.files); e.target.value = ''; }} />
@@ -222,6 +226,7 @@ function StudioEditor({ id }: { id: number }) {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft); } }} />
             <button className="btn primary icon" onClick={() => send(draft)} disabled={!draft.trim() || busy} aria-label="Wyślij"><Send size={17} /></button>
           </div>
+          )}
         </section>
 
         <section className="card studio-preview">

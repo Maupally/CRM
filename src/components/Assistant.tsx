@@ -186,9 +186,11 @@ export function AssistantButton() {
   if (!cfg.data) return null;
   return (
     <>
-      <button className="fab" aria-label="Asystent" title="Asystent głosowy" onClick={() => setOpen(true)}>
-        <Mic size={22} />
-      </button>
+      {cfg.data.assistant && (   // without an API key the assistant lives in claude.ai (connector)
+        <button className="fab" aria-label="Asystent" title="Asystent głosowy" onClick={() => setOpen(true)}>
+          <Mic size={22} />
+        </button>
+      )}
       <AssistantPanel open={open} enabled={!!cfg.data.assistant} preset={preset} onClose={() => { setOpen(false); setPreset(null); }} />
     </>
   );
@@ -352,8 +354,9 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
     }>
       {!enabled ? (
         <div className="col">
-          <div className="error-box">Asystent nie jest jeszcze włączony.</div>
-          <div className="soft">W Vercel: <b>Settings → Environment Variables</b> → dodaj <code>ANTHROPIC_API_KEY</code> (klucz z console.anthropic.com), potem <b>Redeploy</b>.</div>
+          <div className="soft">Asystent w Opal5 jest wyłączony — pracujesz w <b>claude.ai</b> (projekt Maple Bear z konektorem Opal5), w ramach planu Pro.</div>
+          <Link className="btn primary" style={{ alignSelf: 'flex-start' }} to="/ustawienia" onClick={onClose}>Jak podłączyć claude.ai</Link>
+          <div className="hint">Żeby włączyć asystenta w Opal5 (płatny z konta API): Vercel → Settings → Environment Variables → <code>ANTHROPIC_API_KEY</code>, potem Redeploy.</div>
         </div>
       ) : (
         <div className={`asst drop-zone ${dnd.over ? 'drop-over' : ''}`} data-drop="Upuść pliki — dołączę je do wiadomości" {...dnd.props}>

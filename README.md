@@ -73,7 +73,12 @@ Wszystko dzieje się w Opal5. Wiedzę z projektu „Maple Bear” przenosisz raz
 3. **Ustawienia → Styl pisania → Ucz się z czatów**: asystent czyta wybrane rozmowy i zapisuje
    zasady pisania — osobno maile B2B i rozmowy swobodne (rodzice, nauczyciele).
 
-(Dodatkowo `/api/mcp/<token>` to konektor MCP dla claude.ai — opcjonalny, nieużywany w UI.)
+### Praca w claude.ai (plan Pro) z zapisem w Opal5
+
+Ustawienia → **Claude**: adres konektora MCP (`/api/mcp/<token>`) i gotowe zasady do instrukcji projektu.
+W claude.ai Claude czyta i zapisuje CRM, a do tego `log_chat` zapisuje rozmowy w **Czatach**, `save_design` strony
+i prezentacje w **Studio** (ten sam tytuł = nowa wersja), `save_note` ustalenia w **Bazie wiedzy**.
+Bez `ANTHROPIC_API_KEY` Opal5 nie wywołuje API (nic nie kosztuje): asystent pod mikrofonem znika, Czaty i Studio są do podglądu i pobierania.
 
 ## Internet
 

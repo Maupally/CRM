@@ -328,6 +328,24 @@ describe('connector for Claude chats', () => {
     expect((await crm.listTasks())[0].materials[0].subject).toBe('Współpraca');
     const bad = await (await rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'add_note', arguments: { id: 'L999', text: 'x' } } })).json();
     expect(bad.result.isError).toBe(true);
+
+    // what happens in Claude chats and projects lands in Opal5
+    const call = async (id: number, name: string, args: unknown) => {
+      const r = (await (await rpc({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } })).json()).result;
+      return { text: r.content[0].text as string, isError: r.isError as boolean | undefined };
+    };
+    expect(names).toEqual(expect.arrayContaining(['log_chat', 'save_design', 'save_note', 'list_chats', 'read_chat']));
+    expect((await call(6, 'log_chat', { chat_title: 'Mail do Multisportu', mode: 'b2b', user_message: 'Napisz maila', reply: 'Dzień dobry…' })).text).toContain('nowy czat');
+    expect((await call(7, 'log_chat', { chat_title: 'mail do multisportu', user_message: 'Krócej', reply: 'Dzień dobry, krótko.' })).isError).toBeUndefined();
+    const { Threads } = await import('./threads.js');
+    const chats = await new Threads(db).list();
+    expect(chats).toHaveLength(1);
+    expect(chats[0]).toMatchObject({ mode: 'b2b', source: 'claude', count: 4 });
+    expect((await call(8, 'read_chat', { chat_id: chats[0].id })).text).toContain('krótko');
+    expect((await call(9, 'save_design', { title: 'Prezentacja B2C', kind: 'deck', html: '<html><body><h1>1</h1></body></html>' })).text).toContain('nowy projekt');
+    expect((await call(10, 'save_design', { title: 'Prezentacja B2C', html: '<html><body><h1>2</h1></body></html>', note: 'krócej' })).text).toContain('wersję 2');
+    expect((await call(11, 'save_design', { title: 'X', html: 'tylko tekst' })).isError).toBe(true);
+    expect((await call(12, 'save_note', { title: 'Oferta 2026', text: 'Pakiet złoty…' })).text).toContain('Bazie wiedzy');
   });
 });
 

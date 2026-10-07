@@ -5,7 +5,7 @@ import { ArrowLeft, Loader2, Mic, MicOff, Paperclip, Plus, Send, Trash2, Message
 import { api } from '../api';
 import { FileCard, useFileDrop } from '../components/Files';
 import { Proposals, useDictation, type PItem, type Status } from '../components/Assistant';
-import { Empty, ErrorBox, Loading, relDay, useAction, useToast, useToday } from '../components/ui';
+import { Empty, ErrorBox, Loading, relDay, useAction, useConfig, useToast, useToday } from '../components/ui';
 import { THREAD_MODES, THREAD_MODE_LABEL, searchKey, type KnowledgeItem, type ThreadMode } from '../../shared/domain';
 
 /**
@@ -74,6 +74,7 @@ function ChatView({ id }: { id: number }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const toast = useToast();
+  const ai = !!useConfig().data?.assistant;
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState('');
@@ -148,11 +149,12 @@ function ChatView({ id }: { id: number }) {
         <button className="btn ghost icon danger" onClick={() => confirm('Usunąć cały czat?') && drop.mutate(undefined)} aria-label="Usuń czat"><Trash2 size={16} /></button>
       </div>
       <div className="chat-msgs">
-        {t.source === 'claude' && <div className="hint" style={{ textAlign: 'center' }}>Czat przeniesiony z Claude</div>}
+        {t.source === 'claude' && <div className="hint" style={{ textAlign: 'center' }}>Czat z claude.ai</div>}
         {!t.messages.length && !busy && <div className="soft small">Pusto. Napisz albo powiedz, o co chodzi — asystent ma dostęp do CRM, Bazy wiedzy i Twoich innych czatów.</div>}
         {t.messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}`}>
             {m.via === 'mikrofon' && <div className="via"><Mic size={11} /> z asystenta pod mikrofonem</div>}
+            {m.via === 'claude' && m.role === 'user' && <div className="via"><Sparkles size={11} /> z claude.ai</div>}
             <div className="pre">{m.text}</div>
           </div>
         ))}
@@ -177,6 +179,9 @@ function ChatView({ id }: { id: number }) {
         {mic.state !== 'off' && <div className="bubble user live">{mic.interim || 'Słucham…'}</div>}
         <div ref={bottom} />
       </div>
+      {!ai ? (
+        <div className="hint" style={{ padding: 14 }}>Ten czat prowadzisz w claude.ai — Claude zapisuje tu rozmowę przez konektor (Ustawienia → Claude).</div>
+      ) : <>
       {(files.length > 0 || uploading) && (
         <div className="row wrap" style={{ gap: 6, padding: '0 12px' }}>
           {files.map((f) => (
@@ -198,7 +203,8 @@ function ChatView({ id }: { id: number }) {
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(draft); } }} />
         <button className="btn primary icon" onClick={() => send(draft)} disabled={(!draft.trim() && !files.length) || busy || uploading} aria-label="Wyślij"><Send size={17} /></button>
       </div>
-      {t.mode !== 'other' && <div className="hint" style={{ padding: '0 14px 10px' }}><Sparkles size={12} /> Maile i teksty {t.mode === 'b2b' ? 'do firm' : 'do rodziców i zespołu'} zamawiane z mikrofonu też trafią tutaj.</div>}
+      </>}
+      {ai && t.mode !== 'other' && <div className="hint" style={{ padding: '0 14px 10px' }}><Sparkles size={12} /> Maile i teksty {t.mode === 'b2b' ? 'do firm' : 'do rodziców i zespołu'} zamawiane z mikrofonu też trafią tutaj.</div>}
     </section>
   );
 }

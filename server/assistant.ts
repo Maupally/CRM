@@ -7,8 +7,8 @@ import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import type { Crm } from './crm.js';
 import { HttpError } from './crm.js';
 import { Knowledge } from './knowledge.js';
-import type { Designs } from './designs.js';
-import { Threads } from './threads.js';
+import { Designs } from './designs.js';
+import { Threads, guessMode } from './threads.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -72,6 +72,65 @@ const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
     input_schema: { type: 'object', properties: { chat_id: { type: 'integer' } }, required: ['chat_id'], additionalProperties: false },
   },
 ];
+
+/** Only for the claude.ai connector: what happens in Claude chats and projects gets mirrored into Opal5. */
+const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
+  {
+    name: 'list_chats',
+    description: 'Lista czatów w Opal5 (id, tytuł, rodzaj, ostatnia wiadomość).',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'read_chat',
+    description: 'Ostatnie wiadomości z czatu w Opal5 — żeby pisać spójnie z tym, co tam już ustalono.',
+    input_schema: { type: 'object', properties: { chat_id: { type: 'integer' } }, required: ['chat_id'], additionalProperties: false },
+  },
+  {
+    name: 'log_chat',
+    description: 'Zapisuje wymianę z tej rozmowy w Opal5 (zakładka Czaty), żeby użytkownik miał tam całą historię pracy. ' +
+      'Używaj po każdej odpowiedzi, w której coś przygotowałeś albo coś ustaliliście (mail, tekst, plan, decyzja). ' +
+      'chat_title = tytuł tej rozmowy (ten sam przy kolejnych zapisach — wtedy dopisuje do tego samego czatu). ' +
+      'reply = Twoja odpowiedź w całości (gotowe teksty bez skracania).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        chat_title: { type: 'string' },
+        mode: { type: 'string', enum: ['b2b', 'casual', 'other'], description: 'b2b — firmy i partnerstwa; casual — rodzice, zespół; other — reszta.' },
+        user_message: { type: 'string', description: 'Prośba użytkownika (dosłownie albo wiernie skrócona).' },
+        reply: { type: 'string' },
+      },
+      required: ['chat_title', 'user_message', 'reply'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'save_design',
+    description: 'Zapisuje stronę, prezentację, szablon maila albo dokument (jeden samodzielny plik HTML) w Opal5 Studio. ' +
+      'Ten sam tytuł = nowa wersja istniejącego projektu. Używaj, gdy zrobisz albo poprawisz taki artefakt.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        kind: { type: 'string', enum: ['www', 'deck', 'email', 'doc'], description: 'www — strona/landing; deck — prezentacja; email — szablon maila; doc — dokument/plakat.' },
+        html: { type: 'string', description: 'Pełny, samodzielny HTML (style w środku).' },
+        note: { type: 'string', description: 'Co się zmieniło w tej wersji — krótko.' },
+      },
+      required: ['title', 'html'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'save_note',
+    description: 'Zapisuje notatkę w Bazie wiedzy Opal5 (ustalenia, oferta, gotowy tekst do wielokrotnego użytku).',
+    input_schema: {
+      type: 'object',
+      properties: { title: { type: 'string' }, text: { type: 'string' }, tags: { type: 'string' } },
+      required: ['title', 'text'],
+      additionalProperties: false,
+    },
+  },
+];
+const CONNECTOR_WRITES = new Set(['log_chat', 'save_design', 'save_note']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -1082,18 +1141,69 @@ export class Assistant {
   /** Tools offered to Claude chats through the CRM connector: reads, plus writes that save straight away. */
   static mcpTools() {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
-    return [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...writes].map((t) => ({
+    const kb = KNOWLEDGE_TOOLS.filter((t) => ['get_tasks', 'search_knowledge', 'read_knowledge'].includes(t.name));
+    return [...READ_TOOLS, ...kb, ...CONNECTOR_TOOLS, ...writes].map((t) => ({
       name: t.name,
       description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
       inputSchema: t.input_schema,
-      ...(WRITE_NAMES.has(t.name) ? {} : { annotations: { readOnlyHint: true } }),
+      ...(WRITE_NAMES.has(t.name) || CONNECTOR_WRITES.has(t.name) ? {} : { annotations: { readOnlyHint: true } }),
     }));
+  }
+
+  /** The connector-only tools: mirror Claude chats, artifacts and notes into Opal5. */
+  private async connector(name: string, input: Input): Promise<string> {
+    const threads = new Threads(this.crm.db);
+    if (name === 'list_chats') {
+      const list = await threads.list();
+      if (!list.length) return 'W Opal5 nie ma jeszcze czatów.';
+      return JSON.stringify(list.slice(0, 60).map((t) => ({ id: t.id, title: t.title, mode: t.mode, messages: t.count, last: t.last, updated: t.updatedAt })));
+    }
+    if (name === 'read_chat') {
+      const x = await threads.excerpt(Number(input.chat_id));
+      return `Czat „${x.title}” (${x.mode}):\n\n${x.text || '(pusty)'}`;
+    }
+    if (name === 'read_knowledge') {
+      const c = await this.readKnowledge(Number(input.id));
+      return typeof c === 'string' ? c : (c || []).map((b) => b.type === 'text' ? b.text : '[obraz — otwórz plik w Opal5]').join('\n');
+    }
+    if (name === 'log_chat') {
+      const title = txt(input.chat_title) || 'Rozmowa z Claude';
+      const key = title.toLowerCase();
+      const found = (await threads.list()).find((t) => t.title.toLowerCase() === key);
+      const id = found ? found.id : (await threads.create({ title, mode: input.mode || guessMode(title), source: 'claude' })).id;
+      if (found && input.mode && found.mode !== input.mode && found.mode === 'other') await threads.update(id, { mode: input.mode });
+      const now = new Date().toISOString();
+      await threads.append(id, [
+        { role: 'user', text: longTxt(input.user_message), at: now, via: 'claude' },
+        { role: 'assistant', text: longTxt(input.reply), at: now, via: 'claude' },
+      ]);
+      return `Zapisano w Opal5 → Czaty → „${title}”${found ? '' : ' (nowy czat)'}.`;
+    }
+    if (name === 'save_design') {
+      const designs = new Designs(this.crm.db);
+      const title = txt(input.title) || 'Bez tytułu';
+      const html = String(input.html || '');
+      if (!/<(html|body|div|section|svg|h1|p)\b/i.test(html)) throw new Error('To nie wygląda na HTML — podaj pełny plik HTML.');
+      const found = (await designs.list()).find((d) => d.title.toLowerCase() === title.toLowerCase());
+      if (found) {
+        const d = await designs.saveTurn(found.id, { messages: [], html, note: txt(input.note) || 'Wersja z Claude' });
+        return `Zapisano w Opal5 Studio „${title}” jako wersję ${d.versions.length}.`;
+      }
+      await designs.create({ title, kind: input.kind, html, note: txt(input.note) || 'Z Claude' });
+      return `Zapisano w Opal5 Studio jako nowy projekt „${title}”.`;
+    }
+    if (name === 'save_note') {
+      const item = await this.kb.add({ title: txt(input.title) || 'Notatka', text: longTxt(input.text), tags: txt(input.tags) || 'claude' });
+      return `Zapisano w Bazie wiedzy Opal5 (id ${item.id}).`;
+    }
+    throw new Error(`Nieznane narzędzie ${name}`);
   }
 
   /** Runs one tool for a connector call. Writes go through the same checks as proposals, then execute at once. */
   async mcpCall(name: string, input: Input): Promise<{ text: string; isError?: boolean }> {
     if (!Assistant.mcpTools().some((t) => t.name === name)) return { text: `Nieznane narzędzie ${name}`, isError: true };
     try {
+      if (CONNECTOR_TOOLS.some((t) => t.name === name) || name === 'read_knowledge') return { text: await this.connector(name, input || {}) };
       if (!WRITE_NAMES.has(name)) return { text: await this.read(name, input || {}) };
       const proposals: Proposal[] = [];
       await this.propose(name, input || {}, proposals, new Map());
