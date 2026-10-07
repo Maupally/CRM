@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { unzipSync, strFromU8 } from 'fflate';
-import { Upload, Check, Loader2 } from 'lucide-react';
+import { Upload, Check, Loader2, Download } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import { Modal, useToast } from './ui';
@@ -17,7 +17,7 @@ interface Project { uuid: string; name: string; prompt: string; docs: Doc[]; fil
 interface Artifact { id: string; title: string; type: string; content: string }
 interface Msg { role: 'user' | 'assistant'; text: string; at: string }
 interface Chat { uuid: string; name: string; date: string; transcript: string; messages: Msg[]; artifacts: Artifact[]; size: number; project: string; design?: boolean }
-interface Parsed { projects: Project[]; chats: Chat[]; tools: Artifact[]; memory: string }
+interface Parsed { projects: Project[]; chats: Chat[]; tools: Artifact[]; memory: string; links: { name: string; url: string; category: string }[] }
 
 const MAX_NOTE = 190_000;
 const MAX_FILE = 4 * 1024 * 1024;
@@ -109,7 +109,7 @@ function toChat(c: any, design: boolean): Chat {
 
 /** Reads one or more export files (zips or loose JSON) into projects, chats, design frames and memory. */
 async function readExport(list: File[]): Promise<Parsed> {
-  const out: Parsed = { projects: [], chats: [], tools: [], memory: '' };
+  const out: Parsed = { projects: [], chats: [], tools: [], memory: '', links: [] };
   const loose: { zip: string; path: string; data: Uint8Array }[] = [];
   for (const f of list) {
     const bytes = new Uint8Array(await f.arrayBuffer());
@@ -121,6 +121,12 @@ async function readExport(list: File[]): Promise<Parsed> {
       if (/\.json$/i.test(path)) {
         let v: unknown;
         try { v = JSON.parse(strFromU8(data)); } catch { continue; }
+        // the newer export mail gives a manifest: a list of download links, not the data itself
+        const files = (v as any)?.data_files;
+        if (Array.isArray(files) && files.some((x: any) => x?.export_url)) {
+          for (const x of files) if (x?.export_url) out.links.push({ name: String(x.filename || x.category), url: String(x.export_url), category: String(x.category || '') });
+          continue;
+        }
         if (/memor/.test(where)) { out.memory += `${strFromU8(data)}\n`; continue; }
         for (const r of records(v)) {
           if (isChat(r)) out.chats.push(toChat(r, /design/.test(where)));
@@ -160,6 +166,8 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const [chats, setChats] = useState<Chat[]>([]);
   const [tools, setTools] = useState<Artifact[]>([]);
   const [memory, setMemory] = useState('');
+  const [links, setLinks] = useState<Parsed['links']>([]);
+  const [clicked, setClicked] = useState<Set<string>>(new Set());
   const [takeTools, setTakeTools] = useState(true);
   const [takeMemory, setTakeMemory] = useState(true);
   const [pickP, setPickP] = useState<Set<string>>(new Set());
@@ -175,6 +183,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
     setBusy('Czytam pliki…');
     try {
       const r = await readExport(fs);
+      if (r.links.length && !r.projects.length && !r.chats.length && !r.tools.length) { setLinks(r.links); return; }
       const chosen = new Set(r.projects.filter((p) => /maple/i.test(p.name)).map((p) => p.uuid));
       setProjects(r.projects);
       setChats(r.chats);
@@ -278,7 +287,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const toggle = (set: Set<string>, id: string, fn: (s: Set<string>) => void) => {
     const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); fn(n);
   };
-  const close = () => { setProjects(null); setChats([]); setTools([]); setMemory(''); setDone(null); setFind(''); onClose(); };
+  const close = () => { setLinks([]); setClicked(new Set()); setProjects(null); setChats([]); setTools([]); setMemory(''); setDone(null); setFind(''); onClose(); };
 
   return (
     <Modal open={open} onClose={close} wide title="Przenieś z Claude"
@@ -294,12 +303,32 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
             Sprawdź w Czatach, czy rodzaj czatu się zgadza (B2B / swobodny) — asystent pod mikrofonem zapisuje tam to, co napisze.
             Potem w <b>Ustawienia → Styl pisania</b> kliknij „Ucz się z czatów” przy B2B i przy rozmowach swobodnych.</div>
         </div>
+      ) : links.length && !projects ? (
+        <div className="col">
+          <div>To jest <b>lista linków</b> z eksportu, nie same dane. Pobierz każdy plik — kliknij po kolei
+            (otworzą się w przeglądarce, w której jesteś zalogowany do claude.ai; każdy link działa raz i przez 24 h):</div>
+          <div className="col tight">
+            {links.map((l) => (
+              <a key={l.url} className={`btn sm ${clicked.has(l.url) ? '' : 'primary'}`} style={{ justifyContent: 'flex-start' }} href={l.url} target="_blank" rel="noreferrer"
+                onClick={() => setClicked(new Set([...clicked, l.url]))}>
+                {clicked.has(l.url) ? <Check size={14} /> : <Download size={14} />} {l.name}
+              </a>
+            ))}
+          </div>
+          <div className="soft small">Gdy wszystkie się pobiorą (folder Pobrane), wybierz je tutaj — wszystkie naraz:</div>
+          <label className="btn primary" style={{ alignSelf: 'flex-start' }}>
+            {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz pobrane pliki .zip'}
+            <input type="file" multiple accept=".zip,application/zip,.json,application/json" hidden onChange={(e) => { read(e.target.files); e.target.value = ''; }} />
+          </label>
+          <div className="hint">Jeśli link pokaże błąd (wygasł albo był już użyty), zrób nowy eksport w claude.ai → Ustawienia → Prywatność → Eksportuj dane.</div>
+        </div>
       ) : !projects ? (
         <div className="col">
           <ol className="steps">
             <li>Na komputerze: <b>claude.ai → Ustawienia → Prywatność → Eksportuj dane</b> (Settings → Privacy → Export data).</li>
             <li>Po kilku minutach przyjdzie mail z linkami — pobierz <b>wszystkie pliki .zip</b> (projects, conversations, design_chats, frames, memories…). Linki działają 24 h.</li>
-            <li>Wybierz je tutaj — wszystkie naraz. Czytam je w przeglądarce; do Opal5 trafia tylko to, co zaznaczysz.</li>
+            <li>Wybierz je tutaj — wszystkie naraz. Czytam je w przeglądarce; do Opal5 trafia tylko to, co zaznaczysz.
+              Masz tylko plik z linkami (.json)? Wybierz go — pokażę przyciski do pobrania każdego pliku.</li>
           </ol>
           <label className="btn primary" style={{ alignSelf: 'flex-start' }}>
             {busy ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {busy || 'Wybierz pliki eksportu (.zip)'}
