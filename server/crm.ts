@@ -62,10 +62,14 @@ SELECT l.*,
 FROM crm.leads l`;
 
 const TASK_SQL = `SELECT t.*, e.title AS event_title, e.date AS event_date, l.company AS company,
-  p.name AS person_name, p.role AS person_role, p.email AS person_email, p.phone AS person_phone FROM crm.tasks t
+  p.name AS person_name, p.role AS person_role, p.email AS person_email, p.phone AS person_phone,
+  r.title AS run_title, pr.name AS run_process,
+  (SELECT COUNT(*) FROM crm.tasks s WHERE s.run_id = t.run_id AND t.run_id <> 0) AS run_steps FROM crm.tasks t
   LEFT JOIN crm.events e ON e.id = t.event_id
   LEFT JOIN crm.leads l ON l.id = t.lead_id
-  LEFT JOIN crm.people p ON p.id = t.person_id`;
+  LEFT JOIN crm.people p ON p.id = t.person_id
+  LEFT JOIN crm.process_runs r ON r.id = t.run_id AND t.run_id <> 0
+  LEFT JOIN crm.processes pr ON pr.id = r.process_id`;
 
 /** Emails keep their subject in its own field; a "Temat: …" first line is lifted out of the body. */
 function cleanMaterial(m: Partial<Material>): Material {
@@ -840,7 +844,37 @@ export class Crm {
       ...(r.person_name ? { person: { name: r.person_name, role: r.person_role || '', email: r.person_email || '', phone: r.person_phone || '' } } : {}),
       ...(r.event_title !== undefined ? { eventTitle: r.event_title || '', eventDate: r.event_date || '' } : {}),
       ...(r.company ? { company: r.company } : {}),
+      runId: Number(r.run_id) || 0, step: Number(r.step) || 0, blocked: r.blocked || '', started: r.started || '',
+      ...(r.run_title ? { run: { title: r.run_title, process: r.run_process || '', steps: Number(r.run_steps) || 0 } } : {}),
     };
+  }
+
+  /**
+   * Procedures are kept to: a step can be finished only after the ones before it. Finishing a step starts the
+   * next one (its clock and due date) and the last one closes the run.
+   */
+  private async guardStep(cur: Row) {
+    const runId = Number(cur.run_id);
+    if (!runId) return;
+    const before = await this.q.get(`SELECT t.step, t.task, p.name FROM crm.tasks t LEFT JOIN crm.people p ON p.id = t.person_id
+      WHERE t.run_id = ? AND t.step < ? AND t.status <> 'done' ORDER BY t.step LIMIT 1`, [runId, Number(cur.step)]);
+    if (before) {
+      throw bad(`To krok ${cur.step} procesu — najpierw musi być zrobiony krok ${before.step}: „${before.task}”${before.name ? ` (${before.name})` : ''}.`);
+    }
+  }
+
+  private async advanceRun(runId: number) {
+    if (!runId) return;
+    const next = await this.q.get(`SELECT id, due, started, step_days FROM crm.tasks WHERE run_id = ? AND status <> 'done' ORDER BY step LIMIT 1`, [runId]);
+    if (!next) {
+      await this.q.run(`UPDATE crm.process_runs SET status = 'done', finished = ? WHERE id = ? AND status = 'active'`, [this.today(), runId]);
+      return;
+    }
+    await this.q.run(`UPDATE crm.process_runs SET status = 'active', finished = '' WHERE id = ? AND status = 'done'`, [runId]);
+    if (next.started) return;
+    const days = Number(next.step_days) || 0;
+    await this.q.run(`UPDATE crm.tasks SET started = ?, due = CASE WHEN due = '' THEN ? ELSE due END WHERE id = ?`,
+      [this.today(), days ? addDays(this.today(), days) : '', next.id]);
   }
 
   async listTasks(): Promise<Task[]> {
@@ -882,12 +916,16 @@ export class Crm {
     const notes = longTxt(pick(d.notes, cur?.notes ?? ''));
     const personId = Number(pick(d.personId, Number(cur?.person_id) || 0)) || 0;
     if (personId) await this.getPerson(personId);
+    const blocked = status === 'done' ? '' : longTxt(pick(d.blocked, cur?.blocked ?? ''));
 
     if (cur) {
+      if (status === 'done' && cur.status !== 'done') await this.guardStep(cur);
       const completed = status === 'done' ? (cur.completed || this.today()) : '';
       await this.q.run(`UPDATE crm.tasks SET event_id=?, lead_id=?, task=?, owner=?, due=?, status=?, notes=?, completed=?,
-        materials=?, attachments=?, person_id=? WHERE id = ?`, [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, personId, id]);
+        materials=?, attachments=?, person_id=?, blocked=? WHERE id = ?`,
+        [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, personId, blocked, id]);
       if (status === 'done' && cur.status !== 'done' && personId) await this.touchPerson(personId);
+      if ((status === 'done') !== (cur.status === 'done')) await this.advanceRun(Number(cur.run_id));
       return this.taskById(id);
     }
     const newId = await this.tx(async (c) => {
@@ -904,8 +942,11 @@ export class Crm {
     const cur = await this.q.get('SELECT * FROM crm.tasks WHERE id = ?', [id]);
     if (!cur) throw notFound(`Nie ma zadania ${id}.`);
     const next = cur.status === 'done' ? 'todo' : 'done';
-    await this.q.run('UPDATE crm.tasks SET status = ?, completed = ? WHERE id = ?', [next, next === 'done' ? this.today() : '', id]);
+    if (next === 'done') await this.guardStep(cur);
+    await this.q.run(`UPDATE crm.tasks SET status = ?, completed = ?, blocked = CASE WHEN ? = 'done' THEN '' ELSE blocked END WHERE id = ?`,
+      [next, next === 'done' ? this.today() : '', next, id]);
     if (next === 'done' && Number(cur.person_id)) await this.touchPerson(Number(cur.person_id));
+    await this.advanceRun(Number(cur.run_id));
     return this.taskById(id);
   }
 

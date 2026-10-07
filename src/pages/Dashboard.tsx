@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AlarmClock, CalendarCheck, CheckCircle2, Flame, Handshake, ArrowRight, Sparkles } from 'lucide-react';
+import { AlarmClock, AlertTriangle, CalendarCheck, CheckCircle2, Flame, Handshake, ArrowRight, Sparkles } from 'lucide-react';
 import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
@@ -17,6 +17,7 @@ type Item = { kind: 'act'; date: string; a: OpenItem } | { kind: 'task'; date: s
  */
 export function DashboardPage() {
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard });
+  const runs = useQuery({ queryKey: ['runs', false], queryFn: () => api.runs() });
   const cfg = useConfig();
   const [open, setOpen] = useState<OpenItem | null>(null);
   const [task, setTask] = useState<Task | null>(null);
@@ -40,6 +41,7 @@ export function DashboardPage() {
   const hour = new Date().getHours();
   const hello = hour < 12 ? 'Dzień dobry' : hour < 18 ? 'Cześć' : 'Dobry wieczór';
   const todo = late.length + today.length;
+  const stuck = (runs.data || []).filter((r) => r.stuck.length);
 
   const row = (i: Item, showDate: boolean) => i.kind === 'act'
     ? <TaskRow key={`a${i.a.id}`} a={i.a} today={t} onComplete={setOpen} showDate={showDate} />
@@ -73,6 +75,15 @@ export function DashboardPage() {
         <StatTile label="W grze" value={inPlay} icon={Flame} tone="violet" to="/lejek" hint={`${d.pipeline['scheduled visit']} wizyt · ${d.pipeline['negotiation']} negocjacji`} />
         <StatTile label="Partnerzy" value={d.pipeline['active']} icon={Handshake} to="/firmy?widok=partnerzy" hint="aktywne współprace" />
       </div>
+
+      {stuck.length > 0 && (
+        <Link to="/procesy" className="card pad row" style={{ marginBottom: 18, borderColor: 'var(--bad)', color: 'inherit', gap: 10 }}>
+          <AlertTriangle size={18} style={{ color: 'var(--bad)', flexShrink: 0 }} />
+          <span className="grow"><b>Utknęło w procesach: {stuck.length}</b>
+            <span className="soft small" style={{ display: 'block' }}>{stuck.slice(0, 3).map((r) => `${r.title} — ${r.steps[r.current - 1]?.person || 'nikt'}: ${r.stuck[0]}`).join(' · ')}</span></span>
+          <ArrowRight size={16} />
+        </Link>
+      )}
 
       <section className="card">
         <div className="card-head"><h2>Do zrobienia</h2><Link to="/zadania" className="btn ghost sm">Wszystkie zadania <ArrowRight size={14} /></Link></div>

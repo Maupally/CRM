@@ -194,7 +194,7 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
 export function ProjectTaskRow({ t, today, onOpen, sub }: { t: Task; today: string; onOpen: (t: Task) => void; sub?: string }) {
   const toggle = useAction((id: string) => api.toggleTask(id));
   const done = t.status === 'done';
-  const meta = [sub, t.person && `do: ${t.person.name}`].filter(Boolean).join(' · ');
+  const meta = [sub, t.run && `krok ${t.step}/${t.run.steps}`, t.person && `do: ${t.person.name}`].filter(Boolean).join(' · ');
   return (
     <li className="li">
       <button className={`check ${done ? 'on' : ''}`} onClick={() => toggle.mutate(t.id)} aria-label={done ? 'Przywróć' : 'Zrobione'}>✓</button>
@@ -208,6 +208,7 @@ export function ProjectTaskRow({ t, today, onOpen, sub }: { t: Task; today: stri
           </div>
         )}
       </button>
+      {!done && t.blocked && <span className="tag overdue" title={t.blocked}>stoi</span>}
       {!done && t.due && <DueTag date={t.due} today={today} />}
     </li>
   );

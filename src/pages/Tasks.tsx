@@ -145,11 +145,13 @@ function Projects({ today }: { today: string }) {
     const g = new Map<string, { title: string; date?: string; eventId?: string; items: Task[] }>();
     for (const t of tasks.data || []) {
       if (!showDone && t.status === 'done') continue;
-      const key = t.eventId || (t.leadId ? `L:${t.leadId}` : 'other');
-      if (!g.has(key)) g.set(key, { title: t.eventTitle || t.company || 'Inne', date: t.eventDate, eventId: t.eventId || undefined, items: [] });
+      const key = t.run ? `R:${t.runId}` : t.eventId || (t.leadId ? `L:${t.leadId}` : 'other');
+      if (!g.has(key)) g.set(key, { title: t.run ? (t.run.title.toLowerCase().startsWith(t.run.process.toLowerCase()) ? t.run.title : `${t.run.process}: ${t.run.title}`) : t.eventTitle || t.company || 'Inne',
+        date: t.run ? undefined : t.eventDate, eventId: t.run ? undefined : t.eventId || undefined, items: [] });
       g.get(key)!.items.push(t);
     }
-    for (const x of g.values()) x.items.sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done') || (a.due || '9').localeCompare(b.due || '9'));
+    for (const x of g.values()) x.items.sort((a, b) => (a.runId && a.runId === b.runId ? a.step - b.step
+      : Number(a.status === 'done') - Number(b.status === 'done') || (a.due || '9').localeCompare(b.due || '9')));
     return [...g.values()].sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
   }, [tasks.data, showDone]);
 

@@ -256,3 +256,50 @@ describe('network of people', () => {
     expect((await crm.listPeople()).find((p) => p.name === 'Jan Nowak')!.partner).toBe(false);
   });
 });
+
+describe('procedures', () => {
+  it('runs steps in order, starts the next one, shows who has what and where it is stuck', async () => {
+    const { Processes } = await import('./processes.js');
+    const db = await openDb('memory://');
+    let today = '2026-10-07';
+    const crm = new Crm(db, 'Martin', () => today);
+    const pr = new Processes(crm);
+    const patryk = await crm.savePerson({ name: 'Patryk' });
+    const roma = await crm.savePerson({ name: 'Roma' });
+    const lead = await crm.createLead({ company: 'Armada' });
+    const proc = await pr.save({ name: 'Nowy partner', steps: [
+      { title: 'Umowa partnerska', personId: patryk.id, days: 3, doneWhen: 'podpisana przez obie strony' },
+      { title: 'Post o partnerstwie', personId: roma.id, days: 2 },
+      { title: 'Logo na stronie', personId: 0, days: 5 },
+    ] });
+    const run = await pr.start({ processId: proc.id, title: 'Nowy partner: Armada', leadId: lead.id });
+    expect(run.current).toBe(1);
+    expect(run.steps.map((s) => [s.person, s.due])).toEqual([['Patryk', '2026-10-10'], ['Roma', ''], ['', '']]);
+
+    // Roma's step waits for Patryk — and cannot be ticked off before
+    const romaWork = await pr.personWork(roma.id);
+    expect(romaWork.items[0].state).toContain('czeka na krok 1');
+    await expect(crm.toggleTask(run.steps[1].taskId)).rejects.toThrow(/najpierw musi być zrobiony krok 1/);
+
+    // Patryk late → stuck; blocked reason shows too
+    today = '2026-10-12';
+    expect((await pr.run(run.id)).stuck).toEqual(['spóźnione o 2 dni']);
+    await crm.saveTask({ id: run.steps[0].taskId, blocked: 'Armada nie odesłała skanu' });
+    expect((await pr.run(run.id)).stuck[0]).toContain('Armada nie odesłała');
+    expect(await pr.status(true)).toContain('UTKNĘŁO');
+
+    // done → next step starts with its own clock
+    await crm.toggleTask(run.steps[0].taskId);
+    const after = await pr.run(run.id);
+    expect(after.current).toBe(2);
+    expect(after.steps[1]).toMatchObject({ due: '2026-10-14', started: '2026-10-12' });
+    expect((await pr.personWork(roma.id)).items[0].state).toBe('teraz jego/jej ruch');
+    expect((await crm.listTasks()).find((t) => t.id === run.steps[1].taskId)!.run).toEqual({ title: 'Nowy partner: Armada', process: 'Nowy partner', steps: 3 });
+
+    await crm.toggleTask(run.steps[1].taskId);
+    expect((await pr.run(run.id)).stuck).toEqual(['nikt nie jest przypisany']);
+    await crm.toggleTask(run.steps[2].taskId);
+    expect(await pr.run(run.id)).toMatchObject({ status: 'done', current: 0, finished: '2026-10-12' });
+    await expect(pr.remove(proc.id)).resolves.toEqual({ ok: true });
+  });
+});

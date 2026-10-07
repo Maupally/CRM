@@ -683,3 +683,14 @@ a.qa { text-decoration: none; color: inherit; }
 .b2c-log { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow: auto; font-size: 14px; }
 .b2c-log li { padding: 4px 0; border-bottom: 1px solid var(--line, #0001); }
 @media (max-width: 640px) { .b2c-main { flex-basis: 100%; } .b2c-row > .row { margin-left: auto; } }
+
+/* procedures */
+.proc-steps { margin: 6px 0 0; padding-left: 20px; font-size: 14px; }
+.proc-steps li { margin: 2px 0; }
+.run-steps { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.run-step { display: inline-flex; align-items: center; gap: 5px; max-width: 190px; font: inherit; font-size: 12px; font-weight: 600; padding: 4px 9px;
+  border-radius: 99px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--soft); cursor: pointer; }
+.run-step.done { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: transparent; color: var(--ok); }
+.run-step.now { background: var(--accent); border-color: var(--accent); color: #fff; }
+.run-step.stuck { background: var(--bad); border-color: var(--bad); color: #fff; }
+.proc-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }

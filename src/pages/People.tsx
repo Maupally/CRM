@@ -104,6 +104,7 @@ export function PersonForm({ value, onClose, onSaved }: { value: Partial<Person>
       {f('aliases', 'Jak go nazywasz (dla asystenta)', 'text', 'np. dyrektor, szef, Patryk')}
       <label className="field">Notatki<textarea rows={2} value={d.notes || ''} onChange={(e) => setD({ ...d, notes: e.target.value })}
         placeholder="np. woli krótkie maile, decyduje o budżecie wydarzeń" /></label>
+      {!!value?.id && <PersonWork id={value.id} />}
       {!!d.events?.length && (
         <div className="col tight">
           <span className="small soft">Pomagał(a) przy wydarzeniach</span>
@@ -116,5 +117,24 @@ export function PersonForm({ value, onClose, onSaved }: { value: Partial<Person>
         </div>
       )}
     </Modal>
+  );
+}
+
+/** What is on this person's plate — and for process steps, whether it is their move or they wait for someone. */
+function PersonWork({ id }: { id: number }) {
+  const q = useQuery({ queryKey: ['person-work', id], queryFn: () => api.personWork(id) });
+  if (!q.data) return null;
+  return (
+    <div className="col tight">
+      <span className="small soft">Ma do zrobienia · {q.data.open}</span>
+      {!q.data.items.length && <span className="small faint">Nic otwartego.</span>}
+      {q.data.items.map((w) => (
+        <div key={w.task_id} className="small" style={{ borderLeft: `3px solid ${w.late_days || w.blocked ? 'var(--bad)' : w.state.startsWith('czeka') ? 'var(--line-strong)' : 'var(--accent)'}`, paddingLeft: 8 }}>
+          <b>{w.task}</b>{w.due && <span className="soft"> · do {shortDate(w.due)}</span>}{w.late_days ? <span style={{ color: 'var(--bad)' }}> · spóźnione {w.late_days} dni</span> : null}
+          <div className="faint">{[w.process, w.company, w.event].filter(Boolean).join(' · ')}{w.process ? ` — ${w.state}` : ''}</div>
+          {w.blocked && <div style={{ color: 'var(--bad)' }}>stoi: {w.blocked}</div>}
+        </div>
+      ))}
+    </div>
   );
 }

@@ -167,6 +167,14 @@ export interface Task {
   eventTitle?: string;
   eventDate?: string;
   company?: string;
+  /** when the task is a step of a running procedure */
+  runId: number;
+  step: number;
+  /** why it cannot move on, if it is stuck */
+  blocked: string;
+  /** when this step became the current one */
+  started: string;
+  run?: { title: string; process: string; steps: number };
 }
 
 /** A ready-to-use piece of text prepared for a task (post, SMS, email, text for teachers…). */
@@ -427,3 +435,23 @@ export interface B2cItem {
   week: number;
 }
 export interface B2cLog { id: number; itemId: number; delta: number; note: string; day: string; at: string }
+
+/* ------------------------------------------------------------------ procedures */
+
+/** One step of a procedure: what, who does it, how many days it may take, when it counts as done. */
+export interface ProcessStep { title: string; personId: number; days: number; doneWhen: string }
+export interface Process { id: number; name: string; description: string; steps: ProcessStep[]; updatedAt: string; activeRuns: number }
+
+export interface RunStep {
+  taskId: string; step: number; title: string; status: string; due: string; completed: string; blocked: string; started: string;
+  personId: number; person: string; doneWhen: string;
+}
+/** A running procedure with where it stands and — if so — why it is stuck. */
+export interface ProcessRun {
+  id: number; processId: number; process: string; title: string; leadId: string; company: string; eventId: string; eventTitle: string;
+  status: 'active' | 'done' | 'cancelled'; started: string; finished: string;
+  steps: RunStep[];
+  /** 1-based number of the step it is on now (0 when finished) */
+  current: number;
+  stuck: string[];
+}

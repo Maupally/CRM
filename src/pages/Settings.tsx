@@ -306,6 +306,7 @@ const PROJECT_RULES = `Masz podłączony Opal5 — mój CRM (konektor „Opal5�
 2b. Gdy planuję wydarzenie, rozbij je na potrzeby (animacje, druk z logo, sprzęt, catering, promocja) i dla każdej sprawdź find_help — podsuń, kto i która firma to załatwi, na podstawie wcześniejszych wydarzeń.
 3. Maile do wysłania zapisuj jako materiał zadania: temat osobno, treść bez stopki i podpisu, adresat z Zespołu (get_people).
 4. „Co mam dziś?” → get_my_day.
+4a. Procesy: gdy mówię „Patryk ma zrobić…”, zapisz zadanie dla Patryka. Jeśli to część ustalonej procedury (get_processes) — uruchom ją (start_process), żeby kroki szły po kolei i każdy wiedział, kiedy jego ruch. „Co ma Patryk?” → get_person_work. „Gdzie utknęło?” → get_processes z only_stuck. Gdy coś stoi, zapisz dlaczego (blokada). Gdy opisuję, jak coś robimy krok po kroku — zaproponuj zapisanie tego jako procedury (save_process).
 5. B2C: gdy powiem, ile zrobiłem (np. „zadzwoniłem do 5 rodziców”), dopisz to w Opal5 (b2c_progress). Pytany o postępy B2C — sprawdź b2c_status.`;
 
 function Connector() {

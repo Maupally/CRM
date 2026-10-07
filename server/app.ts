@@ -9,6 +9,7 @@ import { handleMcp, handleStaleMcp, lastMcp, mcpToken } from './mcp.js';
 import { Designs } from './designs.js';
 import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
+import { Processes } from './processes.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -213,6 +214,19 @@ export function createApp(o: AppOptions) {
   });
   api.delete('/events/:id/people/:pid', async (c) => c.json(await (await crm()).unlinkPersonEvent(c.req.param('id'), num(c.req.param('pid')))));
   api.get('/help', async (c) => c.json(await (await crm()).findHelp(c.req.query('q') || '')));
+
+  /* ---- procedures: editing here, creating and starting by voice (claude.ai) */
+  const procs = async () => new Processes(await crm());
+  api.get('/processes', async (c) => c.json(await (await procs()).list()));
+  api.post('/processes', async (c) => {
+    const d = await body<{ id?: number }>(c);
+    if (!d.id) throw new HttpError(400, 'Nowe procedury zapisuje Claude — tu można je edytować.');
+    return c.json(await (await procs()).save(d));
+  });
+  api.delete('/processes/:id', async (c) => c.json(await (await procs()).remove(num(c.req.param('id')))));
+  api.get('/runs', async (c) => c.json(await (await procs()).runs({ all: c.req.query('all') === '1' })));
+  api.post('/runs/:id/cancel', async (c) => c.json(await (await procs()).cancel(num(c.req.param('id')))));
+  api.get('/people/:id/work', async (c) => c.json(await (await procs()).personWork(num(c.req.param('id')))));
 
   /* ---- B2C progress */
   const b2c = async () => { const k = await crm(); return new B2c(k.db, () => k.today()); };

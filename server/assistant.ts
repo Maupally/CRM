@@ -10,6 +10,7 @@ import { Knowledge } from './knowledge.js';
 import { Designs } from './designs.js';
 import { Threads, guessMode } from './threads.js';
 import { B2c } from './b2c.js';
+import { Processes } from './processes.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -284,6 +285,18 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
     input_schema: { type: 'object', properties: { need: { type: 'string' } }, required: ['need'], additionalProperties: false },
   },
   {
+    name: 'get_processes',
+    description: 'Procedury (kto co robi, w jakiej kolejności, ile dni na krok) i trwające procesy: na którym są kroku, kto ma ruch, termin, ' +
+      'czy utknęły (spóźnione, zablokowane, nikt nieprzypisany). only_stuck = tylko to, co utknęło.',
+    input_schema: { type: 'object', properties: { only_stuck: { type: 'boolean' } }, additionalProperties: false },
+  },
+  {
+    name: 'get_person_work',
+    description: 'Co ma do zrobienia dana osoba (id z get_people): otwarte zadania, spóźnienia, blokady, a przy krokach procesu — który to proces i krok ' +
+      'oraz czy to teraz jej ruch, czy czeka na kogoś innego. Używaj, gdy pada „co ma Patryk”, „Patryk ma zrobić…”.',
+    input_schema: { type: 'object', properties: { person_id: { type: 'string' } }, required: ['person_id'], additionalProperties: false },
+  },
+  {
     name: 'get_my_day',
     description: 'Zadania użytkownika: zaległe, na dziś i na najbliższe 7 dni (z activity_id), plus co już zrobiono dziś.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
@@ -403,7 +416,8 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: 'update_task',
-    description: 'PROPOZYCJA zmiany zadania: odhaczenie (status done), przesunięcie terminu, zmiana opisu, DOPISANIE materiałów lub załączników.',
+    description: 'PROPOZYCJA zmiany zadania: odhaczenie (status done), przesunięcie terminu, zmiana opisu, DOPISANIE materiałów lub załączników, ' +
+      'zgłoszenie blokady (blocked = dlaczego stoi; pusty tekst zdejmuje blokadę). Krok procesu da się odhaczyć dopiero po poprzednich.',
     input_schema: {
       type: 'object',
       properties: {
@@ -422,6 +436,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         },
         add_attachments: { type: 'array', items: { type: 'integer' } },
         person_id: { type: 'string', description: 'Do kogo (id z get_people albo OS1)' },
+        blocked: { type: 'string', description: 'Dlaczego zadanie stoi (np. „czekamy na skan umowy od Armady”); "" zdejmuje blokadę' },
       },
       required: ['task_id'],
       additionalProperties: false,
@@ -632,6 +647,52 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
       required: ['id'],
       additionalProperties: false,
     },
+  },
+  {
+    name: 'save_process',
+    description: 'PROPOZYCJA zapisania procedury (procesu): kolejne kroki, kto je robi, ile dni ma na krok i kiedy krok jest skończony. Z id — zmienia istniejącą ' +
+      '(podaj wtedy pełną listę kroków). Osoby z get_people.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' }, name: { type: 'string' }, description: { type: 'string' },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' }, person_id: { type: 'string', description: 'kto robi (id z get_people)' },
+              days: { type: 'integer', description: 'ile dni ma na ten krok od chwili, gdy na niego przyjdzie kolej' },
+              done_when: { type: 'string', description: 'kiedy krok jest zrobiony, np. „umowa podpisana przez obie strony”' },
+            },
+            required: ['title'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['name', 'steps'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'start_process',
+    description: 'PROPOZYCJA uruchomienia procedury dla konkretnej sprawy (firma, wydarzenie): każdy krok staje się zadaniem dla swojej osoby, ' +
+      'pierwszy rusza od razu, następne po kolei. owners podmienia osoby tylko w tym przebiegu.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        process: { type: 'string', description: 'id albo nazwa procedury' }, title: { type: 'string', description: 'np. „Nowy partner: Armada”' },
+        lead_id: { type: 'string' }, event_id: { type: 'string' }, start: { type: 'string', description: 'yyyy-MM-dd, domyślnie dziś' },
+        owners: { type: 'array', items: { type: 'object', properties: { step: { type: 'integer' }, person_id: { type: 'string' } }, required: ['step', 'person_id'], additionalProperties: false } },
+      },
+      required: ['process'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cancel_process',
+    description: 'PROPOZYCJA anulowania trwającego procesu (run_id z get_processes).',
+    input_schema: { type: 'object', properties: { run_id: { type: 'integer' } }, required: ['run_id'], additionalProperties: false },
   },
   {
     name: 'link_person_event',
@@ -1480,6 +1541,8 @@ export class Assistant {
         phone: p.phone || undefined, aliases: p.aliases || undefined, notes: p.notes || undefined, contacts: p.contacts,
         events: p.events.length ? p.events.map((e) => `${e.eventId} ${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) : undefined })));
     }
+    if (name === 'get_processes') return new Processes(this.crm).status(!!input.only_stuck);
+    if (name === 'get_person_work') return JSON.stringify(await new Processes(this.crm).personWork(Number(input.person_id)));
     if (name === 'find_help') {
       const r = await this.crm.findHelp(String(input.need || ''));
       if (!r.people.length && !r.companies.length) return 'Nikt w siatce ani w CRM nie pasuje. Zapytaj użytkownika, kogo zna, i zapisz tę osobę (save_person z services).';
@@ -1696,7 +1759,14 @@ export class Assistant {
         if (input.add_materials?.length) lines.push(`Nowe materiały: ${input.add_materials.map((m: Input) => m.title).join(', ')}`);
         if (input.add_attachments?.length) lines.push(`Nowe załączniki: ${input.add_attachments.length}`);
         if (input.person_id) lines.push(`Do: ${await this.personName(txt(input.person_id), pending)}`);
+        if (input.blocked !== undefined) lines.push(txt(input.blocked) ? `Blokada: ${txt(input.blocked)}` : 'Zdejmij blokadę');
         if (t.eventTitle) lines.push(`Projekt: ${t.eventTitle}`);
+        if (t.run) lines.push(`Proces: ${t.run.title} — krok ${t.step}/${t.run.steps}`);
+        if (input.status === 'done' && t.runId) {
+          const run = await new Processes(this.crm).run(t.runId);
+          const before = run.steps.find((x) => x.step < t.step && x.status !== 'done');
+          if (before) throw new Error(`To krok ${t.step} procesu „${run.title}” — najpierw krok ${before.step}: „${before.title}”${before.person ? ` (${before.person})` : ''}.`);
+        }
         break;
       }
       case 'draft_campaign': {
@@ -1735,6 +1805,37 @@ export class Assistant {
         if (!txt(input.email) && !txt(input.phone)) warnings.push('Brak e-maila i telefonu — uzupełnij na karcie albo później w Zespole.');
         out.push({ key: ref, tool: name, input, title, lines, warnings });
         return `Propozycja przygotowana; tymczasowe id osoby: ${ref}.`;
+      }
+      case 'save_process': {
+        const steps = (input.steps || []) as Input[];
+        if (!txt(input.name) || !steps.length) throw new Error('Podaj nazwę i kroki procedury.');
+        title = `Procedura${input.id ? ' (zmiana)' : ''}: ${txt(input.name)}`;
+        for (const [i, st] of steps.entries()) {
+          const who = txt(st.person_id) ? (await this.personName(txt(st.person_id), pending)).split(' · ')[0] : '';
+          if (!who) warnings.push(`Krok ${i + 1} nie ma przypisanej osoby.`);
+          lines.push(`${i + 1}. ${txt(st.title)}${who ? ` — ${who}` : ''}${st.days ? ` · ${st.days} dni` : ''}${txt(st.done_when) ? ` · gotowe, gdy: ${txt(st.done_when)}` : ''}`);
+        }
+        break;
+      }
+      case 'start_process': {
+        const proc = await new Processes(this.crm).find(input.process);
+        input = { ...input, process_id: proc.id };
+        title = `Start procesu: ${txt(input.title) || proc.name}`;
+        if (input.lead_id) lines.push(`Firma: ${await this.companyName(txt(input.lead_id), pending)}`);
+        if (input.start) this.checkDate(input.start);
+        const swap = new Map(((input.owners || []) as Input[]).map((o) => [Number(o.step), txt(o.person_id)]));
+        for (const [i, st] of proc.steps.entries()) {
+          const pid = swap.get(i + 1) || (st.personId ? String(st.personId) : '');
+          const who = pid ? (await this.personName(pid, pending)).split(' · ')[0] : 'NIKT';
+          lines.push(`${i + 1}. ${st.title} — ${who}${st.days ? ` · ${st.days} dni` : ''}`);
+        }
+        break;
+      }
+      case 'cancel_process': {
+        const run = await new Processes(this.crm).run(Number(input.run_id));
+        title = `Anuluj proces: ${run.title}`;
+        lines.push(`Na kroku ${run.current}/${run.steps.length}`);
+        break;
       }
       case 'link_person_event': {
         const who = await this.personName(txt(input.person_id), pending);
@@ -1880,6 +1981,26 @@ export class Assistant {
             leadId = undefined; message = `Zespół: ${p.name} (id osoby ${p.id})`;
             break;
           }
+          case 'save_process': {
+            const p = await new Processes(crm).save({ id: input.id, name: input.name, description: input.description,
+              steps: (input.steps || []).map((st: Input) => ({ title: st.title, personId: this.personRef(st.person_id, ids), days: st.days, doneWhen: st.done_when })) });
+            leadId = undefined; message = `Procedura „${p.name}” (id ${p.id}), kroków: ${p.steps.length}`;
+            break;
+          }
+          case 'start_process': {
+            const owners: Record<number, number> = {};
+            for (const o of (input.owners || []) as Input[]) owners[Number(o.step)] = this.personRef(o.person_id, ids);
+            const run = await new Processes(crm).start({ processId: input.process_id, title: input.title, leadId: input.lead_id,
+              eventId: input.event_id, start: input.start, owners });
+            leadId = run.leadId || undefined;
+            message = `Ruszył proces „${run.title}” (id ${run.id}) — krok 1: ${run.steps[0]?.title}${run.steps[0]?.person ? ` (${run.steps[0].person})` : ''}`;
+            break;
+          }
+          case 'cancel_process': {
+            const run = await new Processes(crm).cancel(Number(input.run_id));
+            leadId = undefined; message = `Anulowano proces: ${run.title}`;
+            break;
+          }
           case 'link_person_event': {
             const pid = this.personRef(input.person_id, ids);
             await crm.linkPersonEvent(txt(input.event_id), pid, txt(input.role));
@@ -1896,7 +2017,7 @@ export class Assistant {
           case 'update_task': {
             const cur = (await crm.listTasks()).find((x) => x.id === input.task_id);
             if (!cur) throw new Error(`Nie ma zadania ${input.task_id}.`);
-            const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task,
+            const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task, blocked: input.blocked,
               personId: input.person_id ? this.personRef(input.person_id, ids) : undefined,
               materials: input.add_materials?.length ? [...cur.materials, ...input.add_materials] : undefined,
               attachments: input.add_attachments?.length ? [...new Set([...cur.attachments, ...input.add_attachments.map(Number)])] : undefined });

@@ -359,6 +359,19 @@ describe('connector for Claude chats', () => {
     expect(help.people[0].past_events[0]).toContain('animacje');
     expect((await call(33, 'link_person_event', { person_id: help.people[0].id, event_id: 'EV-9999' })).isError).toBe(true);
 
+    // procedures by voice: define, start, see who has what, keep the order
+    const pat = await crm.savePerson({ name: 'Patryk' });
+    const rom = await crm.savePerson({ name: 'Roma' });
+    expect((await call(40, 'save_process', { name: 'Nowy partner', steps: [
+      { title: 'Umowa', person_id: String(pat.id), days: 3 }, { title: 'Post', person_id: String(rom.id), days: 2 }] })).isError).toBeUndefined();
+    expect((await call(41, 'start_process', { process: 'partner', title: 'Nowy partner: Armada', lead_id: 'L001' })).text).toContain('Umowa (Patryk)');
+    expect((await call(42, 'get_processes', {})).text).toMatch(/krok 1\/2 „Umowa” — Patryk/);
+    const work = JSON.parse((await call(43, 'get_person_work', { person_id: String(rom.id) })).text);
+    expect(work.items[0].state).toContain('czeka na krok 1');
+    const out = await call(44, 'update_task', { task_id: work.items[0].task_id, status: 'done' });
+    expect(out.isError).toBe(true);
+    expect(out.text).toContain('najpierw krok 1');
+
     // B2C progress from claude.ai
     expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
     expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');

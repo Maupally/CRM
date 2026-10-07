@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -91,6 +91,11 @@ export interface Proposal {
 }
 export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
+export interface PersonWork {
+  person: string; role: string; open: number;
+  items: { task_id: string; task: string; due?: string; late_days?: number; blocked?: string; company?: string; event?: string; process?: string; state: string }[];
+}
+
 export interface McpLast { at: string; tool: string; ok: boolean; error?: string }
 
 export const api = {
@@ -171,6 +176,12 @@ export const api = {
   eventPeople: (id: string) => get<EventPerson[]>(`/events/${id}/people`),
   linkEventPerson: (id: string, personId: number, role = '') => post<EventPerson[]>(`/events/${id}/people`, { personId, role }),
   unlinkEventPerson: (id: string, personId: number) => del(`/events/${id}/people/${personId}`),
+  processes: () => get<Process[]>('/processes'),
+  saveProcess: (d: Partial<Process>) => post<Process>('/processes', d),
+  deleteProcess: (id: number) => del(`/processes/${id}`),
+  runs: (all = false) => get<ProcessRun[]>(`/runs${all ? '?all=1' : ''}`),
+  cancelRun: (id: number) => post<ProcessRun>(`/runs/${id}/cancel`),
+  personWork: (id: number) => get<PersonWork>(`/people/${id}/work`),
   b2c: () => get<B2cItem[]>('/b2c'),
   saveB2c: (d: Partial<B2cItem>) => post<B2cItem>('/b2c', d),
   deleteB2c: (id: number) => del(`/b2c/${id}`),
