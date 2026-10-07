@@ -19,6 +19,30 @@ const INSTRUCTIONS = `CRM Martina (Maple Bear Katowice, partnerstwa B2B, wydarze
 
 type Rpc = { jsonrpc: '2.0'; id?: string | number | null; method: string; params?: any };
 
+/** What claude.ai last did through the connector — shown in Settings → Claude, so problems can be seen. */
+export interface McpLast { at: string; tool: string; ok: boolean; error?: string }
+
+async function remember(crm: () => Promise<Crm>, key: string, v: McpLast) {
+  try { await (await crm()).setSetting(key, JSON.stringify(v)); } catch { /* the database itself may be what failed */ }
+}
+
+export async function lastMcp(crm: Crm): Promise<{ last: McpLast | null; badUrl: McpLast | null }> {
+  const read = async (k: string) => { try { return JSON.parse(await crm.setting(k)) as McpLast; } catch { return null; } };
+  return { last: await read('mcp.last'), badUrl: await read('mcp.bad') };
+}
+
+const STALE = 'Adres konektora Opal5 jest nieaktualny (zmienia się po zmianie hasła). Skopiuj nowy z Opal5 → Ustawienia → Claude i podmień go w claude.ai → Settings → Connectors.';
+
+/** A call to an old address: say so in words Claude can pass on, instead of a bare HTTP error. */
+export async function handleStaleMcp(c: Context, crm: () => Promise<Crm>) {
+  const msg = await c.req.json<Rpc>().catch(() => null);
+  await remember(crm, 'mcp.bad', { at: new Date().toISOString(), tool: String(msg?.method || ''), ok: false, error: 'stary adres' });
+  if (msg?.method === 'tools/call' && msg.id !== undefined) {
+    return c.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: STALE }], isError: true } });
+  }
+  return c.json({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32001, message: STALE } }, 404);
+}
+
 export async function handleMcp(c: Context, crm: () => Promise<Crm>) {
   const msg = await c.req.json<Rpc | Rpc[]>().catch(() => null);
   if (!msg) return c.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, 400);
@@ -46,8 +70,17 @@ async function one(m: Rpc, crm: () => Promise<Crm>) {
     case 'tools/list':
       return ok({ tools: Assistant.mcpTools() });
     case 'tools/call': {
-      const a = new Assistant(await crm(), process.env.ANTHROPIC_API_KEY || 'unused');
-      const r = await a.mcpCall(String(m.params?.name || ''), m.params?.arguments || {});
+      const tool = String(m.params?.name || '');
+      let r: { text: string; isError?: boolean };
+      try {
+        const a = new Assistant(await crm(), process.env.ANTHROPIC_API_KEY || 'unused');
+        r = await a.mcpCall(tool, m.params?.arguments || {});
+      } catch (e) {
+        // the CRM itself failed (database, timeout): tell Claude what happened instead of a bare server error
+        const why = e instanceof Error ? e.message : String(e);
+        r = { text: `Opal5 nie odpowiedział poprawnie: ${why}`, isError: true };
+      }
+      await remember(crm, 'mcp.last', { at: new Date().toISOString(), tool, ok: !r.isError, ...(r.isError ? { error: r.text.slice(0, 300) } : {}) });
       return ok({ content: [{ type: 'text', text: r.text }], ...(r.isError ? { isError: true } : {}) });
     }
     default:

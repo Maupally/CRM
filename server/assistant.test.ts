@@ -337,6 +337,18 @@ describe('connector for Claude chats', () => {
     for (const n of ['log_chat', 'save_design', 'save_note', 'list_chats', 'read_chat', 'search_knowledge']) expect(names).not.toContain(n);
     expect((await call(6, 'log_chat', { chat_title: 'x', user_message: 'a', reply: 'b' })).isError).toBe(true);
 
+    // an old address says what to do; the browser check and Settings show the state
+    const stale = await (await rpc({ jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'get_people', arguments: {} } }, 'old')).json();
+    expect(stale.result.isError).toBe(true);
+    expect(stale.result.content[0].text).toContain('nieaktualny');
+    expect((await app.request(`/api/mcp/${mcpToken(secret)}`)).status).toBe(200);
+    expect((await app.request('/api/mcp/old')).status).toBe(404);
+    expect((await app.request(`/api/mcp/${mcpToken(secret)}`, { headers: { Accept: 'text/event-stream' } })).status).toBe(405);
+    const { lastMcp } = await import('./mcp.js');
+    const seen = await lastMcp(crm);
+    expect(seen.last).toMatchObject({ tool: 'log_chat', ok: false });
+    expect(seen.badUrl).toMatchObject({ tool: 'tools/call' });
+
     // B2C progress from claude.ai
     expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
     expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');

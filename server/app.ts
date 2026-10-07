@@ -5,7 +5,7 @@ import { Crm, HttpError } from './crm.js';
 import { openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
-import { handleMcp, mcpToken } from './mcp.js';
+import { handleMcp, handleStaleMcp, lastMcp, mcpToken } from './mcp.js';
 import { Designs } from './designs.js';
 import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
@@ -98,10 +98,18 @@ export function createApp(o: AppOptions) {
   // Connector for Claude chats: the secret token in the path stands in for the login.
   const connectorToken = mcpToken(secret);
   api.post('/mcp/:token', async (c) => {
-    if (!same(c.req.param('token'), connectorToken)) return c.json({ error: 'Zły adres konektora.' }, 404);
+    if (!same(c.req.param('token'), connectorToken)) return handleStaleMcp(c, o.crm);
     return handleMcp(c, o.crm);
   });
-  api.on(['GET', 'DELETE'], '/mcp/:token', (c) => c.body(null, 405));
+  // Opened in a browser, the address says whether it is the current one; MCP clients asking for a stream get 405.
+  api.get('/mcp/:token', (c) => {
+    if ((c.req.header('accept') || '').includes('text/event-stream')) return c.body(null, 405);
+    const good = same(c.req.param('token'), connectorToken);
+    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font:16px system-ui;padding:24px">${good
+      ? '✅ To jest aktualny adres konektora Opal5. Wklej go w claude.ai → Settings → Connectors.'
+      : '❌ Ten adres konektora jest nieaktualny. Skopiuj nowy z Opal5 → Ustawienia → Claude.'}</body>`, good ? 200 : 404);
+  });
+  api.delete('/mcp/:token', (c) => c.body(null, 405));
 
   api.use('*', async (c, next) => {
     if (!(await authed(c))) return c.json({ error: 'Zaloguj się.' }, 401);
@@ -129,11 +137,11 @@ export function createApp(o: AppOptions) {
   api.get('/report', async (c) => c.json(await (await crm()).report(c.req.query('from'), c.req.query('to'))));
   api.get('/events', async (c) => c.json(await (await crm()).listEvents()));
   api.get('/tasks', async (c) => c.json(await (await crm()).listTasks()));
-  api.get('/connector', (c) => {
+  api.get('/connector', async (c) => {
     const u = new URL(c.req.url);
     const host = c.req.header('x-forwarded-host') || u.host;
     const proto = c.req.header('x-forwarded-proto') || u.protocol.replace(':', '');
-    return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}` });
+    return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}`, ...(await lastMcp(await crm())) });
   });
   /* ---- chats */
   const threads = async () => new Threads((await crm()).db);

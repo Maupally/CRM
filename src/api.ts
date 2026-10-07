@@ -91,6 +91,8 @@ export interface Proposal {
 }
 export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
+export interface McpLast { at: string; tool: string; ok: boolean; error?: string }
+
 export const api = {
   assistant: (text: string, history: AssistantTurn[], opts: { leadId?: string; image?: { mediaType: string; data: string };
     spoken?: boolean; attachments?: number[]; containerId?: string; threadId?: number } = {}) =>
@@ -159,7 +161,7 @@ export const api = {
   restoreDesign: (id: number, version: number) => post<Design>(`/studio/${id}/restore`, { version }),
   saveDesign: (id: number) => post<KnowledgeItem>(`/studio/${id}/save`),
   style: () => get<Style>('/style'),
-  connector: () => get<{ url: string }>('/connector'),
+  connector: () => get<{ url: string; last: McpLast | null; badUrl: McpLast | null }>('/connector'),
   saveStyle: (d: Partial<Style>) => req<Style>('PUT', '/style', d),
   learnStyle: (ids: number[], mode: keyof Style, chats: number[] = []) => post<{ text: string }>('/style/learn', { ids, mode, chats }),
   people: () => get<Person[]>('/people'),

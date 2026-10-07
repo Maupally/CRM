@@ -334,8 +334,26 @@ function Connector() {
           <li>Przy pierwszym zapisie Claude zapyta o zgodę — wybierz „Zawsze zezwalaj”, żeby nie pytał za każdym razem.</li>
           <li>Wklej zasady z ramki niżej na koniec instrukcji projektu „Maple Bear” (Project instructions) — zamiast poprzednich, jeśli już je wklejałeś.</li>
         </ol>
-        <div className="hint">Adres zmienia się, gdy zmienisz hasło do Opal5 (APP_PASSWORD) — wtedy podmień go w konektorze.</div>
+        <div className="hint">Adres zmienia się, gdy zmienisz hasło do Opal5 (APP_PASSWORD) — wtedy podmień go w konektorze.
+          Żeby sprawdzić adres, otwórz go w przeglądarce — zobaczysz ✅ albo ❌.</div>
       </section>
+
+      {q.data && (
+        <section className="card pad col" style={{ gap: 8 }}>
+          <h2>Ostatnie użycie przez claude.ai</h2>
+          {q.data.last ? (
+            <div className={q.data.last.ok ? 'soft' : 'error-box'}>
+              {q.data.last.ok ? '✅' : '❌'} {new Date(q.data.last.at).toLocaleString('pl-PL')} · narzędzie <code>{q.data.last.tool}</code>
+              {q.data.last.error && <div className="small" style={{ marginTop: 4 }}>{q.data.last.error}</div>}
+            </div>
+          ) : <div className="soft">Claude jeszcze niczego nie zrobił przez aktualny adres.</div>}
+          {q.data.badUrl && (!q.data.last || q.data.badUrl.at > q.data.last.at) && (
+            <div className="error-box">❌ {new Date(q.data.badUrl.at).toLocaleString('pl-PL')} claude.ai użył <b>starego adresu</b> konektora.
+              Skopiuj adres wyżej i podmień go w claude.ai → Settings → Connectors (najprościej: usuń konektor i dodaj od nowa), potem zacznij nowy czat.</div>
+          )}
+          <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => q.refetch()}>Odśwież</button>
+        </section>
+      )}
 
       <section className="card pad col" style={{ gap: 10 }}>
         <div className="row"><h2 className="grow" style={{ margin: 0 }}>Zasady do instrukcji projektu</h2>

@@ -921,6 +921,15 @@ export class Crm {
   }
 
   /** How the assistant writes: general instructions, B2B emails, and relaxed messages (parents, teachers). */
+  async setting(key: string): Promise<string> {
+    return (await this.q.get('SELECT value FROM crm.settings WHERE key = ?', [key]))?.value || '';
+  }
+
+  async setSetting(key: string, value: string) {
+    await this.q.run(`INSERT INTO crm.settings (key, value) VALUES (?, ?)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, value]);
+  }
+
   async style(): Promise<Style> {
     const rows = await this.q.all(`SELECT key, value FROM crm.settings WHERE key IN ('style.project', 'style.b2b', 'style.casual')`);
     const v = Object.fromEntries(rows.map((r) => [r.key, r.value]));
