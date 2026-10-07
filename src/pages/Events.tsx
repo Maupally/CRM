@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, MapPin, Pencil, Trash2, X, PartyPopper, Phone } from 'lucide-react';
+import { MapPin, Pencil, Trash2, X, PartyPopper, Phone } from 'lucide-react';
 import { api } from '../api';
 import { Avatar, Empty, ErrorBox, Loading, Modal, relDay, telHref, useAction, useToday, weekdayName } from '../components/ui';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
@@ -33,7 +33,6 @@ export function EventsPage() {
         <div><h1>Wydarzenia</h1><div className="sub">Dni otwarte, targi, sponsoring — każde z listą rzeczy do przygotowania.</div></div>
         <span className="spacer" />
         <label className="row small soft"><input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} /> minione</label>
-        <button className="btn primary" onClick={() => setEditing({ type: 'Open day', status: 'planned', date: today })}><Plus size={16} /> Nowe wydarzenie</button>
       </div>
       <div className="grid halves">
         <section className="card">
@@ -79,9 +78,6 @@ export function EventsPage() {
 
 function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; tasks: Task[]; onEdit: () => void; onClose: () => void }) {
   const today = useToday();
-  const [task, setTask] = useState('');
-  const [due, setDue] = useState('');
-  const add = useAction(() => api.saveTask({ eventId: e.id, task, due }), { onDone: () => { setTask(''); setDue(''); } });
   const [detail, setDetail] = useState<Task | null>(null);
   const open = tasks.filter((t) => t.status !== 'done');
   const done = tasks.filter((t) => t.status === 'done');
@@ -106,11 +102,6 @@ function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; ta
         {[...open, ...done].map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} />)}
       </ul>
       <TaskDetail task={detail} onClose={() => setDetail(null)} />
-      <form className="row wrap pad" onSubmit={(ev) => { ev.preventDefault(); if (task.trim()) add.mutate(undefined); }}>
-        <input type="text" className="grow" placeholder="Nowe zadanie…" value={task} onChange={(ev) => setTask(ev.target.value)} style={{ minWidth: 180 }} />
-        <input type="date" value={due} onChange={(ev) => setDue(ev.target.value)} style={{ width: 160 }} />
-        <button className="btn" disabled={!task.trim() || add.isPending}>Dodaj</button>
-      </form>
     </section>
   );
 }
@@ -158,12 +149,7 @@ function EventForm({ value, onClose }: { value: Partial<CrmEvent> | null; onClos
 /** Who helps with this event and with what — the history the next event is planned from. */
 function EventPeople({ eventId }: { eventId: string }) {
   const q = useQuery({ queryKey: ['event-people', eventId], queryFn: () => api.eventPeople(eventId) });
-  const people = useQuery({ queryKey: ['people'], queryFn: api.people });
-  const [pid, setPid] = useState('');
-  const [role, setRole] = useState('');
-  const add = useAction(() => api.linkEventPerson(eventId, Number(pid), role), { onDone: () => { setPid(''); setRole(''); } });
   const drop = useAction((id: number) => api.unlinkEventPerson(eventId, id));
-  const on = new Set((q.data || []).map((p) => p.personId));
   return (
     <>
       <div className="group-label">Kto pomaga · {q.data?.length || 0}</div>
@@ -180,14 +166,6 @@ function EventPeople({ eventId }: { eventId: string }) {
           </li>
         ))}
       </ul>
-      <form className="row wrap" style={{ padding: '4px 20px 12px' }} onSubmit={(ev) => { ev.preventDefault(); if (pid) add.mutate(undefined); }}>
-        <select value={pid} onChange={(ev) => setPid(ev.target.value)} style={{ flex: 1, minWidth: 160 }}>
-          <option value="">Dodaj osobę…</option>
-          {(people.data || []).filter((p) => !on.has(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.company ? ` (${p.company})` : ''}</option>)}
-        </select>
-        <input type="text" placeholder="co robi, np. animacje" value={role} onChange={(ev) => setRole(ev.target.value)} style={{ flex: 1, minWidth: 140 }} />
-        <button className="btn" disabled={!pid || add.isPending}>Dodaj</button>
-      </form>
     </>
   );
 }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, X, Building2, SlidersHorizontal } from 'lucide-react';
+import { X, Building2, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { DateChips, ReasonPicker } from '../components/ActivityForms';
 import {
@@ -25,7 +25,7 @@ const VIEWS: { id: ViewId; label: string; test: (l: Lead, today: string) => bool
 
 type SortKey = 'priority' | 'company' | 'city' | 'stage' | 'next' | 'last';
 
-export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
+export function CompaniesPage() {
   const q = useQuery({ queryKey: ['leads'], queryFn: api.leads });
   const cfg = useConfig();
   const today = useToday();
@@ -103,7 +103,6 @@ export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
       <div className="page-head">
         <div><h1>Firmy</h1><div className="sub">{q.data!.length} w bazie</div></div>
         <span className="spacer" />
-        <button className="btn primary" onClick={onAdd}><Plus size={16} /> Dodaj firmę</button>
       </div>
 
       <section className="card">
@@ -207,7 +206,6 @@ export function CompaniesPage({ onAdd }: { onAdd: () => void }) {
           <b>{sel.size} zazn.</b>
           <button className="btn sm" onClick={() => setBulk('stage')}>Zmień etap</button>
           <button className="btn sm" onClick={() => setBulk('segment')}>Zmień segment</button>
-          <button className="btn sm" onClick={() => setBulk('plan')}>Zaplanuj telefon</button>
           <button className="btn sm icon" onClick={() => setSel(new Set())} aria-label="Odznacz"><X size={14} /></button>
         </div>
       )}

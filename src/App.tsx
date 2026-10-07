@@ -4,13 +4,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Users,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
-  Plus, LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
+  LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
   Target,
 } from 'lucide-react';
 import { api } from './api';
 import { searchKey } from '../shared/domain';
-import { Avatar, Loading, Menu, Modal, StagePill, ThemeToggle } from './components/ui';
-import { AddCompany } from './components/AddCompany';
+import { Avatar, Loading, Modal, StagePill, ThemeToggle } from './components/ui';
 import { AssistantButton } from './components/Assistant';
 import { DashboardPage } from './pages/Dashboard';
 import { TasksPage } from './pages/Tasks';
@@ -109,10 +108,8 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
   const dash = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 5 * 60_000 });
   const due = (dash.data?.overdue.length || 0) + (dash.data?.due.length || 0);
   const [palette, setPalette] = useState(false);
-  const [adding, setAdding] = useState(false);
   const [more, setMore] = useState(false);
   const qc = useQueryClient();
-  const nav = useNavigate();
   const loc = useLocation();
   useEffect(() => { window.scrollTo(0, 0); setMore(false); }, [loc.pathname]);
 
@@ -159,15 +156,6 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Search size={16} /> <span className="trunc">Szukaj firmy, telefonu, maila…</span> <kbd className="hide-sm">/</kbd>
           </button>
           <span className="grow hide-sm" />
-          <Menu trigger={(t) => <button className="btn primary" onClick={t}><Plus size={17} /><span className="hide-sm">Nowy</span></button>}>
-            {(close) => (
-              <>
-                <button onClick={() => { close(); setAdding(true); }}><Building2 size={16} /> Firma</button>
-                <button onClick={() => { close(); setPalette(true); }}><ListTodo size={16} /> Aktywność u firmy…</button>
-                <button onClick={() => { close(); nav('/wydarzenia?nowe=1'); }}><PartyPopper size={16} /> Wydarzenie</button>
-              </>
-            )}
-          </Menu>
           <span className="hide-sm"><ThemeToggle /></span>
         </header>
 
@@ -176,7 +164,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/zadania" element={<TasksPage />} />
             <Route path="/lejek" element={<PipelinePage />} />
-            <Route path="/firmy" element={<CompaniesPage onAdd={() => setAdding(true)} />} />
+            <Route path="/firmy" element={<CompaniesPage />} />
             <Route path="/firmy/:id" element={<CompanyPage />} />
             <Route path="/kalendarz" element={<CalendarPage />} />
             <Route path="/wydarzenia" element={<EventsPage />} />
@@ -217,15 +205,14 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
         </div>
       </Modal>
 
-      <Palette open={palette} onClose={() => setPalette(false)} onAdd={() => { setPalette(false); setAdding(true); }} />
-      <AddCompany open={adding} onClose={() => setAdding(false)} />
+      <Palette open={palette} onClose={() => setPalette(false)} />
       <AssistantButton />
     </div>
   );
 }
 
 /** Command palette: jump to any company by name, city, phone or email — or to a page. */
-function Palette({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: () => void }) {
+function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const leads = useQuery({ queryKey: ['leads'], queryFn: api.leads, enabled: open });
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
@@ -237,7 +224,6 @@ function Palette({ open, onClose, onAdd }: { open: boolean; onClose: () => void;
   const items: Item[] = useMemo(() => {
     const k = searchKey(q);
     const pages: Item[] = [
-      { key: 'new', label: 'Dodaj firmę', icon: Plus, go: onAdd },
       ...NAV.flatMap((g) => g.items).map((n) => ({ key: n.to, label: n.label, icon: n.icon, go: () => nav(n.to) })),
       { key: '/ustawienia', label: 'Ustawienia', icon: Settings, go: () => nav('/ustawienia') },
     ];
@@ -251,7 +237,7 @@ function Palette({ open, onClose, onAdd }: { open: boolean; onClose: () => void;
       .map((l) => ({ key: l.id, label: l.company, sub: [l.city, l.segment, l.phone].filter(Boolean).join(' · '), stage: l.stage,
         avatar: l.company, go: () => nav(`/firmy/${l.id}`) }));
     return [...hits, ...pages.filter((p) => searchKey(p.label).includes(k))];
-  }, [q, leads.data, nav, onAdd]);
+  }, [q, leads.data, nav]);
 
   const run = (i: Item) => { onClose(); i.go(); };
   return (

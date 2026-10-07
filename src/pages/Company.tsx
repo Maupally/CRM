@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowLeft, Phone, Mail, Globe, Search, Pencil, ChevronDown, Copy, Send, Trash2, Check, User, CalendarPlus,
-  NotebookPen, Sparkles, AlertTriangle,
+  ArrowLeft, Phone, Mail, Globe, Search, Pencil, ChevronDown, Copy, Send, Trash2, Check, User,
+  Sparkles, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
-import { CompleteDialog, Composer, DisqualifyDialog } from '../components/ActivityForms';
+import { CompleteDialog, DisqualifyDialog } from '../components/ActivityForms';
 import { openAssistant } from '../components/Assistant';
 import { MonthCalendar, monthOf, type CalItem } from '../components/MonthCalendar';
 import {
@@ -15,7 +15,7 @@ import {
 } from '../components/ui';
 import { STAGES, STAGE_INFO, TYPES, normPhone, shortDate, type Activity, type Lead, type Segment } from '../../shared/domain';
 
-type Sheet = null | { mode: 'log' | 'plan'; date?: string } | { mail: true } | { edit: true };
+type Sheet = null | { mail: true } | { edit: true };
 
 export function CompanyPage() {
   const { id = '' } = useParams();
@@ -84,8 +84,6 @@ export function CompanyPage() {
 
         <div className="head-actions">
           {phone ? <a className="btn primary" href={telHref(phone)}><Phone size={16} /> Zadzwoń</a> : null}
-          <button className="btn" onClick={() => setSheet({ mode: 'log' })}><NotebookPen size={16} /> Zapisz kontakt</button>
-          <button className="btn" onClick={() => setSheet({ mode: 'plan' })}><CalendarPlus size={16} /> Zaplanuj</button>
           <button className="btn" onClick={() => setSheet({ mail: true })}><Mail size={16} /> Mail</button>
           <button className="btn ghost" onClick={() => openAssistant()}><Sparkles size={16} /> Asystent</button>
         </div>
@@ -113,8 +111,7 @@ export function CompanyPage() {
               <div className="pad" style={{ paddingTop: 0 }}>
                 {closed ? <span className="soft small">Nic nie zaplanowano.</span> : (
                   <div className="row wrap" style={{ gap: 10 }}>
-                    <span className="small row" style={{ color: 'var(--bad)' }}><AlertTriangle size={14} /> Brak następnego kroku — firma może się zgubić.</span>
-                    <button className="btn sm" onClick={() => setSheet({ mode: 'plan' })}><CalendarPlus size={14} /> Zaplanuj</button>
+                    <span className="small row" style={{ color: 'var(--bad)' }}><AlertTriangle size={14} /> Brak następnego kroku — powiedz Claude'owi, co dalej.</span>
                   </div>
                 )}
               </div>
@@ -126,20 +123,12 @@ export function CompanyPage() {
 
         {/* ---------------------------------------------------- right: calendar, pitch, notes */}
         <div className="col" style={{ gap: 18 }}>
-          <CompanyCalendar activities={activities} events={events} today={today}
-            onPlan={(date) => setSheet({ mode: 'plan', date })} />
+          <CompanyCalendar activities={activities} events={events} today={today} />
           <Pitch lead={lead} playbook={playbook} />
           <Notes lead={lead} />
         </div>
       </div>
 
-      <Modal open={!!sheet && 'mode' in sheet} onClose={() => setSheet(null)} title={sheet && 'mode' in sheet && sheet.mode === 'plan' ? 'Zaplanuj' : 'Zapisz kontakt'}>
-        {sheet && 'mode' in sheet && (
-          <div style={{ margin: '-8px -22px -18px' }}>
-            <Composer key={`${sheet.mode}${sheet.date || ''}`} lead={lead} initialMode={sheet.mode} initialDate={sheet.date} onDone={() => setSheet(null)} />
-          </div>
-        )}
-      </Modal>
       <MailSheet lead={lead} open={!!sheet && 'mail' in sheet} onClose={() => setSheet(null)} />
       <EditSheet lead={lead} open={!!sheet && 'edit' in sheet} onClose={() => setSheet(null)} />
       <CompleteDialog activity={completing} stage={lead.stage} company={lead.company} onClose={() => setCompleting(null)} />
@@ -251,8 +240,8 @@ function TimelineRow({ a, today }: { a: Activity; today: string }) {
 
 /* ------------------------------------------------------------ calendar of this company */
 
-function CompanyCalendar({ activities, events, today, onPlan }: {
-  activities: Activity[]; events: { id: string; title: string; date: string }[]; today: string; onPlan: (d: string) => void;
+function CompanyCalendar({ activities, events, today }: {
+  activities: Activity[]; events: { id: string; title: string; date: string }[]; today: string;
 }) {
   const next = activities.find((a) => a.result === 'planned');
   const [month, setMonth] = useState(() => monthOf(next?.date && next.date >= today ? next.date : today));
@@ -274,7 +263,7 @@ function CompanyCalendar({ activities, events, today, onPlan }: {
       {day && (
         <div className="col tight" style={{ marginTop: 12 }}>
           <div className="row between"><b className="small">{weekdayName(day)} {shortDate(day)}</b>
-            {day >= today && <button className="btn sm" onClick={() => onPlan(day)}><CalendarPlus size={14} /> Zaplanuj na ten dzień</button>}</div>
+</div>
           {onDay.map((a) => <div key={a.id} className="small"><b>{typeLabel(a.type)}</b> · <ResultTag result={a.result} />{a.note ? ` — ${a.note}` : ''}</div>)}
           {evDay.map((e) => <Link key={e.id} to={`/wydarzenia/${e.id}`} className="small" style={{ color: 'var(--accent)' }}>{e.title}</Link>)}
           {!onDay.length && !evDay.length && <div className="small faint">Nic tego dnia.</div>}

@@ -235,4 +235,24 @@ describe('network of people', () => {
     await crm.deletePerson(marta.id);
     expect(await crm.eventPeople(ev.id)).toHaveLength(1);
   });
+
+  it('puts active partners into the network on their own', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const armada = await crm.createLead({ company: 'Armada Klub Golfowy', person: 'Jan Nowak', phone: '600 100 200', industry: 'golf' });
+    const ev360 = await crm.createLead({ company: 'Event 360' });
+    const marcin = await crm.savePerson({ name: 'Marcin (Event 360)', role: 'wypożyczenie ław i stołów', services: 'ławy, stoły' });
+    expect(await crm.listPeople()).toHaveLength(1);
+
+    await crm.setStage(armada.id, 'active');
+    await crm.setStage(ev360.id, 'active');
+    const people = await crm.listPeople();
+    expect(people).toHaveLength(2);                                   // Marcin linked, not duplicated
+    expect(people.find((p) => p.name === 'Jan Nowak')).toMatchObject({ kind: 'external', company: 'Armada Klub Golfowy', leadId: armada.id, partner: true, services: 'golf' });
+    expect(await crm.getPerson(marcin.id)).toMatchObject({ leadId: ev360.id, partner: true, company: 'Event 360', kind: 'external' });
+    expect(await crm.listPeople()).toHaveLength(2);                   // idempotent
+
+    await crm.setStage(armada.id, 'negotiation');
+    expect((await crm.listPeople()).find((p) => p.name === 'Jan Nowak')!.partner).toBe(false);
+  });
 });

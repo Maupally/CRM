@@ -1475,7 +1475,7 @@ export class Assistant {
     if (name === 'get_people') {
       const people = await this.crm.listPeople();
       if (!people.length) return 'Zespół jest pusty — nikt nie został jeszcze dodany.';
-      return JSON.stringify(people.map((p) => ({ id: String(p.id), name: p.name, kind: p.kind, role: p.role || undefined,
+      return JSON.stringify(people.map((p) => ({ id: String(p.id), name: p.name, kind: p.kind, active_partner: p.partner || undefined, role: p.role || undefined,
         company: p.company || undefined, lead_id: p.leadId || undefined, services: p.services || undefined, email: p.email || undefined,
         phone: p.phone || undefined, aliases: p.aliases || undefined, notes: p.notes || undefined, contacts: p.contacts,
         events: p.events.length ? p.events.map((e) => `${e.eventId} ${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) : undefined })));

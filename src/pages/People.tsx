@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Mail, Phone, Plus, Trash2, Users, X } from 'lucide-react';
+import { Mail, Phone, Trash2, Users, X } from 'lucide-react';
 import { api } from '../api';
 import { Avatar, Empty, ErrorBox, Loading, Modal, Seg, relDay, telHref, useAction, useToday } from '../components/ui';
 import { PERSON_KINDS, PERSON_KIND_LABEL, searchKey, shortDate, type Person, type PersonKind } from '../../shared/domain';
@@ -15,7 +15,7 @@ export function PeoplePage() {
   const today = useToday();
   const [sp, setSp] = useSearchParams();
   const [edit, setEdit] = useState<Partial<Person> | null>(null);
-  const [kind, setKind] = useState<PersonKind | ''>('');
+  const [kind, setKind] = useState<PersonKind | 'partner' | ''>('');
   const [find, setFind] = useState('');
   const want = Number(sp.get('osoba')) || 0;
   useEffect(() => {
@@ -25,7 +25,7 @@ export function PeoplePage() {
 
   const rows = useMemo(() => {
     const k = searchKey(find);
-    return (q.data || []).filter((p) => (!kind || p.kind === kind) &&
+    return (q.data || []).filter((p) => (!kind || (kind === 'partner' ? p.partner : p.kind === kind)) &&
       (!k || searchKey([p.name, p.role, p.company, p.services, p.aliases, p.notes, ...p.events.map((e) => `${e.title} ${e.role}`)].join(' ')).includes(k)));
   }, [q.data, kind, find]);
   const count = (k: PersonKind) => (q.data || []).filter((p) => p.kind === k).length;
@@ -35,7 +35,6 @@ export function PeoplePage() {
       <div className="page-head">
         <div><h1>Zespół i kontakty</h1><div className="sub">Kto jest kim, co robi i przy jakich wydarzeniach pomagał. Claude w claude.ai dopisuje tu nowe osoby na bieżąco i podpowiada z tej listy, kto co załatwi.</div></div>
         <span className="spacer" />
-        <button className="btn primary" onClick={() => setEdit({ kind: kind || 'team' })}><Plus size={16} /> Dodaj osobę</button>
       </div>
       <section className="card">
         <div className="toolbar">
@@ -43,6 +42,7 @@ export function PeoplePage() {
           <div className="chips">
             <button className={`chip ${!kind ? 'on' : ''}`} onClick={() => setKind('')}>Wszyscy</button>
             {PERSON_KINDS.map((k) => <button key={k} className={`chip ${kind === k ? 'on' : ''}`} onClick={() => setKind(k)}>{PERSON_KIND_LABEL[k]} · {count(k)}</button>)}
+            <button className={`chip ${kind === 'partner' ? 'on' : ''}`} onClick={() => setKind('partner')}>Partnerzy · {(q.data || []).filter((p) => p.partner).length}</button>
           </div>
         </div>
         {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : (
@@ -52,7 +52,7 @@ export function PeoplePage() {
                 <Avatar name={p.name} size="sm" />
                 <div className="grow" style={{ minWidth: 0 }}>
                   <div className="title trunc">{p.name}{p.company && <span className="soft" style={{ fontWeight: 400 }}> · {p.company}</span>}</div>
-                  <div className="meta trunc">{p.role || 'bez funkcji'}{p.kind === 'external' ? ' · z zewnątrz' : ''}</div>
+                  <div className="meta trunc">{p.partner && <span className="tag" style={{ background: 'var(--ok-bg, var(--panel))', color: 'var(--ok)', marginRight: 6 }}>Partner</span>}{p.role || 'bez funkcji'}{p.kind === 'external' ? ' · z zewnątrz' : ''}</div>
                   {p.services && <div className="chips" style={{ marginTop: 4 }}>{p.services.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5).map((x) => <span key={x} className="tag">{x}</span>)}</div>}
                   {p.events.length > 0 && <div className="meta trunc" style={{ marginTop: 2 }}>Wydarzenia: {p.events.slice(0, 3).map((e) => `${e.title}${e.role ? ` (${e.role})` : ''}`).join(', ')}{p.events.length > 3 ? ` +${p.events.length - 3}` : ''}</div>}
                   {!p.email && !p.phone && <div className="meta" style={{ color: 'var(--warn)' }}>brak e-maila i telefonu</div>}
@@ -95,7 +95,8 @@ export function PersonForm({ value, onClose, onSaved }: { value: Partial<Person>
       <div className="fields">
         {f('name', 'Imię i nazwisko', 'text', 'np. Patryk Nowak')}
         {f('role', 'Funkcja', 'text', d.kind === 'external' ? 'np. Animatorka, Właściciel' : 'np. Dyrektor szkoły')}
-        {f('company', 'Firma', 'text', 'np. Event 360')}
+        <label className="field">Firma{d.leadId && <Link to={`/firmy/${d.leadId}`} onClick={onClose} className="small" style={{ float: 'right', color: 'var(--accent)' }}>karta firmy →</Link>}
+          <input type="text" value={d.company || ''} placeholder="np. Event 360" onChange={(e) => setD({ ...d, company: e.target.value })} /></label>
         {f('services', 'Co robi / zapewnia', 'text', 'np. ławy, stoły, namioty')}
         {f('email', 'E-mail', 'email')}
         {f('phone', 'Telefon', 'tel')}

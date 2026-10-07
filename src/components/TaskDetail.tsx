@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Copy, Share2, Mail, Trash2, Pencil, ChevronDown, Plus, FileText, Paperclip, X, Phone, UserRound } from 'lucide-react';
+import { Check, Copy, Share2, Mail, Trash2, Pencil, ChevronDown, FileText, Paperclip, X, Phone, UserRound } from 'lucide-react';
 import { api } from '../api';
 import { FileCard } from './Files';
 import { DueTag, Modal, copyText, telHref, useAction, useToast, useToday } from './ui';
@@ -164,7 +164,6 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
         <div className="row between"><b>Gotowe materiały</b>
           <span className="row" style={{ gap: 4 }}>
             <button className="btn sm ghost" onClick={() => setMaterials([...materials, { title: 'Mail', subject: '', body: '' }])}><Mail size={14} /> Mail</button>
-            <button className="btn sm ghost" onClick={() => setMaterials([...materials, { title: 'Nowy tekst', body: '' }])}><Plus size={14} /> Tekst</button>
           </span></div>
         {materials.map((m, i) => (
           <MaterialView key={`${i}-${materials.length}`} m={m} open={materials.length === 1} to={to}

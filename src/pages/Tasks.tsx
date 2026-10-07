@@ -8,7 +8,7 @@ import { ListChecks } from 'lucide-react';
 import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
-import { Empty, ErrorBox, Loading, useAction, ResultTag, TYPE_ICON, TypeIcon, relDay, typeLabel, useToday, weekdayName } from '../components/ui';
+import { Empty, ErrorBox, Loading, ResultTag, TYPE_ICON, TypeIcon, relDay, typeLabel, useToday, weekdayName } from '../components/ui';
 import { addDays, shortDate, TYPES, type Stage, type Task } from '../../shared/domain';
 
 const VIEWS = [
@@ -138,12 +138,8 @@ export function TasksPage() {
 /** Tasks grouped by project (event); tasks without an event sit under their company or "Inne". */
 function Projects({ today }: { today: string }) {
   const tasks = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
-  const events = useQuery({ queryKey: ['events'], queryFn: api.events });
   const [showDone, setShowDone] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
-  const [d, setD] = useState({ task: '', eventId: '', due: '' });
-  const add = useAction(() => api.saveTask({ task: d.task, eventId: d.eventId, due: d.due }),
-    { ok: 'Dodano', onDone: () => setD({ ...d, task: '', due: '' }) });
 
   const groups = useMemo(() => {
     const g = new Map<string, { title: string; date?: string; eventId?: string; items: Task[] }>();
@@ -159,7 +155,6 @@ function Projects({ today }: { today: string }) {
 
   if (tasks.isLoading) return <Loading />;
   if (tasks.error) return <div className="pad"><ErrorBox error={tasks.error} /></div>;
-  const upcoming = (events.data || []).filter((e) => e.status !== 'done' && e.status !== 'cancelled');
 
   return (
     <>
@@ -172,15 +167,6 @@ function Projects({ today }: { today: string }) {
           <Sparkles size={14} /> Ułóż kolejkę
         </button>
       </div>
-      <form className="row wrap pad" style={{ paddingTop: 0 }} onSubmit={(ev) => { ev.preventDefault(); if (d.task.trim()) add.mutate(undefined); }}>
-        <input type="text" className="grow" placeholder="Nowe zadanie…" value={d.task} onChange={(e) => setD({ ...d, task: e.target.value })} style={{ minWidth: 180 }} />
-        <select value={d.eventId} onChange={(e) => setD({ ...d, eventId: e.target.value })} style={{ width: 200 }}>
-          <option value="">— bez projektu —</option>
-          {upcoming.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
-        </select>
-        <input type="date" value={d.due} onChange={(e) => setD({ ...d, due: e.target.value })} style={{ width: 160 }} />
-        <button className="btn" disabled={!d.task.trim() || add.isPending}>Dodaj</button>
-      </form>
       <div className="divider" />
       {groups.map((g) => (
         <div key={g.title + (g.eventId || '')}>

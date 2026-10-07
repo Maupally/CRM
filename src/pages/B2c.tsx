@@ -40,7 +40,6 @@ export function B2cPage() {
       <div className="page-head">
         <div><h1>B2C</h1><div className="sub">Cele z rekrutacji i pracy z rodzicami — ile zrobione, ile zostało. Licznik zwiększasz tutaj albo mówiąc w claude.ai.</div></div>
         <span className="spacer" />
-        <button className="btn primary" onClick={() => setEdit({})}><Plus size={16} /> Dodaj cel</button>
       </div>
 
       {all.length > 0 && (
@@ -54,7 +53,7 @@ export function B2cPage() {
       )}
 
       {!all.length ? (
-        <section className="card"><Empty icon={Target}>Dodaj pierwszy cel, np. „Telefony do rodziców z dnia otwartego — 60”, „Zapisy na rok 2027/28 — 25 rodzin”, „Posty na Instagram — 12”.</Empty></section>
+        <section className="card"><Empty icon={Target}>Powiedz Claude'owi w claude.ai, jakie masz cele, np. „Telefony do rodziców z dnia otwartego — 60”, „Zapisy na rok 2027/28 — 25 rodzin”, „Posty na Instagram — 12”.</Empty></section>
       ) : groups.map(([cat, items]) => (
         <section key={cat} className="card" style={{ marginBottom: 14 }}>
           <div className="card-head"><h2>{cat}</h2></div>

@@ -685,7 +685,7 @@ export class Crm {
       id: Number(r.id), name: r.name, role: r.role, email: r.email, phone: r.phone, aliases: r.aliases,
       notes: r.notes, contacts: Number(r.contacts) || 0, lastContact: r.last_contact,
       kind: r.kind === 'external' ? 'external' : 'team', company: r.company || '', leadId: r.lead_id || '', services: r.services || '',
-      events,
+      events, partner: r.lead_stage === 'active',
     };
   }
 
@@ -700,14 +700,45 @@ export class Crm {
     return m;
   }
 
+  /**
+   * Every active partner has someone in the network: their contact person joins on their own the moment the
+   * firm turns active (or an existing person from that firm gets linked to it). Idempotent — runs on every read.
+   */
+  async syncPartners() {
+    const missing = await this.q.all(`SELECT l.* FROM crm.leads l WHERE l.stage = 'active'
+      AND NOT EXISTS (SELECT 1 FROM crm.people p WHERE p.lead_id = l.id)`);
+    if (!missing.length) return;
+    const people = await this.q.all(`SELECT id, company, name, role FROM crm.people WHERE lead_id = ''`);
+    for (const l of missing) {
+      // someone already saved from that firm — by its company field, or "Marcin (Event 360)" in the name or role
+      const key = companyKey(l.company);
+      const firm = searchKey(l.company);
+      const same = people.find((p) => (p.company && companyKey(p.company) === key) ||
+        (!p.company && firm.length >= 4 && searchKey(`${p.name} ${p.role}`).includes(firm)));
+      if (same) {
+        await this.q.run(`UPDATE crm.people SET lead_id = ?, kind = 'external', company = CASE WHEN company = '' THEN ? ELSE company END WHERE id = ?`,
+          [l.id, l.company, same.id]);
+        people.splice(people.indexOf(same), 1);
+        continue;
+      }
+      await this.q.run(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, kind, company, services, lead_id, created_at)
+        VALUES (?, ?, ?, ?, '', ?, 'external', ?, ?, ?, ?)`,
+        [l.person || l.company, l.person ? `Kontakt — partner ${l.company}` : 'Partner (firma)', l.email, l.phone,
+          'Dodany automatycznie, gdy firma została aktywnym partnerem.', l.company, l.industry, l.id, nowIso()]);
+    }
+  }
+
+  private static PEOPLE_SQL = `SELECT p.*, l.stage AS lead_stage FROM crm.people p LEFT JOIN crm.leads l ON l.id = p.lead_id AND p.lead_id <> ''`;
+
   /** Most contacted first: the people the user deals with every week float to the top. */
   async listPeople(): Promise<Person[]> {
+    await this.syncPartners();
     const ev = await this.personEvents();
-    return (await this.q.all('SELECT * FROM crm.people ORDER BY contacts DESC, name')).map((r) => this.toPerson(r, ev.get(Number(r.id))));
+    return (await this.q.all(`${Crm.PEOPLE_SQL} ORDER BY p.contacts DESC, p.name`)).map((r) => this.toPerson(r, ev.get(Number(r.id))));
   }
 
   async getPerson(id: number): Promise<Person> {
-    const r = await this.q.get('SELECT * FROM crm.people WHERE id = ?', [id]);
+    const r = await this.q.get(`${Crm.PEOPLE_SQL} WHERE p.id = ?`, [id]);
     if (!r) throw notFound(`Nie ma osoby ${id} w zespole.`);
     return this.toPerson(r, (await this.personEvents(id)).get(id));
   }
@@ -754,7 +785,7 @@ export class Crm {
     const companies = (await this.listLeads()).map((l) => ({ l, s: score([[l.company, 3], [l.industry, 3], [l.segment, 2], [l.notes, 1], [l.extra, 1]]) }))
       .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 6);
     return {
-      people: people.map(({ p }) => ({ id: String(p.id), name: p.name, kind: p.kind, role: p.role, company: p.company || undefined,
+      people: people.map(({ p }) => ({ id: String(p.id), name: p.name, kind: p.kind, active_partner: p.partner || undefined, role: p.role, company: p.company || undefined,
         services: p.services || undefined, phone: p.phone || undefined, email: p.email || undefined,
         past_events: p.events.slice(0, 4).map((e) => `${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) })),
       companies: companies.map(({ l }) => ({ id: l.id, company: l.company, industry: l.industry || undefined, segment: l.segment || undefined,

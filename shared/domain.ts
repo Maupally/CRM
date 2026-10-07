@@ -227,6 +227,8 @@ export interface Person {
   services: string;
   /** events they helped with, newest first */
   events: PersonEvent[];
+  /** their firm is an active partner right now */
+  partner: boolean;
 }
 
 export const PERSON_KINDS = ['team', 'external'] as const;
