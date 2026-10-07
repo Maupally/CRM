@@ -3,12 +3,15 @@
  * A minimal, stateless MCP server over Streamable HTTP: every request is one JSON-RPC message,
  * answered with plain JSON. The secret token in the URL is the key — it changes with the password.
  */
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type { Context } from 'hono';
 import type { Crm } from './crm.js';
 import { Assistant } from './assistant.js';
 
 export const mcpToken = (secret: string) => createHmac('sha256', secret).update('mcp-connector').digest('hex').slice(0, 32);
+
+/** Changes whenever the tool set changes, so clients that cache the list can tell it is new. */
+const TOOLS_VERSION = `1.${createHash('sha256').update(Assistant.mcpTools().map((t) => t.name).join(',')).digest('hex').slice(0, 8)}`;
 
 const INSTRUCTIONS = `CRM Martina (Maple Bear Katowice, partnerstwa B2B, wydarzenia, zespół).
 - Zanim coś zapiszesz dla firmy, znajdź ją (find_companies). Ludzie (dyrektor, Patryk, dostawcy, animatorzy…) → get_people.
@@ -65,7 +68,7 @@ async function one(m: Rpc, crm: () => Promise<Crm>) {
       return ok({
         protocolVersion: typeof m.params?.protocolVersion === 'string' ? m.params.protocolVersion : '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'crm', version: '1.0.0' },
+        serverInfo: { name: 'crm', version: TOOLS_VERSION },
         instructions: INSTRUCTIONS,
       });
     case 'ping':
