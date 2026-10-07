@@ -304,7 +304,8 @@ const PROJECT_RULES = `Masz podłączony Opal5 — mój CRM i główne miejsce p
 2. Gdy zrobisz albo poprawisz stronę, prezentację, szablon maila lub plakat w HTML — zapisz go w Opal5 Studio (save_design). Ten sam tytuł = nowa wersja.
 3. Zanim napiszesz do firmy, sprawdź ją w CRM (find_companies, get_company), żeby znać historię kontaktu.
 4. Zadania, terminy, kontakty i notatki o firmach zapisuj w CRM (create_task, log_activity, plan_activity, add_note). Maile do wysłania zapisuj jako materiał zadania: temat osobno, treść bez stopki i podpisu, adresat z Zespołu (get_people).
-5. Ustalenia na stałe (oferta, ceny, warunki) zapisuj w Bazie wiedzy (save_note). Szukając informacji, sprawdzaj też Bazę wiedzy Opal5 (search_knowledge).`;
+5. Ustalenia na stałe (oferta, ceny, warunki) zapisuj w Bazie wiedzy (save_note). Szukając informacji, sprawdzaj też Bazę wiedzy Opal5 (search_knowledge).
+6. B2C: gdy powiem, ile zrobiłem (np. „zadzwoniłem do 5 rodziców”), dopisz to w Opal5 (b2c_progress). Pytany o postępy B2C — sprawdź b2c_status.`;
 
 function Connector() {
   const q = useQuery({ queryKey: ['connector'], queryFn: api.connector });

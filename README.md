@@ -181,3 +181,13 @@ server/app.ts          API + logowanie
 api/index.ts           funkcja Vercel
 src/                   interfejs (React)
 ```
+
+### B2C (postępy)
+
+Zakładka **B2C**: cele z licznikiem (np. „Telefony do rodziców — 18/60”), ile zostało, ile w ostatnich 7 dniach, terminy.
+Na razie osobno, bez połączenia z CRM B2C. Z claude.ai: `b2c_status`, `b2c_progress`, `b2c_save_item`.
+
+### Logowanie
+
+Online (Vercel) Opal5 nie działa bez hasła: ustaw `APP_PASSWORD` w Vercel → Environment Variables i zrób Redeploy.
+Sesja trwa 30 dni. Zmiana hasła zmienia adres konektora dla claude.ai.

@@ -676,3 +676,10 @@ a.qa { text-decoration: none; color: inherit; }
   background: color-mix(in srgb, var(--accent) 12%, transparent); border: 2px dashed var(--accent); border-radius: inherit;
   color: var(--accent); font-weight: 700; pointer-events: none;
 }
+
+/* B2C */
+.b2c-row { align-items: center; flex-wrap: wrap; }
+.b2c-main { text-align: left; min-width: 0; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.b2c-log { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow: auto; font-size: 14px; }
+.b2c-log li { padding: 4px 0; border-bottom: 1px solid var(--line, #0001); }
+@media (max-width: 640px) { .b2c-main { flex-basis: 100%; } .b2c-row > .row { margin-left: auto; } }

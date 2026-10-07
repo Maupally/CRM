@@ -8,6 +8,7 @@ import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
 import { handleMcp, mcpToken } from './mcp.js';
 import { Designs } from './designs.js';
 import { Threads } from './threads.js';
+import { B2c } from './b2c.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -197,6 +198,17 @@ export function createApp(o: AppOptions) {
       d.mode === 'casual' ? 'casual' : d.mode === 'project' ? 'project' : 'b2b', (d.chats || []).map(Number)) });
   });
   api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
+
+  /* ---- B2C progress */
+  const b2c = async () => { const k = await crm(); return new B2c(k.db, () => k.today()); };
+  api.get('/b2c', async (c) => c.json(await (await b2c()).list()));
+  api.post('/b2c', async (c) => c.json(await (await b2c()).save(await body(c))));
+  api.delete('/b2c/:id', async (c) => c.json(await (await b2c()).remove(num(c.req.param('id')))));
+  api.post('/b2c/:id/progress', async (c) => {
+    const d = await body<{ delta?: number; note?: string; day?: string }>(c);
+    return c.json(await (await b2c()).progress(num(c.req.param('id')), Number(d.delta) || 0, d.note || '', d.day));
+  });
+  api.get('/b2c/:id/log', async (c) => c.json(await (await b2c()).log(num(c.req.param('id')))));
   api.get('/segments', async (c) => c.json(await (await crm()).listSegments()));
   api.get('/templates', async (c) => c.json(await (await crm()).listTemplates()));
   api.get('/duplicates', async (c) => c.json(await (await crm()).duplicates()));

@@ -399,3 +399,14 @@ export function fillTemplate(s: string, lead: Pick<Lead, 'company' | 'city' | 'p
 export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/* ------------------------------------------------------------------ B2C progress */
+
+/** One B2C goal: e.g. "Telefony do rodziców z dni otwartych", 40 of 120 done. */
+export interface B2cItem {
+  id: number; title: string; category: string; target: number; done: number; unit: string; due: string; notes: string;
+  updatedAt: string;
+  /** Done in the last 7 days (from the log). */
+  week: number;
+}
+export interface B2cLog { id: number; itemId: number; delta: number; note: string; day: string; at: string }

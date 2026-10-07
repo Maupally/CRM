@@ -346,6 +346,12 @@ describe('connector for Claude chats', () => {
     expect((await call(10, 'save_design', { title: 'Prezentacja B2C', html: '<html><body><h1>2</h1></body></html>', note: 'krócej' })).text).toContain('wersję 2');
     expect((await call(11, 'save_design', { title: 'X', html: 'tylko tekst' })).isError).toBe(true);
     expect((await call(12, 'save_note', { title: 'Oferta 2026', text: 'Pakiet złoty…' })).text).toContain('Bazie wiedzy');
+
+    // B2C progress from claude.ai
+    expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
+    expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');
+    expect((await call(15, 'b2c_progress', { item: 'nie ma takiej', amount: 1 })).isError).toBe(true);
+    expect((await call(16, 'b2c_status', {})).text).toMatch(/12\/50 telefonów \(24%, zostało 38\), w 7 dni \+12/);
   });
 });
 

@@ -9,6 +9,7 @@ import { HttpError } from './crm.js';
 import { Knowledge } from './knowledge.js';
 import { Designs } from './designs.js';
 import { Threads, guessMode } from './threads.js';
+import { B2c } from './b2c.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -129,8 +130,37 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'b2c_status',
+    description: 'Postępy B2C (rodzice, rekrutacja, dni otwarte…): każda pozycja z celem, ile zrobione, ile zostało, ile w ostatnich 7 dniach i termin.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'b2c_progress',
+    description: 'Dopisuje wykonane jednostki do pozycji B2C (np. „zadzwoniłem do 5 rodziców” → amount 5). Ujemna liczba cofa. ' +
+      'item = id albo nazwa pozycji z b2c_status.',
+    input_schema: {
+      type: 'object',
+      properties: { item: { type: 'string' }, amount: { type: 'integer' }, note: { type: 'string' }, date: { type: 'string', description: 'yyyy-MM-dd, domyślnie dziś' } },
+      required: ['item', 'amount'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'b2c_save_item',
+    description: 'Dodaje albo zmienia pozycję B2C (cel do odhaczania). Z id — zmienia istniejącą.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' }, title: { type: 'string' }, category: { type: 'string', description: 'np. Rekrutacja, Dni otwarte, Social media' },
+        target: { type: 'integer', description: 'Ile w sumie do zrobienia (0 = bez limitu).' }, unit: { type: 'string', description: 'np. telefonów, rodzin, postów' },
+        due: { type: 'string', description: 'yyyy-MM-dd' }, notes: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
-const CONNECTOR_WRITES = new Set(['log_chat', 'save_design', 'save_note']);
+const CONNECTOR_WRITES = new Set(['log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -1191,6 +1221,17 @@ export class Assistant {
       }
       await designs.create({ title, kind: input.kind, html, note: txt(input.note) || 'Z Claude' });
       return `Zapisano w Opal5 Studio jako nowy projekt „${title}”.`;
+    }
+    if (name.startsWith('b2c_')) {
+      const b2c = new B2c(this.crm.db, () => this.crm.today());
+      if (name === 'b2c_status') return b2c.status();
+      if (name === 'b2c_progress') {
+        const item = await b2c.find(input.item);
+        const r = await b2c.progress(item.id, Number(input.amount) || 0, txt(input.note), input.date);
+        return `B2C „${r.title}”: ${r.done}${r.target ? `/${r.target}` : ''} ${r.unit}`.trim() + (r.target ? `, zostało ${Math.max(0, r.target - r.done)}.` : '.');
+      }
+      const r = await b2c.save(input);
+      return `Zapisano pozycję B2C „${r.title}” (id ${r.id}).`;
     }
     if (name === 'save_note') {
       const item = await this.kb.add({ title: txt(input.title) || 'Notatka', text: longTxt(input.text), tags: txt(input.tags) || 'claude' });

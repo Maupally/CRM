@@ -5,6 +5,7 @@ import {
   BookOpen, Users, Palette as PaletteIcon, MessagesSquare,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   Plus, LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
+  Target,
 } from 'lucide-react';
 import { api } from './api';
 import { searchKey } from '../shared/domain';
@@ -22,6 +23,7 @@ import { ReportsPage } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
 import { KnowledgePage } from './pages/Knowledge';
 import { PeoplePage } from './pages/People';
+import { B2cPage } from './pages/B2c';
 import { StudioPage } from './pages/Studio';
 import { ChatsPage } from './pages/Chats';
 
@@ -94,6 +96,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
   { group: 'Sprzedaż', items: [
     { to: '/lejek', label: 'Lejek', icon: KanbanSquare },
     { to: '/firmy', label: 'Firmy', icon: Building2 },
+    { to: '/b2c', label: 'B2C', icon: Target },
   ] },
   { group: 'Plan', items: [
     { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
@@ -191,6 +194,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/studio/:id" element={<StudioPage />} />
             <Route path="/zespol" element={<PeoplePage />} />
+            <Route path="/b2c" element={<B2cPage />} />
             <Route path="/wiedza" element={<KnowledgePage />} />
             <Route path="/raporty" element={<ReportsPage />} />
             <Route path="/ustawienia" element={<SettingsPage />} />
@@ -210,6 +214,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
       <Modal open={more} onClose={() => setMore(false)} title="Więcej">
         <div className="list card flat">
           {[
+            { to: '/b2c', label: 'B2C', icon: Target },
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
             { to: '/czaty', label: 'Czaty', icon: MessagesSquare },
