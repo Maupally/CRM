@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Mic, MicOff, Send, Sparkles, Check, X, AlertTriangle, Loader2, Camera, Sunrise, MessageSquareText, Volume2,
-  Copy, Mail, Square, Paperclip, RotateCcw, Users, Palette, MessagesSquare,
+  Copy, Mail, Square, Paperclip, RotateCcw, Users,
 } from 'lucide-react';
 import { api, type AssistantTurn, type Proposal } from '../api';
 import { Modal, useConfig, useToast, copyText } from './ui';
@@ -368,7 +368,6 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
             <button className="qa" onClick={() => camera.current?.click()} disabled={busy}><Camera size={18} />Wizytówka</button>
             {leadId && <button className="qa" onClick={() => send('Przygotuj mnie do rozmowy z tą firmą — jak zagadać?')} disabled={busy}><Sparkles size={18} />Jak zagadać</button>}
             <button className="qa" onClick={() => clip.current?.click()} disabled={busy || uploading}><Paperclip size={18} />Plik</button>
-            <Link className="qa" to="/studio" onClick={onClose}><Palette size={18} />Studio</Link>
             <input ref={clip} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.csv,.html,image/*"
               onChange={(e) => { attach(e.target.files); e.target.value = ''; }} />
             <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
@@ -389,7 +388,6 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
                 {m.image && <img src={m.image} alt="" className="bubble-img" />}
                 {m.text && <div className="pre">{m.text}</div>}
                 {!!m.files?.length && <div className="files" style={{ marginTop: 8 }}>{m.files.map((f) => <FileCard key={f.id} f={f} />)}</div>}
-                {m.savedTo && <Link className="saved-to" to={`/czaty/${m.savedTo.id}`} onClick={onClose}><MessagesSquare size={13} /> Zapisane w czacie „{m.savedTo.title}”</Link>}
                 {m.role === 'assistant' && m.text && m.text.length > 160 && (
                   <div className="row wrap" style={{ marginTop: 8, gap: 4 }}>
                     <button className="btn sm ghost" onClick={() => speak(m.text)}><Volume2 size={14} /> Czytaj</button>

@@ -14,7 +14,7 @@ const INSTRUCTIONS = `CRM Martina (Maple Bear Katowice, partnerstwa B2B, wydarze
 - Zanim coś zapiszesz dla firmy, znajdź ją (find_companies). Ludzie z zespołu (dyrektor, Patryk…) → get_people.
 - Każde narzędzie zapisujące od razu zmienia dane w CRM — opisz użytkownikowi, co zapisujesz.
 - Gotowe maile zapisuj jako materiały zadania (create_task / update_task): temat w polu subject, w body sama treść, bez linii „Temat:” i bez stopki/podpisu. Adresata ustaw przez person_id (osoba z Zespołu) albo pole to (e-mail).
-- Opal5 jest głównym miejscem pracy użytkownika. Po każdej odpowiedzi, w której coś przygotowałeś albo coś ustaliliście, zapisz wymianę narzędziem log_chat (ten sam chat_title w całej rozmowie). Strony, prezentacje i szablony w HTML zapisuj w Studio (save_design, ten sam tytuł = nowa wersja). Trwałe ustalenia i gotowe teksty → save_note.
+- Postępy B2C (rodzice, rekrutacja): b2c_status; gdy użytkownik mówi, ile zrobił → b2c_progress.
 - Daty w formacie yyyy-MM-dd; „jutro”, „w piątek” przeliczaj od dzisiejszej daty (get_my_day ją zawiera).`;
 
 type Rpc = { jsonrpc: '2.0'; id?: string | number | null; method: string; params?: any };

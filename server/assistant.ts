@@ -1171,8 +1171,10 @@ export class Assistant {
   /** Tools offered to Claude chats through the CRM connector: reads, plus writes that save straight away. */
   static mcpTools() {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
-    const kb = KNOWLEDGE_TOOLS.filter((t) => ['get_tasks', 'search_knowledge', 'read_knowledge'].includes(t.name));
-    return [...READ_TOOLS, ...kb, ...CONNECTOR_TOOLS, ...writes].map((t) => ({
+    // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
+    const kb = KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks');
+    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_'));
+    return [...READ_TOOLS, ...kb, ...own, ...writes].map((t) => ({
       name: t.name,
       description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
       inputSchema: t.input_schema,
@@ -1244,7 +1246,7 @@ export class Assistant {
   async mcpCall(name: string, input: Input): Promise<{ text: string; isError?: boolean }> {
     if (!Assistant.mcpTools().some((t) => t.name === name)) return { text: `Nieznane narzędzie ${name}`, isError: true };
     try {
-      if (CONNECTOR_TOOLS.some((t) => t.name === name) || name === 'read_knowledge') return { text: await this.connector(name, input || {}) };
+      if (CONNECTOR_TOOLS.some((t) => t.name === name)) return { text: await this.connector(name, input || {}) };
       if (!WRITE_NAMES.has(name)) return { text: await this.read(name, input || {}) };
       const proposals: Proposal[] = [];
       await this.propose(name, input || {}, proposals, new Map());

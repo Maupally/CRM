@@ -17,8 +17,8 @@ export function SettingsPage() {
       <div className="page-head">
         <div><h1>Ustawienia</h1><div className="sub">Segmenty i pitch, szablony maili, import i kopia zapasowa.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['claude', 'styl', 'playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'claude' ? {} : { tab: t }, { replace: true })}
-          labels={{ claude: 'Claude', styl: 'Styl pisania', playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
+        <Seg value={tab} options={['claude', 'playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'claude' ? {} : { tab: t }, { replace: true })}
+          labels={{ claude: 'Claude', playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
       </div>
       {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : tab === 'styl' ? <StyleSettings /> : tab === 'claude' ? <Connector /> : <Data />}
     </>
@@ -299,13 +299,12 @@ function StyleSettings() {
 }
 
 /** What to paste into the Maple Bear project in claude.ai so that everything done there lands in Opal5. */
-const PROJECT_RULES = `Masz podłączony Opal5 — mój CRM i główne miejsce pracy (konektor „Opal5”). Zasady:
-1. Po każdej odpowiedzi, w której coś przygotowałeś albo coś ustaliliśmy (mail, post, tekst, plan, decyzja), zapisz wymianę w Opal5 narzędziem log_chat. chat_title = temat tej rozmowy, ten sam przy każdym zapisie w tym czacie. reply = Twoja odpowiedź w całości. mode: b2b przy firmach i partnerstwach, casual przy rodzicach i zespole.
-2. Gdy zrobisz albo poprawisz stronę, prezentację, szablon maila lub plakat w HTML — zapisz go w Opal5 Studio (save_design). Ten sam tytuł = nowa wersja.
-3. Zanim napiszesz do firmy, sprawdź ją w CRM (find_companies, get_company), żeby znać historię kontaktu.
-4. Zadania, terminy, kontakty i notatki o firmach zapisuj w CRM (create_task, log_activity, plan_activity, add_note). Maile do wysłania zapisuj jako materiał zadania: temat osobno, treść bez stopki i podpisu, adresat z Zespołu (get_people).
-5. Ustalenia na stałe (oferta, ceny, warunki) zapisuj w Bazie wiedzy (save_note). Szukając informacji, sprawdzaj też Bazę wiedzy Opal5 (search_knowledge).
-6. B2C: gdy powiem, ile zrobiłem (np. „zadzwoniłem do 5 rodziców”), dopisz to w Opal5 (b2c_progress). Pytany o postępy B2C — sprawdź b2c_status.`;
+const PROJECT_RULES = `Masz podłączony Opal5 — mój CRM (konektor „Opal5”). Zasady:
+1. Zanim napiszesz do firmy, sprawdź ją w CRM (find_companies, get_company), żeby znać historię kontaktu.
+2. Gdy ustalimy coś z firmą albo coś zrobię (telefon, mail, spotkanie), zapisz to w CRM (log_activity, add_note), a następny krok zaplanuj (plan_activity, create_task).
+3. Maile do wysłania zapisuj jako materiał zadania: temat osobno, treść bez stopki i podpisu, adresat z Zespołu (get_people).
+4. „Co mam dziś?” → get_my_day.
+5. B2C: gdy powiem, ile zrobiłem (np. „zadzwoniłem do 5 rodziców”), dopisz to w Opal5 (b2c_progress). Pytany o postępy B2C — sprawdź b2c_status.`;
 
 function Connector() {
   const q = useQuery({ queryKey: ['connector'], queryFn: api.connector });
@@ -317,7 +316,7 @@ function Connector() {
       <section className="card pad col" style={{ gap: 14 }}>
         <h2>Pracuj w claude.ai, zapisuj w Opal5</h2>
         <div className="soft">Piszesz w claude.ai (w projekcie Maple Bear, w ramach planu Pro), a Claude przez konektor czyta i zapisuje w Opal5:
-          firmy, zadania, maile, Zespół, Bazę wiedzy. Rozmowy trafiają do <b>Czatów</b>, a strony i prezentacje do <b>Studio</b>.</div>
+          firmy, zadania, maile, Zespół i postępy B2C. Rozmowy, pliki i projekty zostają w claude.ai.</div>
         {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
           <div className="col tight">
             <span className="small soft">Adres konektora (tajny — działa jak hasło)</span>
@@ -333,7 +332,7 @@ function Connector() {
           <li><b>Dodaj własny konektor</b> (Add custom connector): nazwa „Opal5”, adres — wklej skopiowany wyżej. Zapisz.</li>
           <li>W projekcie „Maple Bear” kliknij ikonę narzędzi pod polem wpisywania i włącz <b>Opal5</b>. Działa też w aplikacji na telefonie.</li>
           <li>Przy pierwszym zapisie Claude zapyta o zgodę — wybierz „Zawsze zezwalaj”, żeby nie pytał za każdym razem.</li>
-          <li>Wklej zasady z ramki niżej na koniec instrukcji projektu „Maple Bear” (Project instructions).</li>
+          <li>Wklej zasady z ramki niżej na koniec instrukcji projektu „Maple Bear” (Project instructions) — zamiast poprzednich, jeśli już je wklejałeś.</li>
         </ol>
         <div className="hint">Adres zmienia się, gdy zmienisz hasło do Opal5 (APP_PASSWORD) — wtedy podmień go w konektorze.</div>
       </section>
@@ -346,10 +345,9 @@ function Connector() {
 
       <section className="card pad col" style={{ gap: 8 }}>
         <h2>Co kosztuje</h2>
-        <div className="soft"><b>Bez dodatkowych kosztów:</b> wszystko, co klikasz w Opal5 (firmy, zadania, pulpit, lejek, raporty, Zespół, Baza wiedzy, podgląd i pobieranie ze Studio)
+        <div className="soft"><b>Bez dodatkowych kosztów:</b> wszystko, co klikasz w Opal5 (firmy, zadania, pulpit, lejek, raporty, Zespół, B2C)
           oraz cała praca w claude.ai przez konektor — to idzie z planu Pro.</div>
-        <div className="soft"><b>Płatne z konta API</b> (console.anthropic.com): asystent pod mikrofonem, pisanie w Czatach i w Studio w Opal5, podsumowanie raportu przez AI,
-          nauka stylu. {cfg.data?.assistant
+        <div className="soft"><b>Płatne z konta API</b> (console.anthropic.com): asystent pod mikrofonem w Opal5 i podsumowanie raportu przez AI. {cfg.data?.assistant
             ? 'Teraz te funkcje są włączone. Żeby nic nie płacić, usuń ANTHROPIC_API_KEY w Vercel (Settings → Environment Variables) i zrób Redeploy.'
             : 'Teraz są wyłączone (brak ANTHROPIC_API_KEY) — Opal5 nic nie kosztuje.'}</div>
       </section>
