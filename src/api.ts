@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -93,8 +93,13 @@ export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
 export const api = {
   assistant: (text: string, history: AssistantTurn[], opts: { leadId?: string; image?: { mediaType: string; data: string };
-    spoken?: boolean; attachments?: number[]; containerId?: string } = {}) =>
-    post<{ reply: string; proposals: Proposal[]; files?: KnowledgeItem[]; containerId?: string }>('/assistant', { text, history, ...opts }),
+    spoken?: boolean; attachments?: number[]; containerId?: string; threadId?: number } = {}) =>
+    post<{ reply: string; proposals: Proposal[]; files?: KnowledgeItem[]; containerId?: string; savedTo?: { id: number; title: string } }>('/assistant', { text, history, ...opts }),
+  threads: () => get<ThreadSummary[]>('/threads'),
+  thread: (id: number) => get<Thread>(`/threads/${id}`),
+  createThread: (d: { title?: string; mode?: string; source?: string; messages?: Partial<ThreadMessage>[]; updatedAt?: string }) => post<Thread>('/threads', d),
+  updateThread: (id: number, d: { title?: string; mode?: string }) => patch<Thread>(`/threads/${id}`, d),
+  deleteThread: (id: number) => del(`/threads/${id}`),
 
   knowledge: () => get<KnowledgeItem[]>('/knowledge'),
   knowledgeItem: (id: number) => get<KnowledgeItem & { text: string }>(`/knowledge/${id}`),
@@ -147,7 +152,7 @@ export const api = {
   tasks: () => get<Task[]>('/tasks'),
   designs: () => get<DesignSummary[]>('/studio'),
   design: (id: number) => get<Design>(`/studio/${id}`),
-  createDesign: (d: { title?: string; kind?: string; fromKnowledge?: number }) => post<Design>('/studio', d),
+  createDesign: (d: { title?: string; kind?: string; fromKnowledge?: number; versions?: { html: string; note?: string }[]; chat?: { role: 'user' | 'assistant'; text: string }[] }) => post<Design>('/studio', d),
   renameDesign: (id: number, d: { title?: string; kind?: string }) => patch<Design>(`/studio/${id}`, d),
   deleteDesign: (id: number) => del(`/studio/${id}`),
   designMessage: (id: number, text: string, attachments: number[] = []) => post<Design>(`/studio/${id}/message`, { text, attachments }),
@@ -155,7 +160,7 @@ export const api = {
   saveDesign: (id: number) => post<KnowledgeItem>(`/studio/${id}/save`),
   style: () => get<Style>('/style'),
   saveStyle: (d: Partial<Style>) => req<Style>('PUT', '/style', d),
-  learnStyle: (ids: number[], mode: keyof Style) => post<{ text: string }>('/style/learn', { ids, mode }),
+  learnStyle: (ids: number[], mode: keyof Style, chats: number[] = []) => post<{ text: string }>('/style/learn', { ids, mode, chats }),
   people: () => get<Person[]>('/people'),
   savePerson: (d: Partial<Person>) => post<Person>('/people', d),
   deletePerson: (id: number) => del(`/people/${id}`),

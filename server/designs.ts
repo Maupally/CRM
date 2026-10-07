@@ -37,12 +37,18 @@ export class Designs {
     return this.toDesign(r);
   }
 
-  async create(d: { title?: string; kind?: string; html?: string; note?: string }) {
+  async create(d: { title?: string; kind?: string; html?: string; note?: string; versions?: Partial<DesignVersion>[]; chat?: Partial<DesignMessage>[] }) {
     const kind = (DESIGN_KINDS as readonly string[]).includes(String(d.kind)) ? String(d.kind) : 'www';
     const now = nowIso();
-    const versions: DesignVersion[] = d.html ? [{ html: d.html, note: d.note || 'Start', at: now }] : [];
+    // an import brings its own versions and conversation (projects in progress in Claude Design)
+    const versions: DesignVersion[] = (d.versions?.length ? d.versions : d.html ? [{ html: d.html, note: d.note || 'Start' }] : [])
+      .filter((v) => v && typeof v.html === 'string' && v.html.trim())
+      .map((v) => ({ html: String(v.html), note: txt(v.note) || '', at: txt(v.at) || now })).slice(-MAX_VERSIONS);
+    const chat: DesignMessage[] = (d.chat || []).filter((m) => m && txt(m.text))
+      .map((m) => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, text: String(m.text).slice(0, 20_000), at: txt(m.at) || now }))
+      .slice(-MAX_CHAT);
     const r = await this.db.get(`INSERT INTO crm.designs (title, kind, versions, chat, created_at, updated_at)
-      VALUES (?, ?, ?, '[]', ?, ?) RETURNING id`, [txt(d.title) || 'Bez tytułu', kind, JSON.stringify(versions), now, now]);
+      VALUES (?, ?, ?, ?, ?, ?) RETURNING id`, [txt(d.title) || 'Bez tytułu', kind, JSON.stringify(versions), JSON.stringify(chat), now, now]);
     return this.get(Number(r!.id));
   }
 

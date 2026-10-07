@@ -8,6 +8,7 @@ import type { Crm } from './crm.js';
 import { HttpError } from './crm.js';
 import { Knowledge } from './knowledge.js';
 import type { Designs } from './designs.js';
+import { Threads } from './threads.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -41,6 +42,8 @@ export interface AskOptions {
   image?: { mediaType: string; data: string } | null;
   /** The reply will be read aloud — keep it speakable. */
   spoken?: boolean;
+  /** Talking inside one of the chats (Czaty): its history is the context and the turn is saved there. */
+  threadId?: number;
 }
 
 export interface AssistantReply {
@@ -49,9 +52,39 @@ export interface AssistantReply {
   /** Files the assistant produced this turn (already saved in the knowledge base). */
   files?: KnowledgeItem[];
   containerId?: string;
+  /** The chat this exchange was filed into. */
+  savedTo?: { id: number; title: string };
 }
 
 /* ------------------------------------------------------------------ tools */
+
+const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
+  {
+    name: 'read_chat',
+    description: 'Ostatnie wiadomości z jednego z czatów użytkownika (lista czatów jest w instrukcji). Czytaj czat, którego dotyczy sprawa ' +
+      '(np. B2B przy mailu do firmy), żeby pisać spójnie z tym, co już tam ustalono i napisano.',
+    input_schema: { type: 'object', properties: { chat_id: { type: 'integer' } }, required: ['chat_id'], additionalProperties: false },
+  },
+  {
+    name: 'save_to_chat',
+    description: 'Zapisuje tę wymianę (prośbę użytkownika i to, co napisałeś — mail, post, tekst) w wybranym czacie, żeby użytkownik widział ją także tam. ' +
+      'Użyj zawsze, gdy przygotowujesz treść należącą do któregoś czatu (mail do firmy → czat B2B, wiadomość do rodziców → czat swobodny).',
+    input_schema: { type: 'object', properties: { chat_id: { type: 'integer' } }, required: ['chat_id'], additionalProperties: false },
+  },
+];
+
+/** What a proposal actually contains, written out for the chat log. */
+function proposalText(p: Proposal): string {
+  const i = p.input;
+  if (p.tool === 'draft_email' || p.tool === 'draft_campaign') {
+    return [`✉️ ${p.title}`, i.to ? `Do: ${i.to}` : '', `Temat: ${txt(i.subject)}`, '', longTxt(i.body)].filter((x, n) => x || n === 3).join('\n');
+  }
+  const mats = (p.tool === 'create_task' ? i.materials : i.add_materials) as { title: string; subject?: string; body: string }[] | undefined;
+  if (mats?.length) {
+    return [`📝 ${p.title}`, ...mats.map((m) => `— ${m.title}${m.subject ? `\nTemat: ${m.subject}` : ''}\n${m.body}`)].join('\n\n');
+  }
+  return `• ${p.title}`;
+}
 
 const FOLLOW_UP = {
   type: 'object',
@@ -752,6 +785,14 @@ export class Assistant {
       leadId ? this.crm.getLead(leadId).catch(() => null) : Promise.resolve(null),
     ]);
 
+    const threads = new Threads(this.crm.db);
+    const chatList = (await threads.list()).slice(0, 40);
+    // inside a chat its own history is the conversation
+    if (opts.threadId) {
+      const t = await threads.get(opts.threadId);
+      history = t.messages.slice(-12).map((m) => ({ role: m.role, text: m.text }));
+    }
+
     const messages: Anthropic.Beta.BetaMessageParam[] = [];
     for (const h of history.slice(-12)) {
       if (!txt(h.text)) continue;
@@ -769,11 +810,17 @@ export class Assistant {
     // the web search tools run their own sandbox, so they never ride along with code execution
     const web = !files_ && needsWeb(said) && !WRITE_VERB.test(said);
     const full = !web && needsContent(said, prevUser, files_);
+    const chatTools = chatList.length ? (opts.threadId ? CHAT_TOOLS.filter((t) => t.name === 'read_chat') : CHAT_TOOLS) : [];
     const tools = web
-      ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...WRITE_TOOLS, ...WEB_TOOLS]
+      ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...WRITE_TOOLS, ...chatTools, ...WEB_TOOLS]
       : full
-        ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...STUDIO_TOOLS, ...WRITE_TOOLS, CODE_TOOL]
-        : [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...WRITE_TOOLS];
+        ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...STUDIO_TOOLS, ...WRITE_TOOLS, ...chatTools, CODE_TOOL]
+        : [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...WRITE_TOOLS, ...chatTools];
+    let saveTo = opts.threadId || 0;
+    const chatNote = !chatList.length ? '' : opts.threadId
+      ? `\nRozmawiasz w czacie „${chatList.find((c) => c.id === opts.threadId)?.title || ''}” (id ${opts.threadId}) — to, co tu napiszesz, zapisze się w nim samo. Inne czaty możesz przeczytać (read_chat).`
+      : `\nCzaty użytkownika (id · nazwa · rodzaj): ${chatList.map((c) => `${c.id} · ${c.title} · ${c.mode}`).join('; ')}.` +
+        ' Gdy piszesz treść (mail, post, tekst) — przeczytaj pasujący czat (read_chat; B2B przy firmach, swobodny przy rodzicach/zespole) i zapisz wymianę w nim (save_to_chat).';
 
     const files: KnowledgeItem[] = [];
     let containerId = full ? opts.containerId || undefined : undefined;
@@ -795,6 +842,7 @@ export class Assistant {
           { type: 'text', text: staticPrompt(), cache_control: { type: 'ephemeral' } },
           ...(style.project || style.b2b || style.casual ? [{ type: 'text' as const, text: stylePrompt(style), cache_control: { type: 'ephemeral' as const } }] : []),
           { type: 'text', text: dynamicPrompt(this.crm.today(), this.crm.owner, segments.map((s) => s.name), lead, spoken)
+            + chatNote
             + (full || web ? '' : '\nTo szybka sprawa: zrób ją od razu, bez Bazy wiedzy i plików. Gdy do zadania trzeba napisać materiały, dodaj samo zadanie i powiedz, że teksty przygotujesz na prośbę „przygotuj teksty”.') },
         ],
         tools,
@@ -836,6 +884,13 @@ export class Assistant {
             }
           } else if (call.name === 'read_knowledge') {
             results.push({ type: 'tool_result', tool_use_id: call.id, content: await this.readKnowledge(Number(input.id)) });
+          } else if (call.name === 'read_chat') {
+            const x = await threads.excerpt(Number(input.chat_id));
+            results.push({ type: 'tool_result', tool_use_id: call.id, content: `Czat „${x.title}” (${x.mode}), najnowsze wiadomości:\n${x.text || '(pusty)'}` });
+          } else if (call.name === 'save_to_chat') {
+            const t = await threads.get(Number(input.chat_id));
+            saveTo = t.id;
+            results.push({ type: 'tool_result', tool_use_id: call.id, content: `Ta wymiana zapisze się w czacie „${t.title}”.` });
           } else {
             results.push({ type: 'tool_result', tool_use_id: call.id, content: await this.read(call.name, input) });
           }
@@ -847,7 +902,17 @@ export class Assistant {
     }
 
     if (!reply) reply = proposals.length ? 'Sprawdź i zatwierdź.' : files.length ? 'Gotowe — pliki poniżej.' : 'Nie wiem, co zrobić — powiedz trochę dokładniej.';
-    return { reply, proposals, files, containerId: containerId ?? opts.containerId };
+    let savedTo: AssistantReply['savedTo'];
+    if (saveTo) {
+      const now = new Date().toISOString();
+      const content = [reply, ...proposals.map(proposalText), ...files.map((f) => `📎 ${f.title}`)].join('\n\n');
+      const t = await threads.append(saveTo, [
+        { role: 'user', text: said, at: now, via: opts.threadId ? 'czat' : 'mikrofon' },
+        { role: 'assistant', text: content, at: now, via: opts.threadId ? 'czat' : 'mikrofon' },
+      ]);
+      savedTo = { id: t.id, title: t.title };
+    }
+    return { reply, proposals, files, containerId: containerId ?? opts.containerId, savedTo };
   }
 
   /**
@@ -880,9 +945,13 @@ export class Assistant {
    * Turns imported chats (knowledge notes) into a compact writing guide for one mode,
    * so the assistant writes the way the user's Claude project did.
    */
-  async learnStyle(ids: number[], mode: 'b2b' | 'casual' | 'project'): Promise<string> {
-    if (!ids.length) throw new HttpError(400, 'Wybierz co najmniej jeden czat albo dokument.');
-    const docs = await Promise.all(ids.slice(0, 6).map((id) => this.kb.get(id)));
+  async learnStyle(ids: number[], mode: 'b2b' | 'casual' | 'project', chats: number[] = []): Promise<string> {
+    if (!ids.length && !chats.length) throw new HttpError(400, 'Wybierz co najmniej jeden czat albo dokument.');
+    const threads = new Threads(this.crm.db);
+    const docs = [
+      ...(await Promise.all(chats.slice(0, 6).map(async (id) => { const x = await threads.excerpt(id, 80_000); return { title: `Czat: ${x.title}`, text: x.text }; }))),
+      ...(await Promise.all(ids.slice(0, 6).map((id) => this.kb.get(id)))),
+    ];
     const material = docs.map((d) => `### ${d.title}\n${d.text.slice(0, 80_000)}`).join('\n\n').slice(0, 300_000);
     const goal = {
       b2b: 'maili i wiadomości do firm (partnerstwa B2B Maple Bear Katowice)',

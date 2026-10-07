@@ -376,3 +376,36 @@ describe('studio', () => {
     expect((await ds.restore(d.id, 0)).versions).toHaveLength(4);
   });
 });
+
+describe('chats', () => {
+  it('files a mail written from the mic into the B2B chat and talks inside a chat with its history', async () => {
+    const { Threads } = await import('./threads.js');
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const lead = await crm.createLead({ company: 'Multisport', email: 'b2b@multisport.pl' });
+    const ts = new Threads(db);
+    const b2b = await ts.create({ title: 'B2B maile', source: 'claude', messages: [{ role: 'user', text: 'pisz krótko' }, { role: 'assistant', text: 'Jasne.' }] });
+    expect(b2b.mode).toBe('b2b');
+
+    const a = new Assistant(crm, 'test-key');
+    const fake = fakeClient([
+      { stop_reason: 'tool_use', content: [toolUse('t1', 'read_chat', { chat_id: b2b.id }), toolUse('t2', 'save_to_chat', { chat_id: b2b.id })] },
+      { stop_reason: 'tool_use', content: [toolUse('t3', 'draft_email', { id: lead.id, to: 'b2b@multisport.pl', subject: 'Współpraca', body: 'Dzień dobry,\nzapraszamy.' })] },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Mail gotowy.' }] },
+    ]);
+    (a as any).client = fake;
+    const r = await a.ask('napisz maila do Multisportu');
+    expect(r.savedTo).toEqual({ id: b2b.id, title: 'B2B maile' });
+    expect(fake.requests[0].system.at(-1).text).toContain('B2B maile');
+    expect(fake.requests[1].messages.at(-1).content[0].content).toContain('pisz krótko');      // it read the chat
+    const after = await ts.get(b2b.id);
+    expect(after.messages.at(-2)).toMatchObject({ role: 'user', text: 'napisz maila do Multisportu', via: 'mikrofon' });
+    expect(after.messages.at(-1)!.text).toContain('Temat: Współpraca');
+
+    const fake2 = fakeClient([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Krócej: …' }] }]);
+    (a as any).client = fake2;
+    await a.ask('a teraz krócej', [], { threadId: b2b.id });
+    expect(fake2.requests[0].messages.map((m: any) => typeof m.content === 'string' ? m.content : m.content.at(-1).text)).toContain('pisz krótko');
+    expect((await ts.get(b2b.id)).messages.at(-1)).toMatchObject({ text: 'Krócej: …', via: 'czat' });
+  });
+});

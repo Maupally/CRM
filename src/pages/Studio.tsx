@@ -28,8 +28,13 @@ export function StudioPage() {
 
 function StudioList() {
   const q = useQuery({ queryKey: ['studio'], queryFn: api.designs });
+  const kb = useQuery({ queryKey: ['knowledge'], queryFn: api.knowledge });
+  const nav = useNavigate();
   const today = useToday();
   const [creating, setCreating] = useState(false);
+  const open = useAction((k: KnowledgeItem) => api.createDesign({ fromKnowledge: k.id, kind: /prezent|slajd|deck/i.test(k.title) ? 'deck' : 'www' }),
+    { onDone: (d) => nav(`/studio/${d.id}`) });
+  const html = (kb.data || []).filter((k) => k.hasFile && k.mime.includes('html'));
   return (
     <>
       <div className="page-head">
@@ -56,6 +61,20 @@ function StudioList() {
           </ul>
         )}
       </section>
+      {html.length > 0 && (
+        <section className="card" style={{ marginTop: 16 }}>
+          <div className="card-head"><h2>Pliki HTML w Bazie wiedzy</h2><span className="soft small">otwórz, żeby dalej nad nimi pracować</span></div>
+          <ul className="list">
+            {html.map((k) => (
+              <li key={k.id} className="li">
+                <span className="type-ic"><Globe size={18} /></span>
+                <div className="grow trunc">{k.title}</div>
+                <button className="btn sm" onClick={() => open.mutate(k)} disabled={open.isPending}>Otwórz w Studio</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <NewDesign open={creating} onClose={() => setCreating(false)} />
     </>
   );

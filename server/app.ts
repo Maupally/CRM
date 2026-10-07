@@ -7,6 +7,7 @@ import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
 import { handleMcp, mcpToken } from './mcp.js';
 import { Designs } from './designs.js';
+import { Threads } from './threads.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -123,13 +124,21 @@ export function createApp(o: AppOptions) {
     const proto = c.req.header('x-forwarded-proto') || u.protocol.replace(':', '');
     return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}` });
   });
+  /* ---- chats */
+  const threads = async () => new Threads((await crm()).db);
+  api.get('/threads', async (c) => c.json(await (await threads()).list()));
+  api.post('/threads', async (c) => c.json(await (await threads()).create(await body(c))));
+  api.get('/threads/:id', async (c) => c.json(await (await threads()).get(num(c.req.param('id')))));
+  api.patch('/threads/:id', async (c) => c.json(await (await threads()).update(num(c.req.param('id')), await body(c))));
+  api.delete('/threads/:id', async (c) => c.json(await (await threads()).remove(num(c.req.param('id')))));
+
   /* ---- studio */
   const designs = async () => new Designs((await crm()).db);
   const RUN_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; default-src 'none'; " +
     "script-src 'unsafe-inline' 'unsafe-eval' https:; style-src 'unsafe-inline' https:; img-src * data: blob:; font-src https: data:; connect-src 'none'";
   api.get('/studio', async (c) => c.json(await (await designs()).list()));
   api.post('/studio', async (c) => {
-    const d = await body<{ title?: string; kind?: string; fromKnowledge?: number }>(c);
+    const d = await body<{ title?: string; kind?: string; fromKnowledge?: number; versions?: { html: string; note?: string }[]; chat?: { role: 'user' | 'assistant'; text: string }[] }>(c);
     const ds = await designs();
     return c.json(d.fromKnowledge ? await ds.fromKnowledge(await kb(), Number(d.fromKnowledge), d.kind) : await ds.create(d));
   });
@@ -173,8 +182,9 @@ export function createApp(o: AppOptions) {
   api.get('/style', async (c) => c.json(await (await crm()).style()));
   api.put('/style', async (c) => c.json(await (await crm()).saveStyle(await body(c))));
   api.post('/style/learn', async (c) => {
-    const d = await body<{ ids?: number[]; mode?: string }>(c);
-    return c.json({ text: await new Assistant(await crm()).learnStyle((d.ids || []).map(Number), d.mode === 'casual' ? 'casual' : d.mode === 'project' ? 'project' : 'b2b') });
+    const d = await body<{ ids?: number[]; chats?: number[]; mode?: string }>(c);
+    return c.json({ text: await new Assistant(await crm()).learnStyle((d.ids || []).map(Number),
+      d.mode === 'casual' ? 'casual' : d.mode === 'project' ? 'project' : 'b2b', (d.chats || []).map(Number)) });
   });
   api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
   api.get('/segments', async (c) => c.json(await (await crm()).listSegments()));
@@ -228,10 +238,10 @@ export function createApp(o: AppOptions) {
   });
   api.post('/assistant', async (c) => {
     const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string; image?: { mediaType: string; data: string };
-      spoken?: boolean; attachments?: number[]; containerId?: string }>(c);
+      spoken?: boolean; attachments?: number[]; containerId?: string; threadId?: number }>(c);
     return c.json(await new Assistant(await crm()).ask(d.text || '', Array.isArray(d.history) ? d.history : [],
       { leadId: d.leadId, image: d.image || null, spoken: !!d.spoken, attachments: Array.isArray(d.attachments) ? d.attachments : [],
-        containerId: typeof d.containerId === 'string' ? d.containerId : undefined }));
+        containerId: typeof d.containerId === 'string' ? d.containerId : undefined, threadId: Number(d.threadId) || undefined }));
   });
   api.post('/assistant/execute', async (c) => {
     const d = await body<{ items: { tool: string; input: Record<string, unknown> }[] }>(c);

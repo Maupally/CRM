@@ -225,6 +225,8 @@ const STYLE_FIELDS: { key: keyof Style; label: string; hint: string }[] = [
 function StyleSettings() {
   const q = useQuery({ queryKey: ['style'], queryFn: api.style });
   const kb = useQuery({ queryKey: ['knowledge'], queryFn: api.knowledge });
+  const chats = useQuery({ queryKey: ['threads'], queryFn: api.threads });
+  const [pickChats, setPickChats] = useState<number[]>([]);
   const toast = useToast();
   const [d, setD] = useState<Style | null>(null);
   const [learn, setLearn] = useState<keyof Style | null>(null);
@@ -242,10 +244,10 @@ function StyleSettings() {
     if (!learn) return;
     setBusy(true);
     try {
-      const r = await api.learnStyle(pick, learn);
+      const r = await api.learnStyle(pick, learn, pickChats);
       setD({ ...d, [learn]: r.text });
       toast('Gotowe — sprawdź i zapisz');
-      setLearn(null); setPick([]);
+      setLearn(null); setPick([]); setPickChats([]);
     } catch (e) {
       toast((e as Error).message, 'error');
     } finally { setBusy(false); }
@@ -259,7 +261,7 @@ function StyleSettings() {
       {STYLE_FIELDS.map((f) => (
         <div key={f.key} className="col tight">
           <div className="row between wrap"><b>{f.label}</b>
-            <button className="btn sm ghost" onClick={() => { setLearn(f.key); setPick([]); }}><Sparkles size={14} /> Ucz się z czatów</button></div>
+            <button className="btn sm ghost" onClick={() => { setLearn(f.key); setPick([]); setPickChats((chats.data || []).filter((c) => c.mode === (f.key === 'casual' ? 'casual' : 'b2b') && f.key !== 'project').slice(0, 3).map((c) => c.id)); }}><Sparkles size={14} /> Ucz się z czatów</button></div>
           <span className="soft small">{f.hint}</span>
           <textarea rows={8} value={d[f.key]} onChange={(e) => setD({ ...d, [f.key]: e.target.value })} placeholder="Pusto — asystent pisze po swojemu." />
         </div>
@@ -268,9 +270,18 @@ function StyleSettings() {
 
       <Modal open={!!learn} onClose={() => setLearn(null)} wide title={`Ucz się: ${STYLE_FIELDS.find((x) => x.key === learn)?.label || ''}`}
         footer={<><button className="btn" onClick={() => setLearn(null)}>Anuluj</button>
-          <button className="btn primary" disabled={!pick.length || busy} onClick={runLearn}>{busy ? 'Czytam…' : `Przygotuj (${pick.length})`}</button></>}>
+          <button className="btn primary" disabled={(!pick.length && !pickChats.length) || busy} onClick={runLearn}>{busy ? 'Czytam…' : `Przygotuj (${pick.length + pickChats.length})`}</button></>}>
         <div className="soft small">Wybierz czaty lub dokumenty (do 6). Asystent przeczyta je i napisze zasady stylu — zastąpią obecną treść pola (przed zapisem możesz poprawić).</div>
         <div className="col tight" style={{ maxHeight: 360, overflow: 'auto' }}>
+          {(chats.data || []).length > 0 && <b className="small">Czaty</b>}
+          {(chats.data || []).map((c) => (
+            <label key={`c${c.id}`} className="row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={pickChats.includes(c.id)} disabled={!pickChats.includes(c.id) && pickChats.length >= 6}
+                onChange={() => setPickChats(pickChats.includes(c.id) ? pickChats.filter((x) => x !== c.id) : [...pickChats, c.id])} />
+              <span className="grow trunc">{c.title}</span><span className="soft small">{c.count} wiad.</span>
+            </label>
+          ))}
+          {sources.length > 0 && <b className="small" style={{ marginTop: 8 }}>Baza wiedzy</b>}
           {sources.map((k) => (
             <label key={k.id} className="row" style={{ gap: 8 }}>
               <input type="checkbox" checked={pick.includes(k.id)} disabled={!pick.includes(k.id) && pick.length >= 6}
@@ -278,7 +289,7 @@ function StyleSettings() {
               <span className="grow trunc">{k.title}</span><span className="soft small">{k.tags}</span>
             </label>
           ))}
-          {!sources.length && <span className="soft small">Baza wiedzy jest pusta — najpierw „Przenieś z Claude” w Bazie wiedzy.</span>}
+          {!sources.length && !(chats.data || []).length && <span className="soft small">Pusto — najpierw „Przenieś z Claude” w Bazie wiedzy.</span>}
         </div>
       </Modal>
     </section>

@@ -85,6 +85,14 @@ domenę, albo mówisz „sprawdź w internecie…” (web search + otwieranie st
 Artefakt z czatu Claude (np. kalkulator, strona z szablonami) pobierz jako .html i wgraj do Bazy
 wiedzy — pojawi się w „Narzędziach” i działa w CRM (w piaskownicy, bez dostępu do danych CRM).
 
+## Czaty
+
+**Menu → Czaty** (`/czaty`): wszystkie rozmowy — przeniesione z Claude i nowe — z pełną historią, z
+boku lista (szukaj, filtr B2B / swobodny / ogólny). W każdym czacie można pisać dalej (z mikrofonem);
+asystent ma wtedy jego historię jako kontekst. Asystent pod mikrofonem widzi listę czatów: przy
+pisaniu maila do firmy czyta czat B2B i zapisuje w nim całą wymianę (prośbę i gotowy mail), więc widać
+ją w obu miejscach. Kod: `server/threads.ts`, `src/pages/Chats.tsx`.
+
 ## Studio
 
 **Menu → Studio** (`/studio`): strony WWW, prezentacje, szablony maili i dokumenty robione w rozmowie

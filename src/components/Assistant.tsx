@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Mic, MicOff, Send, Sparkles, Check, X, AlertTriangle, Loader2, Camera, Sunrise, MessageSquareText, Volume2, Car,
-  Copy, Mail, Square, Paperclip, RotateCcw, Users, Palette,
+  Copy, Mail, Square, Paperclip, RotateCcw, Users, Palette, MessagesSquare,
 } from 'lucide-react';
 import { api, type AssistantTurn, type Proposal } from '../api';
 import { Modal, useConfig, useToast, copyText } from './ui';
@@ -25,7 +25,7 @@ const SpeechCtor: (new () => Recognition) | undefined =
  * Dictation. In "long" mode (a debrief after a call) it keeps listening through pauses —
  * phones end a recognition session after a few seconds of silence — until stopped by hand.
  */
-function useDictation(onFinal: (text: string, long: boolean) => void) {
+export function useDictation(onFinal: (text: string, long: boolean) => void) {
   const [state, setState] = useState<'off' | 'short' | 'long'>('off');
   const [interim, setInterim] = useState('');
   const rec = useRef<Recognition | null>(null);
@@ -132,13 +132,14 @@ async function shrinkImage(file: File): Promise<{ mediaType: string; data: strin
 
 /* ------------------------------------------------------------ state */
 
-type Status = 'pending' | 'approved' | 'rejected' | 'replaced';
-interface PItem extends Proposal { on: boolean }
+export type Status = 'pending' | 'approved' | 'rejected' | 'replaced';
+export interface PItem extends Proposal { on: boolean }
 interface Msg {
   role: 'user' | 'assistant';
   text: string;
   image?: string;
   files?: KnowledgeItem[];
+  savedTo?: { id: number; title: string };
   proposals?: PItem[];
   status?: Status;
   results?: { ok: boolean; message: string; leadId?: string }[];
@@ -306,7 +307,8 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
       if (r.containerId) setContainerId(r.containerId);
       if (r.files?.length) qc.invalidateQueries({ queryKey: ['knowledge'] });
       const proposals = r.proposals.map((p) => ({ ...p, on: true }));
-      setMsgs((x) => [...x, { role: 'assistant', text: r.reply, files: r.files?.length ? r.files : undefined, proposals, status: proposals.length ? 'pending' : undefined }]);
+      setMsgs((x) => [...x, { role: 'assistant', text: r.reply, files: r.files?.length ? r.files : undefined, savedTo: r.savedTo, proposals, status: proposals.length ? 'pending' : undefined }]);
+      if (r.savedTo) qc.invalidateQueries({ queryKey: ['threads'] });
       if (handsFree) {
         const ask = proposals.length
           ? ` ${proposals.length === 1 ? 'Jedna zmiana' : `Zmiany, ${proposals.length}`}: ${proposals.map((p) => p.title).join('; ')}. Powiedz: zatwierdź, odrzuć albo co poprawić.`
@@ -407,6 +409,7 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
                 {m.image && <img src={m.image} alt="" className="bubble-img" />}
                 {m.text && <div className="pre">{m.text}</div>}
                 {!!m.files?.length && <div className="files" style={{ marginTop: 8 }}>{m.files.map((f) => <FileCard key={f.id} f={f} />)}</div>}
+                {m.savedTo && <Link className="saved-to" to={`/czaty/${m.savedTo.id}`} onClick={onClose}><MessagesSquare size={13} /> Zapisane w czacie „{m.savedTo.title}”</Link>}
                 {m.role === 'assistant' && m.text && m.text.length > 160 && (
                   <div className="row wrap" style={{ marginTop: 8, gap: 4 }}>
                     <button className="btn sm ghost" onClick={() => speak(m.text)}><Volume2 size={14} /> Czytaj</button>
@@ -485,7 +488,7 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
 const EDITABLE: Record<string, string> = { summary: 'Skrót', text: 'Notatka', note: 'Notatka' };
 const STATUS_LABEL: Record<Status, string> = { pending: '', approved: '', rejected: 'Odrzucone', replaced: 'Zastąpione nowszym poleceniem' };
 
-function Proposals({ items, status, onToggle, onEdit, onApprove, onReject }: {
+export function Proposals({ items, status, onToggle, onEdit, onApprove, onReject }: {
   items: PItem[]; status: Status; onToggle: (key: string) => void; onEdit: (key: string, patch: Record<string, any>) => void;
   onApprove: () => void; onReject: () => void;
 }) {

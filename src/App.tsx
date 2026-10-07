@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BookOpen, Users, Palette as PaletteIcon,
+  BookOpen, Users, Palette as PaletteIcon, MessagesSquare,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   Plus, LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
 } from 'lucide-react';
@@ -23,6 +23,7 @@ import { SettingsPage } from './pages/Settings';
 import { KnowledgePage } from './pages/Knowledge';
 import { PeoplePage } from './pages/People';
 import { StudioPage } from './pages/Studio';
+import { ChatsPage } from './pages/Chats';
 
 export function App() {
   const qc = useQueryClient();
@@ -80,6 +81,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
     { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },
   ] },
   { group: 'Tworzenie', items: [
+    { to: '/czaty', label: 'Czaty', icon: MessagesSquare },
     { to: '/studio', label: 'Studio', icon: PaletteIcon },
   ] },
   { group: 'Analiza', items: [
@@ -163,6 +165,8 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/kalendarz" element={<CalendarPage />} />
             <Route path="/wydarzenia" element={<EventsPage />} />
             <Route path="/wydarzenia/:id" element={<EventsPage />} />
+            <Route path="/czaty" element={<ChatsPage />} />
+            <Route path="/czaty/:id" element={<ChatsPage />} />
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/studio/:id" element={<StudioPage />} />
             <Route path="/zespol" element={<PeoplePage />} />
@@ -187,6 +191,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
           {[
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+            { to: '/czaty', label: 'Czaty', icon: MessagesSquare },
             { to: '/studio', label: 'Studio', icon: PaletteIcon },
             { to: '/zespol', label: 'Zespół', icon: Users },
             { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },

@@ -15,7 +15,8 @@ interface Doc { filename: string; content: string }
 interface Blob_ { name: string; mime: string; data: Uint8Array }
 interface Project { uuid: string; name: string; prompt: string; docs: Doc[]; files: Blob_[] }
 interface Artifact { id: string; title: string; type: string; content: string }
-interface Chat { uuid: string; name: string; date: string; transcript: string; artifacts: Artifact[]; size: number; project: string; design?: boolean }
+interface Msg { role: 'user' | 'assistant'; text: string; at: string }
+interface Chat { uuid: string; name: string; date: string; transcript: string; messages: Msg[]; artifacts: Artifact[]; size: number; project: string; design?: boolean }
 interface Parsed { projects: Project[]; chats: Chat[]; tools: Artifact[]; memory: string }
 
 const MAX_NOTE = 190_000;
@@ -27,6 +28,10 @@ const MIME: Record<string, string> = {
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 const base = (path: string) => path.split('/').pop() || path;
+const isHtml = (a: Artifact) => /html/.test(a.type) || /^\s*<!doctype html|^\s*<html/i.test(a.content);
+/** What kind of Studio project an imported design is, from its name. */
+const kindOf = (title: string) => /prezent|slajd|slide|deck|pitch/i.test(title) ? 'deck' : /mail|newsletter|szablon|template/i.test(title) ? 'email'
+  : /ulotk|plakat|dokument|oferta|pdf|regulamin|flyer|poster/i.test(title) ? 'doc' : 'www';
 
 /** Pulls the records out of whatever shape a JSON file has: a list, {conversations: […]}, or one object. */
 function records(v: unknown): any[] {
@@ -86,16 +91,17 @@ function textOf(m: any): string {
 
 function toChat(c: any, design: boolean): Chat {
   const msgs = messagesOf(c);
-  const lines = msgs.map((m: any) => {
-    const text = textOf(m).replace(/<antArtifact\b[^>]*>[\s\S]*?<\/antArtifact>/g, '[artefakt]').trim();
-    const human = m.sender === 'human' || m.role === 'user' || m.role === 'human';
-    return text ? `${human ? 'Ja' : 'Claude'}: ${text}` : '';
-  }).filter(Boolean);
+  const messages: Msg[] = msgs.map((m: any) => ({
+    role: m.sender === 'human' || m.role === 'user' || m.role === 'human' ? 'user' as const : 'assistant' as const,
+    text: textOf(m).replace(/<antArtifact\b[^>]*>[\s\S]*?<\/antArtifact>/g, '[artefakt]').trim(),
+    at: String(m.created_at || ''),
+  })).filter((m: Msg) => m.text);
+  const lines = messages.map((m) => `${m.role === 'user' ? 'Ja' : 'Claude'}: ${m.text}`);
   let transcript = lines.join('\n\n');
   if (transcript.length > MAX_NOTE) transcript = '…\n' + transcript.slice(-MAX_NOTE);          // keep the most recent part
   return {
     uuid: String(c.uuid || c.id || Math.random()), name: String(c.name || c.title || 'Bez tytułu'),
-    date: String(c.updated_at || c.created_at || '').slice(0, 10), transcript, artifacts: collectArtifacts(msgs), size: lines.length,
+    date: String(c.updated_at || c.created_at || '').slice(0, 10), transcript, messages, artifacts: collectArtifacts(msgs), size: lines.length,
     // newer exports say which project a chat belongs to; older ones do not
     project: String(c.project_uuid || c.project?.uuid || c.project_id || ''), design,
   };
@@ -176,7 +182,8 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
       setMemory(r.memory.trim());
       setPickP(chosen);
       // every chat of the chosen project is selected up front — that is the whole point of moving over
-      setPickC(new Set(r.chats.filter((c) => c.project && chosen.has(c.project)).map((c) => c.uuid)));
+      // …and every Claude Design chat: those are the projects in progress
+      setPickC(new Set(r.chats.filter((c) => c.design || (c.project && chosen.has(c.project))).map((c) => c.uuid)));
       if (!r.projects.length && !r.chats.length && !r.tools.length) toast('Nic nie znalazłem — czy to pliki z eksportu claude.ai?', 'error');
     } catch (e) {
       toast(`Nie udało się odczytać (${(e as Error).message})`, 'error');
@@ -188,7 +195,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const linked = useMemo(() => chats.some((c) => c.project), [chats]);
   const shown = useMemo(() => {
     const k = searchKey(find);
-    return chats.filter((c) => (!linked || !onlyProject || pickP.has(c.project)) && (!k || searchKey(c.name).includes(k))).slice(0, 300);
+    return chats.filter((c) => (c.design || !linked || !onlyProject || pickP.has(c.project)) && (!k || searchKey(c.name).includes(k))).slice(0, 300);
   }, [chats, find, onlyProject, pickP, linked]);
 
 
@@ -200,7 +207,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   };
 
   const run = async () => {
-    let docs = 0, notes = 0, toolsN = 0, prompts = 0, files = 0;
+    let docs = 0, notes = 0, toolsN = 0, prompts = 0, files = 0, designs = 0;
     try {
       const style = await api.style();
       let project = style.project;
@@ -221,20 +228,37 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
         await api.addNote({ title: 'Pamięć Claude (o mnie i mojej pracy)', text: memory.slice(0, MAX_NOTE), tags: 'pamięć claude' });
         docs++;
       }
+      // Claude Design: every design chat becomes a Studio project (its HTML versions + conversation);
+      // frames that no chat explains become projects of their own
+      const designChats = chats.filter((x) => x.design && pickC.has(x.uuid));
+      const usedFrames = new Set<string>();
+      for (const c of designChats) {
+        setBusy(`Studio: ${c.name}…`);
+        let versions = c.artifacts.filter(isHtml).map((a) => ({ html: a.content, note: a.title }));
+        if (!versions.length) {
+          const f = tools.find((t) => searchKey(t.title) === searchKey(c.name) || searchKey(t.title).includes(searchKey(c.name)));
+          if (f) { versions = [{ html: f.content, note: 'Z Claude Design' }]; usedFrames.add(f.id); }
+        }
+        await api.createDesign({ title: c.name, kind: kindOf(c.name), versions, chat: c.messages.slice(-60) });
+        designs++;
+      }
       if (takeTools) {
-        for (const t of tools) {
-          setBusy(`Design: ${t.title}…`);
-          if (await uploadHtml(t.title, t.content, 'Projekt z Claude Design')) toolsN++;
+        for (const t of tools.filter((x) => !usedFrames.has(x.id))) {
+          setBusy(`Studio: ${t.title}…`);
+          await api.createDesign({ title: t.title, kind: kindOf(t.title), versions: [{ html: t.content, note: 'Z Claude Design' }] });
+          designs++;
         }
       }
       if (prompts) await api.saveStyle({ project });
-      for (const c of chats.filter((x) => pickC.has(x.uuid))) {
+      for (const c of chats.filter((x) => pickC.has(x.uuid) && !x.design)) {
         setBusy(`Czat ${c.name}…`);
-        await api.addNote({ title: `Czat: ${c.name}`, text: c.transcript, tags: 'czat', description: `Rozmowa z Claude z ${c.date}` });
+        // keep it under the request size limit: the newest part of a very long chat
+        let msgs = c.messages; let size = msgs.reduce((n, m) => n + m.text.length, 0);
+        while (size > 1_500_000 && msgs.length > 2) { size -= msgs[0].text.length; msgs = msgs.slice(1); }
+        await api.createThread({ title: c.name, source: 'claude', messages: msgs, updatedAt: c.date ? `${c.date}T12:00:00.000Z` : undefined });
         notes++;
         for (const a of c.artifacts) {
-          const html = /html/.test(a.type) || /^\s*<!doctype html|^\s*<html/i.test(a.content);
-          if (html) {
+          if (isHtml(a)) {
             if (await uploadHtml(a.title, a.content, `Artefakt z czatu „${c.name}”`)) toolsN++;
           } else {
             await api.addNote({ title: a.title, text: a.content.slice(0, MAX_NOTE), tags: 'artefakt', description: `Artefakt z czatu „${c.name}”` });
@@ -243,7 +267,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
         }
       }
       qc.invalidateQueries();
-      setDone(`Przeniesiono: ${docs} dokumentów, ${files} plików, ${notes} czatów, ${toolsN} narzędzi${prompts ? ', instrukcje projektu' : ''}.`);
+      setDone(`Przeniesiono: ${notes} czatów, ${designs} projektów do Studio, ${docs} dokumentów, ${files} plików, ${toolsN} narzędzi${prompts ? ', instrukcje projektu' : ''}.`);
     } catch (e) {
       toast((e as Error).message, 'error');
     } finally {
@@ -266,8 +290,9 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
       {done ? (
         <div className="col">
           <div><b>{done}</b></div>
-          <div className="soft">Teraz w <b>Ustawienia → Styl pisania</b> kliknij „Ucz się z czatów” przy Maile B2B (wybierz czat B2B)
-            i przy Rozmowach swobodnych (czat „conversation”) — asystent będzie pisał tak jak tam. Narzędzia (kalkulator, szablony) są w Bazie wiedzy.</div>
+          <div className="soft">Czaty są w <b>Czatach</b> (menu), projekty z Claude Design w <b>Studio</b>, pliki i narzędzia w Bazie wiedzy.
+            Sprawdź w Czatach, czy rodzaj czatu się zgadza (B2B / swobodny) — asystent pod mikrofonem zapisuje tam to, co napisze.
+            Potem w <b>Ustawienia → Styl pisania</b> kliknij „Ucz się z czatów” przy B2B i przy rozmowach swobodnych.</div>
         </div>
       ) : !projects ? (
         <div className="col">
@@ -299,7 +324,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
               <b>Z Claude Design i pamięci</b>
               {tools.length > 0 && (
                 <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={takeTools} onChange={() => setTakeTools(!takeTools)} />
-                  <span className="grow">Projekty z Claude Design jako narzędzia (do edycji w Studio)</span><span className="soft small">{tools.length}</span></label>
+                  <span className="grow">Projekty z Claude Design (bez czatu) → Studio</span><span className="soft small">{tools.length}</span></label>
               )}
               {memory && (
                 <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={takeMemory} onChange={() => setTakeMemory(!takeMemory)} />

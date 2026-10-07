@@ -179,6 +179,13 @@ export interface Material {
   to?: string;
 }
 
+export const THREAD_MODES = ['b2b', 'casual', 'other'] as const;
+export type ThreadMode = (typeof THREAD_MODES)[number];
+export const THREAD_MODE_LABEL: Record<ThreadMode, string> = { b2b: 'B2B — firmy', casual: 'Swobodny — rodzice, zespół', other: 'Ogólny' };
+export interface ThreadMessage { role: 'user' | 'assistant'; text: string; at: string; via?: 'mikrofon' | 'czat' | 'claude' }
+export interface Thread { id: number; title: string; mode: ThreadMode; source: 'claude' | 'opal'; messages: ThreadMessage[]; updatedAt: string }
+export interface ThreadSummary { id: number; title: string; mode: ThreadMode; source: string; count: number; last: string; updatedAt: string }
+
 export const DESIGN_KINDS = ['www', 'deck', 'email', 'doc'] as const;
 export type DesignKind = (typeof DESIGN_KINDS)[number];
 export const DESIGN_KIND_LABEL: Record<DesignKind, string> = { www: 'Strona WWW', deck: 'Prezentacja', email: 'Mail / szablon', doc: 'Dokument' };
