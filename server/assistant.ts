@@ -7,6 +7,7 @@ import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import type { Crm } from './crm.js';
 import { HttpError } from './crm.js';
 import { Knowledge } from './knowledge.js';
+import type { Designs } from './designs.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -571,6 +572,7 @@ Zasady:
 - Internet (gdy masz web_search): „co to za firma”, sam adres e-mail albo domena → szukaj po domenie z adresu (np. @armada-golf.pl → armada-golf.pl), otwórz ich stronę (web_fetch). Powiedz krótko: czym się zajmują, gdzie są, kto decyduje (jeśli widać), telefon/e-mail ze strony, i czy to pasuje na partnera. Podaj 1–2 źródła. Nie zgaduj — gdy nic nie ma, powiedz to. Jeśli firmy nie ma w CRM, zaproponuj create_company z tym, co znalazłeś.
 - Ludzie (dyrektor, Patryk, koordynatorka…): gdy w poleceniu pada imię albo funkcja, sprawdź get_people i ustaw person_id w zadaniu. Gdy osoby nie ma w Zespole — zaproponuj save_person (z tym, co wiesz) i użyj OS1 jako person_id; jeśli nie znasz e-maila ani telefonu, napisz krótko, że trzeba je uzupełnić.
 - Zadanie typu „wyślij maila do…”: materiał-mail ma temat w polu subject, a w body samą treść gotową do wklejenia. Nigdy nie pisz „Temat:” w treści. Nigdy nie dodawaj stopki ani podpisu (użytkownik ma ją w poczcie) — kończ na ostatnim zdaniu treści lub zwrocie typu „Pozdrawiam”.
+- Prezentacje, strony WWW, graficzne szablony maili, ulotki: to robi się w Studio (menu → Studio) — tam jest podgląd na żywo, wersje, pobieranie i poprawki w rozmowie. Powiedz to krótko i nie generuj takich rzeczy tutaj, chyba że użytkownik wyraźnie chce szybki plik.
 - Pliki: użytkownik może dołączyć plik do wiadomości (dostaniesz go i jest w $INPUT_DIR). Kod QR na PDF/plakat → stamp_qr. Sam kod QR → make_qr. Strona www / landing → napisz kompletny HTML i save_file. Inne przeróbki plików, wykresy, tabele, dokumenty Word/Excel/PowerPoint → code_execution; pliki wynikowe zapisuj w $OUTPUT_DIR (trafią do Bazy wiedzy). Na koniec krótko powiedz, co powstało.
 - Poza ściągą do rozmowy, briefingiem, raportem i przygotowanymi treściami odpowiadaj 1–2 krótkimi zdaniami po polsku. Szczegóły propozycji użytkownik widzi na kartach — nie powtarzaj ich. Na pytania o dane odpowiadaj zwięźle, bez tabel.
 
@@ -578,6 +580,65 @@ Etapy lejka (wartość: etykieta — znaczenie):
 ${STAGES.map((s) => `- ${s}: ${STAGE_LABEL[s]} — ${STAGE_INFO[s]}`).join('\n')}
 
 Typy aktywności: ${TYPES.map((t) => `${t} (${TYPE_LABEL[t]})`).join(', ')}.`;
+}
+
+const WRITE_DOCUMENT: Anthropic.Beta.BetaTool = {
+  name: 'write_document',
+  description: 'Zapisuje NOWĄ WERSJĘ dokumentu w Studio: kompletny, samodzielny plik HTML. Użytkownik od razu widzi podgląd. ' +
+    'Przy poprawkach przepisz cały dokument z naniesionymi zmianami — nie wysyłaj fragmentów.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      html: { type: 'string', description: 'Pełny dokument od <!doctype html>' },
+      note: { type: 'string', description: 'Krótko, co się zmieniło (np. „Dodany slajd z cennikiem”)' },
+      title: { type: 'string', description: 'Tytuł projektu (tylko przy pierwszej wersji albo gdy użytkownik chce zmienić)' },
+    },
+    required: ['html', 'note'],
+    additionalProperties: false,
+  },
+};
+
+const EDIT_DOCUMENT: Anthropic.Beta.BetaTool = {
+  name: 'edit_document',
+  description: 'Szybka poprawka obecnej wersji: lista zamian tekstu w kodzie HTML (find → replace). Każdy find musi wystąpić w dokumencie DOKŁADNIE raz ' +
+    '(skopiuj go z obecnej wersji, z wystarczającym kontekstem). Używaj do małych zmian: tekst, kolor, jeden slajd, sekcja.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      edits: {
+        type: 'array',
+        items: { type: 'object', properties: { find: { type: 'string' }, replace: { type: 'string' } }, required: ['find', 'replace'], additionalProperties: false },
+      },
+      note: { type: 'string', description: 'Krótko, co się zmieniło' },
+    },
+    required: ['edits', 'note'],
+    additionalProperties: false,
+  },
+};
+
+const STUDIO_KIND: Record<string, string> = {
+  www: `STRONA WWW: nowoczesny, responsywny landing (mobile-first), sekcje z czytelną hierarchią, wyraźne CTA (zapisy, kontakt). Semantyczny HTML, CSS w <style>, ewentualny JS w <script>.`,
+  deck: `PREZENTACJA: slajdy 16:9 jako <section class="slide"> w jednym pliku. Nawigacja strzałkami/klawiaturą i dotykiem, licznik slajdów, skalowanie do okna. ` +
+    `@media print: każdy slajd na osobnej stronie (A4 poziomo / 16:9), bez nawigacji — żeby „Drukuj → PDF” dało gotowy plik. Mało tekstu na slajdzie, duże nagłówki, mocne liczby.`,
+  email: `MAIL / SZABLON MAILA: HTML do wklejenia w pocztę — układ tabelaryczny, style inline, szerokość 600px, bez JS, bez zewnętrznych CSS. ` +
+    `NIE dodawaj stopki ani podpisu (użytkownik ma ją w poczcie). Temat maila podaj w note (np. „Temat: …”), nie w treści. Placeholdery w nawiasach kwadratowych, np. [Imię].`,
+  doc: `DOKUMENT: czytelny dokument A4 (oferta, ulotka, plan, regulamin) z dobrą typografią i @media print gotowym do „Drukuj → PDF”.`,
+};
+
+function studioPrompt(kind: string, style: Style, title: string): string {
+  return `Jesteś projektantem w Studio CRM Opal5 (szkoła Maple Bear Katowice). Tworzysz i poprawiasz jeden dokument: „${title}”.
+Rodzaj: ${STUDIO_KIND[kind] || STUDIO_KIND.www}
+
+Zasady:
+- Nowy dokument albo duża przebudowa → write_document (KOMPLETNY plik HTML, inline CSS/JS). Mała zmiana w istniejącej wersji → edit_document (zamiany fragmentów) — jest dużo szybsza.
+- Pisz zwięzły kod: wspólne klasy CSS zamiast powtarzanych stylów, bez ogromnych SVG — cały dokument najlepiej do ok. 30 tys. znaków. Z zewnątrz wolno tylko Google Fonts i biblioteki z cdnjs.cloudflare.com / cdn.jsdelivr.net. Bez fetch/XHR — podgląd działa bez sieci.
+- Przy prośbie o zmianę bierz OBECNĄ wersję i zmieniaj tylko to, o co prosi użytkownik; resztę zostaw bez zmian.
+- Treść opieraj na Bazie wiedzy (search_knowledge, read_knowledge) i danych CRM (wydarzenia, firmy, zespół). Gdy użytkownik mówi „daj mi tę prezentację / ten szablon” — najpierw znajdź ją w Bazie wiedzy (to mogą być artefakty przeniesione z Claude) i zacznij od niej. Nie wymyślaj faktów: brakujące dane (link, cena, data) zostaw jako widoczne [pole do uzupełnienia].
+- Obrazy z Bazy wiedzy wstawiaj jako <img src="kb://ID"> (ID z search_knowledge) — podgląd sam je podmieni. Inaczej użyj eleganckich placeholderów (CSS/SVG).
+- Styl wizualny: czysto, nowocześnie, dużo światła, akcent czerwony #D52B1E (Maple Bear) i granat, dobra czytelność na telefonie.
+- Gdy użytkownik chce plik PowerPoint, Word albo PDF — użyj code_execution (python-pptx / python-docx / reportlab), odtwórz treść i układ z obecnej wersji i zapisz plik w $OUTPUT_DIR; dostanie go do pobrania. Wtedy nie zmieniaj HTML.
+- Odpowiedź w czacie: 1–2 zdania po polsku, co zrobiłeś albo o co dopytujesz. Nie wklejaj kodu HTML do czatu.
+${style.project || style.b2b || style.casual ? '\n' + stylePrompt(style) : ''}`;
 }
 
 /** The user's own rules, brought over from the Claude project. They win over the defaults above. */
@@ -842,6 +903,109 @@ export class Assistant {
     }).finalMessage();
     if (response.stop_reason === 'refusal') throw new HttpError(422, 'Nie udało się przygotować stylu z tych materiałów.');
     return response.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
+  }
+
+  /* ---------------------------------------------------------- studio */
+
+  /**
+   * One turn in the Studio: the user asks for a page, deck or email (or a change to it); Claude writes
+   * a complete new version with write_document, or exports a file with code execution.
+   */
+  async designTurn(designs: Designs, id: number, text: string, attachments: number[] = []) {
+    const said = txt(text);
+    if (!said) throw new HttpError(400, 'Napisz, co mam przygotować albo zmienić.');
+    const d = await designs.get(id);
+    const style = await this.crm.style();
+    const current = d.versions[d.versions.length - 1]?.html || '';
+
+    const messages: Anthropic.Beta.BetaMessageParam[] = [];
+    for (const m of d.chat.slice(-12)) {
+      if (!txt(m.text)) continue;
+      messages.push({ role: m.role, content: m.text.slice(0, 4000) });
+    }
+    if (messages[0]?.role === 'assistant') messages.shift();
+    const first: Anthropic.Beta.BetaContentBlockParam[] = [];
+    if (attachments.length) first.push(...(await this.attachmentBlocks(attachments.map(Number).filter((n) => n > 0))));
+    first.push({ type: 'text', text: (current
+      ? `Obecna wersja (${d.versions.length}):\n\`\`\`html\n${current.slice(0, 180_000)}\n\`\`\`\n\n`
+      : 'Dokument jest jeszcze pusty.\n\n') + `Prośba: ${said.slice(0, 8000)}` });
+    messages.push({ role: 'user', content: first });
+
+    const reads = READ_TOOLS.filter((t) => ['get_events', 'find_companies', 'get_company', 'get_people'].includes(t.name));
+    const tools = [WRITE_DOCUMENT, EDIT_DOCUMENT, ...KNOWLEDGE_TOOLS.filter((t) => t.name !== 'get_tasks'), ...reads, CODE_TOOL];
+    const files: KnowledgeItem[] = [];
+    let containerId = d.containerId || undefined;
+    let html: string | undefined, note = '', title: string | undefined, reply = '';
+
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      const response = await this.client.beta.messages.stream({
+        model: MODEL,
+        max_tokens: 64000,
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'medium' },
+        betas: ['server-side-fallback-2026-07-01', 'code-execution-2025-08-25'],
+        fallbacks: 'default',
+        ...(containerId ? { container: containerId } : {}),
+        system: [{ type: 'text', text: studioPrompt(d.kind, style, d.title), cache_control: { type: 'ephemeral' } }],
+        tools,
+        messages,
+      }).finalMessage();
+
+      if (response.container?.id) containerId = response.container.id;
+      await this.collectOutputs(response.content, files);
+      if (response.stop_reason === 'refusal') { reply = 'Nie mogę tego zrobić. Spróbuj inaczej.'; break; }
+      if (response.stop_reason === 'pause_turn') { messages.push({ role: 'assistant', content: response.content }); continue; }
+
+      const texts = response.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text);
+      if (texts.length) reply = texts.join('\n').trim();
+      const calls = response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
+      if (response.stop_reason === 'max_tokens' && !calls.length) { reply ||= 'Dokument wyszedł za długi — poproś o krótszą wersję albo podzielmy go.'; break; }
+      if (response.stop_reason !== 'tool_use' || !calls.length) break;
+
+      messages.push({ role: 'assistant', content: response.content });
+      const results: Anthropic.Beta.BetaContentBlockParam[] = [];
+      for (const call of calls) {
+        const input = (call.input && typeof call.input === 'object' ? call.input : {}) as Input;
+        try {
+          if (call.name === 'write_document') {
+            const doc = String(input.html || '');
+            if (!/<html|<!doctype|<body|<section|<table|<div/i.test(doc)) throw new Error('To nie jest dokument HTML.');
+            html = doc; note = txt(input.note); if (txt(input.title)) title = txt(input.title);
+            results.push({ type: 'tool_result', tool_use_id: call.id, content: `Zapisano wersję ${d.versions.length + 1}. Użytkownik widzi podgląd.` });
+          } else if (call.name === 'edit_document') {
+            let doc = html ?? current;
+            if (!doc) throw new Error('Nie ma jeszcze dokumentu — użyj write_document.');
+            const edits = Array.isArray(input.edits) ? input.edits : [];
+            if (!edits.length) throw new Error('Brak zmian.');
+            for (const [n, e] of edits.entries()) {
+              const find = String(e?.find ?? '');
+              const count = find ? doc.split(find).length - 1 : 0;
+              if (count !== 1) throw new Error(`Zmiana ${n + 1}: fragment ${count ? `występuje ${count} razy` : 'nie występuje'} w dokumencie — podaj dłuższy, unikalny fragment (nic nie zmieniono).`);
+              doc = doc.replace(find, () => String(e.replace ?? ''));
+            }
+            html = doc; note = txt(input.note);
+            results.push({ type: 'tool_result', tool_use_id: call.id, content: `Zapisano wersję ${d.versions.length + 1} (${edits.length} zmian).` });
+          } else if (call.name === 'read_knowledge') {
+            results.push({ type: 'tool_result', tool_use_id: call.id, content: await this.readKnowledge(Number(input.id)) });
+          } else {
+            results.push({ type: 'tool_result', tool_use_id: call.id, content: await this.read(call.name, input) });
+          }
+        } catch (e) {
+          results.push({ type: 'tool_result', tool_use_id: call.id, is_error: true, content: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      messages.push({ role: 'user', content: results });
+    }
+
+    if (!reply) reply = html ? (note || 'Gotowe — zobacz podgląd.') : files.length ? 'Gotowe — plik poniżej.' : 'Powiedz dokładniej, co mam zrobić.';
+    const now = new Date().toISOString();
+    return designs.saveTurn(id, {
+      messages: [
+        { role: 'user', text: said, at: now },
+        { role: 'assistant', text: reply, at: now, ...(files.length ? { files } : {}) },
+      ],
+      html, note, title, containerId,
+    });
   }
 
   /* ---------------------------------------------------------- remote use (MCP connector) */

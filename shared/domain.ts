@@ -179,6 +179,22 @@ export interface Material {
   to?: string;
 }
 
+export const DESIGN_KINDS = ['www', 'deck', 'email', 'doc'] as const;
+export type DesignKind = (typeof DESIGN_KINDS)[number];
+export const DESIGN_KIND_LABEL: Record<DesignKind, string> = { www: 'Strona WWW', deck: 'Prezentacja', email: 'Mail / szablon', doc: 'Dokument' };
+
+export interface DesignVersion { html: string; note: string; at: string }
+export interface DesignMessage { role: 'user' | 'assistant'; text: string; files?: KnowledgeItem[]; at: string }
+export interface Design {
+  id: number;
+  title: string;
+  kind: DesignKind;
+  versions: DesignVersion[];
+  chat: DesignMessage[];
+  updatedAt: string;
+}
+export interface DesignSummary { id: number; title: string; kind: DesignKind; versions: number; updatedAt: string }
+
 /** Writing guidance moved over from the Claude project: general rules, B2B emails, relaxed messages. */
 export interface Style { project: string; b2b: string; casual: string }
 

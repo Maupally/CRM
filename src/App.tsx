@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  BookOpen, Users,
+  BookOpen, Users, Palette as PaletteIcon,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   Plus, LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
 } from 'lucide-react';
@@ -22,6 +22,7 @@ import { ReportsPage } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
 import { KnowledgePage } from './pages/Knowledge';
 import { PeoplePage } from './pages/People';
+import { StudioPage } from './pages/Studio';
 
 export function App() {
   const qc = useQueryClient();
@@ -77,6 +78,9 @@ const NAV: { group?: string; items: NavItem[] }[] = [
     { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
     { to: '/zespol', label: 'Zespół', icon: Users },
     { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },
+  ] },
+  { group: 'Tworzenie', items: [
+    { to: '/studio', label: 'Studio', icon: PaletteIcon },
   ] },
   { group: 'Analiza', items: [
     { to: '/raporty', label: 'Raporty', icon: BarChart3 },
@@ -159,6 +163,8 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/kalendarz" element={<CalendarPage />} />
             <Route path="/wydarzenia" element={<EventsPage />} />
             <Route path="/wydarzenia/:id" element={<EventsPage />} />
+            <Route path="/studio" element={<StudioPage />} />
+            <Route path="/studio/:id" element={<StudioPage />} />
             <Route path="/zespol" element={<PeoplePage />} />
             <Route path="/wiedza" element={<KnowledgePage />} />
             <Route path="/raporty" element={<ReportsPage />} />
@@ -181,6 +187,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
           {[
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
+            { to: '/studio', label: 'Studio', icon: PaletteIcon },
             { to: '/zespol', label: 'Zespół', icon: Users },
             { to: '/wiedza', label: 'Baza wiedzy', icon: BookOpen },
             { to: '/raporty', label: 'Raporty', icon: BarChart3 },

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Upload, StickyNote, Trash2, Download, ExternalLink, Sparkles, BookOpen } from 'lucide-react';
+import { Upload, StickyNote, Trash2, Download, ExternalLink, Sparkles, BookOpen, Palette } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { FileCard, fileUrl } from '../components/Files';
 import { openAssistant } from '../components/Assistant';
@@ -100,6 +101,9 @@ function ItemSheet({ item, onClose }: { item: KnowledgeItem | null; onClose: () 
   if (item && lastId.current !== item.id) { lastId.current = item.id; setD({ title: item.title, description: item.description, tags: item.tags }); setShowText(false); }
   const save = useAction(() => api.updateKnowledge(item!.id, d), { ok: 'Zapisano', onDone: onClose });
   const drop = useAction(() => api.deleteKnowledge(item!.id), { ok: 'Usunięto', onDone: onClose });
+  const nav = useNavigate();
+  const toStudio = useAction(() => api.createDesign({ fromKnowledge: item!.id, kind: /prezent|slajd|deck/i.test(item!.title) ? 'deck' : 'www' }),
+    { onDone: (d) => { onClose(); nav(`/studio/${d.id}`); } });
   if (!item) return null;
   const isImg = item.mime.startsWith('image/');
   const isFrame = /pdf|html|text\//.test(item.mime);
@@ -120,6 +124,7 @@ function ItemSheet({ item, onClose }: { item: KnowledgeItem | null; onClose: () 
         <div className="row wrap">
           <a className="btn sm" href={isHtml ? runUrl : fileUrl(item.id, true)} target="_blank" rel="noreferrer"><ExternalLink size={14} /> {isHtml ? 'Pełny ekran' : 'Otwórz'}</a>
           <a className="btn sm" href={fileUrl(item.id)}><Download size={14} /> Pobierz</a>
+          {isHtml && <button className="btn sm" onClick={() => toStudio.mutate(undefined)} disabled={toStudio.isPending}><Palette size={14} /> Edytuj w Studio</button>}
           <button className="btn sm ghost" onClick={() => { onClose(); openAssistant(`Weź z Bazy wiedzy materiał id ${item.id} („${item.title}”) i `); }}><Sparkles size={14} /> Zrób coś z tym…</button>
         </div>
       )}

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Mic, MicOff, Send, Sparkles, Check, X, AlertTriangle, Loader2, Camera, Sunrise, MessageSquareText, Volume2, Car,
-  Copy, Mail, Square, Paperclip, RotateCcw, Users,
+  Copy, Mail, Square, Paperclip, RotateCcw, Users, Palette,
 } from 'lucide-react';
 import { api, type AssistantTurn, type Proposal } from '../api';
 import { Modal, useConfig, useToast, copyText } from './ui';
@@ -386,6 +386,7 @@ function AssistantPanel({ open, onClose, enabled, preset }: { open: boolean; onC
             <button className="qa" onClick={() => camera.current?.click()} disabled={busy}><Camera size={18} />Wizytówka</button>
             {leadId && <button className="qa" onClick={() => send('Przygotuj mnie do rozmowy z tą firmą — jak zagadać?')} disabled={busy}><Sparkles size={18} />Jak zagadać</button>}
             <button className="qa" onClick={() => clip.current?.click()} disabled={busy || uploading}><Paperclip size={18} />Plik</button>
+            <Link className="qa" to="/studio" onClick={onClose}><Palette size={18} />Studio</Link>
             <input ref={clip} type="file" multiple hidden accept=".pdf,.docx,.txt,.md,.csv,.html,image/*"
               onChange={(e) => { attach(e.target.files); e.target.value = ''; }} />
             <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />

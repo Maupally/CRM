@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary } from '../shared/domain';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -145,6 +145,14 @@ export const api = {
   saveEvent: (d: Partial<CrmEvent>) => post<CrmEvent>('/events', d),
   deleteEvent: (id: string) => del(`/events/${id}`),
   tasks: () => get<Task[]>('/tasks'),
+  designs: () => get<DesignSummary[]>('/studio'),
+  design: (id: number) => get<Design>(`/studio/${id}`),
+  createDesign: (d: { title?: string; kind?: string; fromKnowledge?: number }) => post<Design>('/studio', d),
+  renameDesign: (id: number, d: { title?: string; kind?: string }) => patch<Design>(`/studio/${id}`, d),
+  deleteDesign: (id: number) => del(`/studio/${id}`),
+  designMessage: (id: number, text: string, attachments: number[] = []) => post<Design>(`/studio/${id}/message`, { text, attachments }),
+  restoreDesign: (id: number, version: number) => post<Design>(`/studio/${id}/restore`, { version }),
+  saveDesign: (id: number) => post<KnowledgeItem>(`/studio/${id}/save`),
   style: () => get<Style>('/style'),
   saveStyle: (d: Partial<Style>) => req<Style>('PUT', '/style', d),
   learnStyle: (ids: number[], mode: keyof Style) => post<{ text: string }>('/style/learn', { ids, mode }),

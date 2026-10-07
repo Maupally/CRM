@@ -6,6 +6,7 @@ import { openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
 import { handleMcp, mcpToken } from './mcp.js';
+import { Designs } from './designs.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -122,6 +123,53 @@ export function createApp(o: AppOptions) {
     const proto = c.req.header('x-forwarded-proto') || u.protocol.replace(':', '');
     return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}` });
   });
+  /* ---- studio */
+  const designs = async () => new Designs((await crm()).db);
+  const RUN_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; default-src 'none'; " +
+    "script-src 'unsafe-inline' 'unsafe-eval' https:; style-src 'unsafe-inline' https:; img-src * data: blob:; font-src https: data:; connect-src 'none'";
+  api.get('/studio', async (c) => c.json(await (await designs()).list()));
+  api.post('/studio', async (c) => {
+    const d = await body<{ title?: string; kind?: string; fromKnowledge?: number }>(c);
+    const ds = await designs();
+    return c.json(d.fromKnowledge ? await ds.fromKnowledge(await kb(), Number(d.fromKnowledge), d.kind) : await ds.create(d));
+  });
+  api.get('/studio/:id', async (c) => {
+    const { containerId: _, ...d } = await (await designs()).get(num(c.req.param('id')));
+    return c.json(d);
+  });
+  api.patch('/studio/:id', async (c) => c.json(await (await designs()).update(num(c.req.param('id')), await body(c))));
+  api.delete('/studio/:id', async (c) => c.json(await (await designs()).remove(num(c.req.param('id')))));
+  api.post('/studio/:id/restore', async (c) => c.json(await (await designs()).restore(num(c.req.param('id')), Number((await body<{ version: number }>(c)).version))));
+  api.post('/studio/:id/message', async (c) => {
+    const d = await body<{ text?: string; attachments?: number[] }>(c);
+    const { containerId: _, ...r } = await new Assistant(await crm()).designTurn(await designs(), num(c.req.param('id')), d.text || '', d.attachments || []);
+    return c.json(r);
+  });
+  /** The document itself: for the preview frame, full screen, printing to PDF, or download (?download=1). */
+  api.get('/studio/:id/html', async (c) => {
+    const v = c.req.query('v');
+    const r = await (await designs()).render(await kb(), num(c.req.param('id')), v !== undefined ? Number(v) : undefined);
+    const name = `${r.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'projekt'}.html`;
+    return c.body(r.html, 200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Disposition': `${c.req.query('download') ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'Content-Security-Policy': RUN_CSP,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+  });
+  /** Keeps the current version in the knowledge base, so the assistant and tasks can use it. */
+  api.post('/studio/:id/save', async (c) => {
+    const ds = await designs();
+    const id = num(c.req.param('id'));
+    const d = await ds.get(id);
+    const html = d.versions[d.versions.length - 1]?.html;
+    if (!html) throw new HttpError(400, 'Projekt jest jeszcze pusty.');
+    const name = `${d.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'projekt'}.html`;
+    return c.json(await (await kb()).add({ title: d.title, filename: name, mime: 'text/html', data: new TextEncoder().encode(html),
+      tags: 'narzędzie studio', description: `Ze Studio (${d.versions.length} wersji)` }));
+  });
+
   api.get('/style', async (c) => c.json(await (await crm()).style()));
   api.put('/style', async (c) => c.json(await (await crm()).saveStyle(await body(c))));
   api.post('/style/learn', async (c) => {

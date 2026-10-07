@@ -330,3 +330,49 @@ describe('connector for Claude chats', () => {
     expect(bad.result.isError).toBe(true);
   });
 });
+
+describe('studio', () => {
+  it('writes versions through the assistant, edits them and serves the page with knowledge images', async () => {
+    const { Designs } = await import('./designs.js');
+    const { Knowledge } = await import('./knowledge.js');
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const kb = new Knowledge(db);
+    const logo = await kb.add({ filename: 'logo.png', mime: 'image/png', data: new Uint8Array([137, 80, 78, 71, 1, 2, 3]) });
+    const ds = new Designs(db);
+    const d = await ds.create({ title: 'Nowy', kind: 'deck' });
+
+    const a = new Assistant(crm, 'test-key');
+    const fake = fakeClient([
+      { stop_reason: 'tool_use', content: [toolUse('t1', 'write_document', {
+        title: 'Partnerstwa B2B', note: 'Pierwsza wersja', html: `<!doctype html><html><body><section class="slide"><img src="kb://${logo.id}">Slajd 1</section></body></html>` })] },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Gotowe: 1 slajd.' }] },
+      { stop_reason: 'tool_use', content: [toolUse('t2', 'write_document', {
+        note: 'Dodany slajd 2', html: '<!doctype html><html><body><section class="slide">Slajd 1</section><section class="slide">Slajd 2</section></body></html>' })] },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Dodałem slajd.' }] },
+    ]);
+    (a as any).client = fake;
+
+    const v1 = await a.designTurn(ds, d.id, 'zrób prezentację B2B');
+    expect(v1).toMatchObject({ title: 'Partnerstwa B2B', versions: [{ note: 'Pierwsza wersja' }] });
+    expect(v1.chat.map((m) => m.text)).toEqual(['zrób prezentację B2B', 'Gotowe: 1 slajd.']);
+    expect(fake.requests[0].tools.map((t: any) => t.name)).toEqual(expect.arrayContaining(['write_document', 'search_knowledge', 'code_execution']));
+
+    const v2 = await a.designTurn(ds, d.id, 'dodaj slajd 2');
+    expect(v2.versions).toHaveLength(2);
+    expect(fake.requests[2].messages.at(-1).content.at(-1).text).toContain('Obecna wersja (1)');   // the edit sees the current page
+
+    const fake2 = fakeClient([
+      { stop_reason: 'tool_use', content: [toolUse('t3', 'edit_document', { note: 'Tytuł', edits: [{ find: 'Slajd 2', replace: 'Cennik' }] })] },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Zmieniłem tytuł.' }] },
+    ]);
+    (a as any).client = fake2;
+    const v3 = await a.designTurn(ds, d.id, 'zmień tytuł drugiego slajdu na Cennik');
+    expect(v3.versions.at(-1)!.html).toContain('Cennik');
+    expect(v3.versions.at(-1)!.html).toContain('Slajd 1');
+
+    const page = await ds.render(kb, d.id, 0);
+    expect(page.html).toContain('data:image/png;base64,');
+    expect((await ds.restore(d.id, 0)).versions).toHaveLength(4);
+  });
+});

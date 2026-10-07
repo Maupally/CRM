@@ -85,6 +85,15 @@ domenę, albo mówisz „sprawdź w internecie…” (web search + otwieranie st
 Artefakt z czatu Claude (np. kalkulator, strona z szablonami) pobierz jako .html i wgraj do Bazy
 wiedzy — pojawi się w „Narzędziach” i działa w CRM (w piaskownicy, bez dostępu do danych CRM).
 
+## Studio
+
+**Menu → Studio** (`/studio`): strony WWW, prezentacje, szablony maili i dokumenty robione w rozmowie
+z Claude — jak Claude Design. Po lewej czat, po prawej podgląd na żywo (komputer / telefon), wersje
+(każda poprawka to nowa wersja, starsze można przywrócić), pobieranie HTML, druk do PDF, eksport do
+PowerPoint/Word. Projekt można zacząć od pliku HTML z Bazy wiedzy (np. prezentacji przeniesionej z
+Claude: „Edytuj w Studio”). Obrazy z Bazy wiedzy wstawiają się przez `kb://ID`. Kod: `server/designs.ts`,
+`Assistant.designTurn`, `src/pages/Studio.tsx`.
+
 ## Zespół
 
 **Więcej → Zespół** (`/zespol`): dyrekcja, koordynatorzy, nauczyciele — imię, funkcja, e-mail, telefon
