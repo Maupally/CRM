@@ -26,7 +26,7 @@ export function CompanyPage() {
   const [sheet, setSheet] = useState<Sheet>(null);
   const stage = useAction((s: string) => api.setStage(id, s), { ok: (c) => `Etap: ${stageLabel(c.lead.stage)}` });
 
-  useEffect(() => { if (q.data) document.title = `${q.data.lead.company} · Lumo`; return () => { document.title = 'Lumo'; }; }, [q.data]);
+  useEffect(() => { if (q.data) document.title = `${q.data.lead.company} · Opal5`; return () => { document.title = 'Opal5'; }; }, [q.data]);
 
   if (q.isLoading) return <Loading />;
   if (q.error) return <><Link to="/firmy" className="btn ghost sm"><ArrowLeft size={15} /> Firmy</Link><div style={{ marginTop: 12 }}><ErrorBox error={q.error} /></div></>;

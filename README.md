@@ -1,4 +1,4 @@
-# Lumo
+# Opal5
 
 CRM do partnerstw B2B: pulpit dnia, zadania, lejek (kanban), baza firm z widokami,
 karta firmy z historią i pitchem, kalendarz, wydarzenia z checklistą, raporty
@@ -65,7 +65,7 @@ notatkę, daty i treść maila można poprawić przed zapisem. Bez zatwierdzenia
 
 ## Przeniesienie z Claude i styl pisania
 
-Wszystko dzieje się w Lumo. Wiedzę z projektu „Maple Bear” przenosisz raz:
+Wszystko dzieje się w Opal5. Wiedzę z projektu „Maple Bear” przenosisz raz:
 1. claude.ai → Ustawienia → Prywatność → **Eksportuj dane**; z maila pobierz plik .zip.
 2. **Baza wiedzy → Przenieś z Claude** → wybierz plik, zaznacz projekt i czaty (B2B, conversation,
    templates). Plik czyta przeglądarka; do CRM trafiają tylko zaznaczone rzeczy: dokumenty projektu,

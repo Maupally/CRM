@@ -12,7 +12,7 @@ import { searchKey } from '../../shared/domain';
 interface Doc { filename: string; content: string }
 interface Project { uuid: string; name: string; prompt: string; docs: Doc[] }
 interface Artifact { id: string; title: string; type: string; content: string }
-interface Chat { uuid: string; name: string; date: string; transcript: string; artifacts: Artifact[]; size: number }
+interface Chat { uuid: string; name: string; date: string; transcript: string; artifacts: Artifact[]; size: number; project: string }
 
 const MAX_NOTE = 190_000;
 
@@ -64,6 +64,8 @@ function parseChats(raw: unknown): Chat[] {
     return {
       uuid: String(c.uuid), name: String(c.name || 'Bez tytułu'), date: String(c.updated_at || c.created_at || '').slice(0, 10),
       transcript, artifacts: collectArtifacts(msgs), size: lines.length,
+      // newer exports say which project a chat belongs to; older ones do not
+      project: String(c.project_uuid || c.project?.uuid || ''),
     };
   }).filter((c) => c.size > 0).sort((a, b) => b.date.localeCompare(a.date));
 }
@@ -76,6 +78,7 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
   const [pickP, setPickP] = useState<Set<string>>(new Set());
   const [pickC, setPickC] = useState<Set<string>>(new Set());
   const [find, setFind] = useState('');
+  const [onlyProject, setOnlyProject] = useState(true);
   const [busy, setBusy] = useState('');
   const [done, setDone] = useState<string | null>(null);
 
@@ -86,9 +89,13 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
       const files = unzipSync(new Uint8Array(await f.arrayBuffer()), { filter: (x) => /(projects|conversations)\.json$/.test(x.name) });
       const get = (n: string) => { const k = Object.keys(files).find((x) => x.endsWith(n)); return k ? JSON.parse(strFromU8(files[k])) : []; };
       const ps = parseProjects(get('projects.json'));
+      const chosen = new Set(ps.filter((p) => /maple/i.test(p.name)).map((p) => p.uuid));
+      const cs = parseChats(get('conversations.json'));
       setProjects(ps);
-      setChats(parseChats(get('conversations.json')));
-      setPickP(new Set(ps.filter((p) => /maple/i.test(p.name)).map((p) => p.uuid)));
+      setChats(cs);
+      setPickP(chosen);
+      // every chat of the chosen project is selected up front — that is the whole point of moving over
+      setPickC(new Set(cs.filter((c) => c.project && chosen.has(c.project)).map((c) => c.uuid)));
       if (!ps.length) toast('W pliku nie ma projektów — wybierz same czaty', 'error');
     } catch (e) {
       toast(`To nie wygląda na eksport z claude.ai (${(e as Error).message})`, 'error');
@@ -97,10 +104,12 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
     }
   };
 
+  const linked = useMemo(() => chats.some((c) => c.project), [chats]);
   const shown = useMemo(() => {
     const k = searchKey(find);
-    return chats.filter((c) => !k || searchKey(c.name).includes(k)).slice(0, 200);
-  }, [chats, find]);
+    return chats.filter((c) => (!linked || !onlyProject || pickP.has(c.project)) && (!k || searchKey(c.name).includes(k))).slice(0, 300);
+  }, [chats, find, onlyProject, pickP, linked]);
+
 
   const run = async () => {
     let docs = 0, notes = 0, tools = 0, prompts = 0;
@@ -189,6 +198,17 @@ export function ClaudeImport({ open, onClose }: { open: boolean; onClose: () => 
             <b>Czaty — np. B2B, conversation, templates</b>
             <span className="soft small">Zaznacz rozmowy, z których asystent ma się uczyć stylu. Artefakty HTML (kalkulator, szablony) staną się narzędziami w CRM.</span>
             <input type="search" placeholder="Szukaj czatu…" value={find} onChange={(e) => setFind(e.target.value)} />
+            <div className="row wrap" style={{ gap: 8 }}>
+              {linked && (
+                <label className="row small" style={{ gap: 6 }}>
+                  <input type="checkbox" checked={onlyProject} onChange={() => setOnlyProject(!onlyProject)} /> tylko czaty z zaznaczonego projektu
+                </label>
+              )}
+              <span className="grow" />
+              <button className="btn sm ghost" onClick={() => setPickC(new Set([...pickC, ...shown.map((c) => c.uuid)]))}>Zaznacz wszystkie ({shown.length})</button>
+              <button className="btn sm ghost" onClick={() => setPickC(new Set())}>Odznacz</button>
+            </div>
+            {!linked && <span className="small" style={{ color: 'var(--warn)' }}>Ten eksport nie mówi, które czaty są z projektu — zaznacz je ręcznie (wyszukiwarka pomaga).</span>}
             <div className="col tight" style={{ maxHeight: 320, overflow: 'auto' }}>
               {shown.map((c) => (
                 <label key={c.uuid} className="row" style={{ gap: 8 }}>

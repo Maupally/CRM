@@ -51,7 +51,7 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="login">
       <form className="card pad col loose" onSubmit={submit}>
-        <div className="brand" style={{ padding: 0 }}><span className="brand-mark">L</span><b>Lumo</b></div>
+        <div className="brand" style={{ padding: 0 }}><span className="brand-mark">O5</span><b>Opal5</b></div>
         <label className="field">Hasło
           <input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" />
         </label>
@@ -108,7 +108,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
   return (
     <div className="shell">
       <aside className="side">
-        <div className="brand"><span className="brand-mark">L</span><b>Lumo</b></div>
+        <div className="brand"><span className="brand-mark">O5</span><b>Opal5</b></div>
         <nav className="nav">
           {NAV.map((g, i) => (
             <div key={i}>
@@ -132,7 +132,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
 
       <div className="main">
         <header className="topbar">
-          <span className="brand-mark only-sm" style={{ width: 32, height: 32 }}>L</span>
+          <span className="brand-mark only-sm" style={{ width: 32, height: 32 }}>O5</span>
           <button className="search-btn" onClick={() => setPalette(true)}>
             <Search size={16} /> <span className="trunc">Szukaj firmy, telefonu, maila…</span> <kbd className="hide-sm">/</kbd>
           </button>
