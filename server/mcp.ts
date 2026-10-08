@@ -11,7 +11,7 @@ import { Assistant } from './assistant.js';
 export const mcpToken = (secret: string) => createHmac('sha256', secret).update('mcp-connector').digest('hex').slice(0, 32);
 
 /** Changes whenever the tool set changes, so clients that cache the list can tell it is new. */
-const TOOLS_VERSION = `1.${createHash('sha256').update(Assistant.mcpTools().map((t) => t.name).join(',')).digest('hex').slice(0, 8)}`;
+export const TOOLS_VERSION = `1.${createHash('sha256').update(Assistant.mcpTools().map((t) => t.name).join(',')).digest('hex').slice(0, 8)}`;
 
 const INSTRUCTIONS = `CRM Martina (Maple Bear Katowice, partnerstwa B2B, wydarzenia, zespół).
 - Zanim coś zapiszesz dla firmy, znajdź ją (find_companies). Ludzie (dyrektor, Patryk, dostawcy, animatorzy…) → get_people.

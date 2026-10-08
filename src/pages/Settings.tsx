@@ -355,6 +355,11 @@ function Connector() {
             <div className="error-box">❌ {new Date(q.data.badUrl.at).toLocaleString('pl-PL')} claude.ai użył <b>starego adresu</b> konektora.
               Skopiuj adres wyżej i podmień go w claude.ai → Settings → Connectors (najprościej: usuń konektor i dodaj od nowa), potem zacznij nowy czat.</div>
           )}
+          <details className="small">
+            <summary className="soft">Narzędzia, które Opal5 udostępnia teraz ({q.data.tools.length}, wersja {q.data.version})</summary>
+            <div style={{ lineHeight: 1.9, marginTop: 6 }}>{q.data.tools.map((t) => <code key={t} style={{ marginRight: 6 }}>{t}</code>)}</div>
+            <div className="hint">Jeśli Claude w czacie nie widzi któregoś z nich, claude.ai trzyma starą listę: odłącz i podłącz konektor, w czacie (ikona narzędzi → Opal5) sprawdź, czy nowe narzędzia są włączone, i zacznij nowy czat.</div>
+          </details>
           <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => q.refetch()}>Odśwież</button>
         </section>
       )}

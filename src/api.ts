@@ -176,7 +176,7 @@ export const api = {
   restoreDesign: (id: number, version: number) => post<Design>(`/studio/${id}/restore`, { version }),
   saveDesign: (id: number) => post<KnowledgeItem>(`/studio/${id}/save`),
   style: () => get<Style>('/style'),
-  connector: () => get<{ url: string; last: McpLast | null; badUrl: McpLast | null }>('/connector'),
+  connector: () => get<{ url: string; version: string; tools: string[]; last: McpLast | null; badUrl: McpLast | null }>('/connector'),
   saveStyle: (d: Partial<Style>) => req<Style>('PUT', '/style', d),
   learnStyle: (ids: number[], mode: keyof Style, chats: number[] = []) => post<{ text: string }>('/style/learn', { ids, mode, chats }),
   people: () => get<Person[]>('/people'),

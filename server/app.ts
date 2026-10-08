@@ -5,7 +5,7 @@ import { Crm, HttpError } from './crm.js';
 import { openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
-import { handleMcp, handleStaleMcp, lastMcp, mcpToken } from './mcp.js';
+import { TOOLS_VERSION, handleMcp, handleStaleMcp, lastMcp, mcpToken } from './mcp.js';
 import { Designs } from './designs.js';
 import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
@@ -108,8 +108,12 @@ export function createApp(o: AppOptions) {
   api.get('/mcp/:token', (c) => {
     if ((c.req.header('accept') || '').includes('text/event-stream')) return c.body(null, 405);
     const good = same(c.req.param('token'), connectorToken);
-    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font:16px system-ui;padding:24px">${good
-      ? '✅ To jest aktualny adres konektora Opal5. Wklej go w claude.ai → Settings → Connectors.'
+    const tools = Assistant.mcpTools().map((t) => t.name).sort();
+    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font:16px system-ui;padding:24px;max-width:720px">${good
+      ? `<p>✅ To jest aktualny adres konektora Opal5. Wklej go w claude.ai → Settings → Connectors.</p>
+        <p>Wersja narzędzi: <b>${TOOLS_VERSION}</b> · ${tools.length} narzędzi:</p><p style="line-height:1.8">${tools.map((t) => `<code>${t}</code>`).join(' ')}</p>
+        <p style="color:#666">Jeśli Claude w czacie mówi, że któregoś nie ma — claude.ai trzyma starą listę: odłącz i podłącz konektor, sprawdź w czacie
+        (ikona narzędzi → Opal5), czy nowe narzędzia są włączone, i zacznij nowy czat.</p>`
       : '❌ Ten adres konektora jest nieaktualny. Skopiuj nowy z Opal5 → Ustawienia → Claude.'}</body>`, good ? 200 : 404);
   });
   api.delete('/mcp/:token', (c) => c.body(null, 405));
@@ -144,7 +148,8 @@ export function createApp(o: AppOptions) {
     const u = new URL(c.req.url);
     const host = c.req.header('x-forwarded-host') || u.host;
     const proto = c.req.header('x-forwarded-proto') || u.protocol.replace(':', '');
-    return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}`, ...(await lastMcp(await crm())) });
+    return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}`, version: TOOLS_VERSION,
+      tools: Assistant.mcpTools().map((t) => t.name).sort(), ...(await lastMcp(await crm())) });
   });
   /* ---- chats */
   const threads = async () => new Threads((await crm()).db);
