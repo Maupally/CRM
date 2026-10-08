@@ -379,6 +379,14 @@ describe('connector for Claude chats', () => {
     expect(prof).toMatchObject({ name: 'Roma', skills: 'social media, Canva', scope: 'content', done_total: 1 });
     expect(JSON.parse((await call(53, 'get_people', {})).text).find((p: any) => p.name === 'Roma')).toMatchObject({ skills: 'social media, Canva', done_tasks: 1 });
 
+    // events by voice: create, then pin existing tasks to it
+    const made = await call(60, 'create_event', { title: 'Zimowe warsztaty', type: 'Workshop', date: '2026-12-12', location: 'Stawowa 6' });
+    const evId = made.text.match(/\((EV-\d+)\)/)![1];
+    const loose = await crm.saveTask({ task: 'Zamówić materiały na warsztaty' });
+    expect((await call(61, 'update_task', { task_id: loose.id, event_id: evId })).isError).toBeUndefined();
+    expect((await crm.listTasks()).find((t) => t.id === loose.id)!.eventId).toBe(evId);
+    expect((await call(62, 'update_task', { task_id: loose.id, event_id: 'EV-9999' })).text).toContain('create_event');
+
     // B2C progress from claude.ai
     expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
     expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');

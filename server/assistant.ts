@@ -453,6 +453,8 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         add_attachments: { type: 'array', items: { type: 'integer' } },
         person_id: { type: 'string', description: 'Do kogo (id z get_people albo OS1)' },
         blocked: { type: 'string', description: 'Dlaczego zadanie stoi (np. „czekamy na skan umowy od Armady”); "" zdejmuje blokadę' },
+        event_id: { type: 'string', description: 'przypnij zadanie do wydarzenia (EV-…); "" odpina' },
+        lead_id: { type: 'string', description: 'przypnij zadanie do firmy; "" odpina' },
       },
       required: ['task_id'],
       additionalProperties: false,
@@ -647,6 +649,23 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         },
       },
       required: ['type', 'items'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'create_event',
+    description: 'PROPOZYCJA nowego wydarzenia (dzień otwarty, warsztaty, targi, bieg, piknik…). Dostaje tymczasowe id EW1 — w tej samej odpowiedzi ' +
+      'możesz przypinać do niego zadania (create_task / update_task event_id) i osoby. Potem: procedura (suggest_processes / start_process) i ludzie (find_help).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        type: { type: 'string', enum: ['Open day', 'Workshop', 'Fair', 'Sponsorship', 'Meeting', 'Other'], description: 'Open day = dzień otwarty, Workshop = warsztaty, Fair = targi, Sponsorship = sponsoring, Meeting = spotkanie, Other = inne' },
+        date: { type: 'string', description: 'yyyy-MM-dd' }, time: { type: 'string', description: 'np. 10:00-13:00' },
+        location: { type: 'string' }, lead_id: { type: 'string', description: 'firma-partner, jeśli jest' },
+        status: { type: 'string', enum: ['planned', 'confirmed'] }, notes: { type: 'string' },
+      },
+      required: ['title', 'date'],
       additionalProperties: false,
     },
   },
@@ -1749,6 +1768,18 @@ export class Assistant {
         if (closed) warnings.push(`${closed} z nich to partnerzy albo odrzuceni — zostaną pominięci.`);
         break;
       }
+      case 'create_event': {
+        if (!txt(input.title)) throw new Error('Podaj nazwę wydarzenia.');
+        this.checkDate(input.date);
+        const ref = `EW${[...pending.keys()].filter((k) => k.startsWith('EW')).length + 1}`;
+        pending.set(ref, txt(input.title));
+        input = { ...input, ref };
+        title = `Nowe wydarzenie: ${txt(input.title)}`;
+        lines.push(`${WD[weekday(input.date)]} ${shortDate(input.date)}${input.time ? ` · ${input.time}` : ''}${input.location ? ` · ${input.location}` : ''}`);
+        if (input.lead_id) lines.push(`Partner: ${await this.companyName(txt(input.lead_id), pending)}`);
+        out.push({ key: ref, tool: name, input, title, lines, warnings });
+        return `Propozycja przygotowana; tymczasowe id wydarzenia: ${ref}.`;
+      }
       case 'update_event': {
         const e = (await this.crm.listEvents()).find((x) => x.id === txt(input.id));
         if (!e) throw new Error(`Nie ma wydarzenia ${input.id} — sprawdź get_events.`);
@@ -1767,11 +1798,7 @@ export class Assistant {
         if (!txt(input.task)) throw new Error('Opisz zadanie.');
         if (input.due) this.checkDate(input.due);
         let where = '';
-        if (input.event_id) {
-          const e = (await this.crm.listEvents()).find((x) => x.id === txt(input.event_id));
-          if (!e) throw new Error(`Nie ma wydarzenia ${input.event_id} — sprawdź get_events.`);
-          where = e.title;
-        }
+        if (input.event_id) where = await this.eventName(txt(input.event_id), pending);
         if (input.lead_id) where = [where, await this.companyName(txt(input.lead_id), pending)].filter(Boolean).join(' · ');
         title = `Zadanie: ${txt(input.task)}`;
         lines.push([where, input.due ? `termin ${WD[weekday(input.due)]} ${shortDate(input.due)}` : 'bez terminu'].filter(Boolean).join(' · '));
@@ -1797,6 +1824,8 @@ export class Assistant {
         if (input.add_attachments?.length) lines.push(`Nowe załączniki: ${input.add_attachments.length}`);
         if (input.person_id) lines.push(`Do: ${await this.personName(txt(input.person_id), pending)}`);
         if (input.blocked !== undefined) lines.push(txt(input.blocked) ? `Blokada: ${txt(input.blocked)}` : 'Zdejmij blokadę');
+        if (input.event_id !== undefined) lines.push(txt(input.event_id) ? `Wydarzenie → ${await this.eventName(txt(input.event_id), pending)}` : 'Odepnij od wydarzenia');
+        if (input.lead_id !== undefined) lines.push(txt(input.lead_id) ? `Firma → ${await this.companyName(txt(input.lead_id), pending)}` : 'Odepnij od firmy');
         if (t.eventTitle) lines.push(`Projekt: ${t.eventTitle}`);
         if (t.run) lines.push(`Proces: ${t.run.title} — krok ${t.step}/${t.run.steps}`);
         if (input.status === 'done' && t.runId) {
@@ -1829,7 +1858,7 @@ export class Assistant {
           if (!p) throw new Error(`Nie ma osoby ${input.id} — sprawdź get_people.`);
           title = `Zespół: uzupełnij ${p.name}`;
           for (const [k, label] of PERSON_FIELDS) if (txt(input[k])) lines.push(`${label} → ${txt(input[k])}`);
-          await this.eventLine(input, lines);
+          await this.eventLine(input, lines, pending);
           break;
         }
         if (!txt(input.name)) throw new Error('Podaj imię (i nazwisko) osoby.');
@@ -1838,7 +1867,7 @@ export class Assistant {
         input = { ...input, ref };
         title = `${input.kind === 'external' ? 'Kontakty' : 'Zespół'}: dodaj ${txt(input.name)}`;
         for (const [k, label] of PERSON_FIELDS.slice(1)) if (txt(input[k])) lines.push(`${label}: ${txt(input[k])}`);
-        await this.eventLine(input, lines);
+        await this.eventLine(input, lines, pending);
         if (!txt(input.email) && !txt(input.phone)) warnings.push('Brak e-maila i telefonu — uzupełnij na karcie albo później w Zespole.');
         out.push({ key: ref, tool: name, input, title, lines, warnings });
         return `Propozycja przygotowana; tymczasowe id osoby: ${ref}.`;
@@ -1861,7 +1890,7 @@ export class Assistant {
           title = `${who}: ${txt(input.what)}`;
           lines.push('Do historii wykonanej pracy');
         }
-        if (input.event_id) await this.eventLine({ event_id: input.event_id }, lines);
+        if (input.event_id) await this.eventLine({ event_id: input.event_id }, lines, pending);
         break;
       }
       case 'save_process': {
@@ -1897,9 +1926,7 @@ export class Assistant {
       }
       case 'link_person_event': {
         const who = await this.personName(txt(input.person_id), pending);
-        const e = (await this.crm.listEvents()).find((x) => x.id === txt(input.event_id));
-        if (!e) throw new Error(`Nie ma wydarzenia ${input.event_id} — sprawdź get_events.`);
-        title = `Wydarzenie ${e.title}: ${who.split(' · ')[0]}`;
+        title = `Wydarzenie ${await this.eventName(txt(input.event_id), pending)}: ${who.split(' · ')[0]}`;
         if (txt(input.role)) lines.push(`Robi: ${txt(input.role)}`);
         break;
       }
@@ -1918,11 +1945,29 @@ export class Assistant {
     return 'Propozycja przygotowana — użytkownik ją zatwierdzi.';
   }
 
-  private async eventLine(input: Input, lines: string[]) {
+  private async eventLine(input: Input, lines: string[], pending: Map<string, string> = new Map()) {
     if (!txt(input.event_id)) return;
-    const e = (await this.crm.listEvents()).find((x) => x.id === txt(input.event_id));
-    if (!e) throw new Error(`Nie ma wydarzenia ${input.event_id} — sprawdź get_events.`);
-    lines.push(`Wydarzenie: ${e.title}${txt(input.event_role) ? ` — ${txt(input.event_role)}` : ''}`);
+    lines.push(`Wydarzenie: ${await this.eventName(txt(input.event_id), pending)}${txt(input.event_role) ? ` — ${txt(input.event_role)}` : ''}`);
+  }
+
+  /** An event by id, or one proposed in this same answer (EW1). */
+  private async eventName(ref: string, pending: Map<string, string>) {
+    if (/^EW\d+$/.test(ref)) {
+      if (!pending.has(ref)) throw new Error(`Nie ma propozycji wydarzenia ${ref}.`);
+      return `${pending.get(ref)} (nowe)`;
+    }
+    const e = (await this.crm.listEvents()).find((x) => x.id === ref);
+    if (!e) throw new Error(`Nie ma wydarzenia ${ref} — sprawdź get_events albo utwórz je (create_event).`);
+    return `${e.title} (${shortDate(e.date)})`;
+  }
+
+  private eventRef(ref: unknown, ids: Map<string, string>): string {
+    const r = txt(ref);
+    if (/^EW\d+$/.test(r)) {
+      if (!ids.has(r)) throw new Error('Najpierw zatwierdź dodanie tego wydarzenia.');
+      return ids.get(r)!;
+    }
+    return r;
   }
 
   private async personName(ref: string, pending: Map<string, string>) {
@@ -2021,6 +2066,13 @@ export class Assistant {
             message = `Zaplanowano ${n} ${n === 1 ? 'aktywność' : 'aktywności'}${skipped ? ` (pominięto ${skipped}: partnerzy / odrzuceni)` : ''}`;
             break;
           }
+          case 'create_event': {
+            const e = await crm.saveEvent({ title: input.title, type: input.type || 'Other', date: input.date, time: input.time || '',
+              location: input.location || '', leadId: input.lead_id || '', status: input.status || 'planned', notes: input.notes || '' });
+            if (input.ref) ids.set(input.ref, e.id);
+            leadId = undefined; message = `Dodano wydarzenie: ${e.title} (${e.id})`;
+            break;
+          }
           case 'update_event': {
             const e = (await crm.listEvents()).find((x) => x.id === input.id);
             if (!e) throw new Error(`Nie ma wydarzenia ${input.id}.`);
@@ -2035,7 +2087,7 @@ export class Assistant {
               phone: input.phone, aliases: input.aliases, notes: input.notes, kind: input.kind, company: input.company,
               services: input.services, leadId: input.lead_id, scope: input.scope });
             if (input.ref) ids.set(input.ref, String(p.id));
-            if (txt(input.event_id)) await crm.linkPersonEvent(txt(input.event_id), p.id, txt(input.event_role));
+            if (txt(input.event_id)) await crm.linkPersonEvent(this.eventRef(input.event_id, ids), p.id, txt(input.event_role));
             leadId = undefined; message = `Zespół: ${p.name} (id osoby ${p.id})`;
             break;
           }
@@ -2044,7 +2096,7 @@ export class Assistant {
             const t = txt(input.task_id)
               ? await crm.saveTask({ id: txt(input.task_id), status: 'done', personId: pid })
               : await crm.saveTask({ task: txt(input.what), status: 'done', personId: pid, completed: input.date || undefined,
-                eventId: input.event_id || '', leadId: input.lead_id || '' });
+                eventId: this.eventRef(input.event_id, ids), leadId: input.lead_id || '' });
             leadId = t.leadId || undefined; message = `Zapisane: ${t.person?.name || 'osoba'} — ${t.task}`;
             break;
           }
@@ -2058,7 +2110,7 @@ export class Assistant {
             const owners: Record<number, number> = {};
             for (const o of (input.owners || []) as Input[]) owners[Number(o.step)] = this.personRef(o.person_id, ids);
             const run = await new Processes(crm).start({ processId: input.process_id, title: input.title, leadId: input.lead_id,
-              eventId: input.event_id, start: input.start, owners });
+              eventId: this.eventRef(input.event_id, ids), start: input.start, owners });
             leadId = run.leadId || undefined;
             message = `Ruszył proces „${run.title}” (id ${run.id}) — krok 1: ${run.steps[0]?.title}${run.steps[0]?.person ? ` (${run.steps[0].person})` : ''}`;
             break;
@@ -2070,12 +2122,12 @@ export class Assistant {
           }
           case 'link_person_event': {
             const pid = this.personRef(input.person_id, ids);
-            await crm.linkPersonEvent(txt(input.event_id), pid, txt(input.role));
+            await crm.linkPersonEvent(this.eventRef(input.event_id, ids), pid, txt(input.role));
             leadId = undefined; message = `Przypięto osobę ${pid} do wydarzenia ${input.event_id}`;
             break;
           }
           case 'create_task': {
-            const t = await crm.saveTask({ task: input.task, due: input.due || '', eventId: input.event_id || '', leadId: input.lead_id || '',
+            const t = await crm.saveTask({ task: input.task, due: input.due || '', eventId: this.eventRef(input.event_id, ids), leadId: input.lead_id || '',
               notes: input.notes || '', materials: input.materials || [], attachments: input.attachments || [],
               personId: this.personRef(input.person_id, ids) });
             leadId = t.leadId || undefined; message = `Dodano zadanie: ${t.task} (${t.id})`;
@@ -2085,6 +2137,7 @@ export class Assistant {
             const cur = (await crm.listTasks()).find((x) => x.id === input.task_id);
             if (!cur) throw new Error(`Nie ma zadania ${input.task_id}.`);
             const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task, blocked: input.blocked,
+              eventId: input.event_id === undefined ? undefined : this.eventRef(input.event_id, ids), leadId: input.lead_id === undefined ? undefined : txt(input.lead_id),
               personId: input.person_id ? this.personRef(input.person_id, ids) : undefined,
               materials: input.add_materials?.length ? [...cur.materials, ...input.add_materials] : undefined,
               attachments: input.add_attachments?.length ? [...new Set([...cur.attachments, ...input.add_attachments.map(Number)])] : undefined });
