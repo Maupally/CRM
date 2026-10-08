@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { MapPin, Pencil, Trash2, X, PartyPopper, Phone } from 'lucide-react';
+import { MapPin, Pencil, Trash2, X, PartyPopper, Phone, Copy, Download, Eye, ExternalLink, FileCode2 } from 'lucide-react';
 import { api } from '../api';
-import { Avatar, Empty, ErrorBox, Loading, Modal, relDay, telHref, useAction, useToday, weekdayName } from '../components/ui';
+import { Avatar, Empty, ErrorBox, Loading, Modal, copyText, relDay, telHref, useAction, useToast, useToday, weekdayName } from '../components/ui';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
-import { EVENT_STATUS, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
+import { DESIGN_KIND_LABEL, EVENT_STATUS, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
 
 export function EventsPage() {
   const { id } = useParams();
@@ -97,6 +97,7 @@ function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; ta
         {e.notes && <div className="pre">{e.notes}</div>}
       </div>
       <EventPeople eventId={e.id} />
+      <EventAssets eventId={e.id} />
       <div className="group-label">Checklista · {open.length} otwartych</div>
       <ul className="list">
         {[...open, ...done].map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} />)}
@@ -165,6 +166,42 @@ function EventPeople({ eventId }: { eventId: string }) {
             <button className="btn sm ghost icon" onClick={() => drop.mutate(p.personId)} aria-label="Odepnij"><X size={14} /></button>
           </li>
         ))}
+      </ul>
+    </>
+  );
+}
+
+/** What was made for this event: its page, Google Form scripts, briefs — previewed, downloaded, copied. */
+function EventAssets({ eventId }: { eventId: string }) {
+  const q = useQuery({ queryKey: ['event-assets', eventId], queryFn: () => api.eventAssets(eventId) });
+  const toast = useToast();
+  const copy = async (id: number) => {
+    const d = await api.design(id);
+    copyText(d.versions.at(-1)?.html || '');
+    toast('Skopiowano');
+  };
+  return (
+    <>
+      <div className="group-label">Materiały · {q.data?.length || 0}</div>
+      {!q.data?.length && <div className="small faint" style={{ padding: '0 20px 10px' }}>Strona, formularze Google i zlecenia pojawią się tu, gdy Claude je przygotuje („przygotuj wszystko do tego wydarzenia”).</div>}
+      <ul className="list">
+        {(q.data || []).map((d) => {
+          const page = `/api/studio/${d.id}/html`;
+          const text = d.kind === 'form' || d.kind === 'brief';
+          return (
+            <li key={d.id} className="li">
+              <span className="type-ic"><FileCode2 size={16} /></span>
+              <div className="grow" style={{ minWidth: 0 }}>
+                <div className="title trunc">{d.title}</div>
+                <div className="meta trunc">{DESIGN_KIND_LABEL[d.kind]} · wersja {d.versions}{d.note ? ` · ${d.note}` : ''}</div>
+              </div>
+              {!text && <a className="btn sm icon" href={page} target="_blank" rel="noreferrer" aria-label="Podgląd" title="Podgląd"><Eye size={14} /></a>}
+              {text && <button className="btn sm icon" onClick={() => copy(d.id)} aria-label="Kopiuj" title={d.kind === 'form' ? 'Kopiuj skrypt' : 'Kopiuj tekst'}><Copy size={14} /></button>}
+              {d.kind === 'form' && <a className="btn sm icon" href="https://script.google.com/create" target="_blank" rel="noreferrer" aria-label="Google Apps Script" title="Otwórz Google Apps Script — wklej skrypt i kliknij Uruchom"><ExternalLink size={14} /></a>}
+              <a className="btn sm icon" href={`${page}?download=1`} aria-label="Pobierz" title="Pobierz"><Download size={14} /></a>
+            </li>
+          );
+        })}
       </ul>
     </>
   );

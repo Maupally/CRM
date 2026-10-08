@@ -401,6 +401,35 @@ describe('connector for Claude chats', () => {
     expect((await call(73, 'run_action', { action: 'nie_ma_takiej', input: {} })).text).toContain('Dostępne:');
     expect((await call(74, 'run_action', { action: 'run_action', input: {} })).isError).toBe(true);
 
+    // event materials: reuse the latest page, Google Form scripts, briefs
+    const evA = await crm.saveEvent({ title: 'Warsztaty jesienne', type: 'Workshop', date: '2026-10-20' });
+    const evB = await crm.saveEvent({ title: 'Warsztaty zimowe', type: 'Workshop', date: '2026-12-19', time: '10:00-14:00', location: 'Stawowa 6' });
+    const page = await call(80, 'save_asset', { title: 'Strona warsztatów jesiennych', kind: 'www', event_id: evA.id, content: '<html><body><h1>Jesień</h1></body></html>' });
+    const pageId = Number(page.text.match(/id (\d+)/)![1]);
+    const kit = JSON.parse((await call(81, 'event_kit', { event_id: evB.id })).text);
+    expect(kit.base_page.id).toBe(pageId);
+    expect(kit.to_prepare.join(' ')).toContain('make_form_script');
+    expect((await call(82, 'get_asset', { id: pageId })).text).toContain('<h1>Jesień</h1>');
+    const form = await call(83, 'make_form_script', { event_id: evB.id, kind: 'registration', max_responses: 30, close_date: '2026-12-15', notify_email: 'm@x.pl' });
+    expect(form.text).toContain('script.google.com/create');
+    const code = form.text.slice(form.text.indexOf('/**'));
+    expect(code).toContain('FormApp.create');
+    expect(code).toContain('Warsztaty zimowe');
+    expect(code).toContain('var LIMIT_ZGLOSZEN = 30;');
+    expect(() => new Function(code)).not.toThrow();                      // valid JavaScript for Apps Script
+    const contest = await call(84, 'make_form_script', { event_id: evB.id, kind: 'contest', extra_questions: [{ title: 'Rozmiar koszulki', type: 'dropdown', options: ['S', 'M'] }] });
+    const ccode = contest.text.slice(contest.text.indexOf('/**'));
+    expect(ccode).toContain('Imię i nazwisko dziecka');
+    expect(ccode).toContain('Regulamin konkursu');
+    expect(ccode).toContain('Rozmiar koszulki');
+    expect(() => new Function(ccode)).not.toThrow();
+    expect(JSON.parse((await call(85, 'find_assets', { event_id: evB.id, kind: 'form' })).text)).toHaveLength(2);
+    await call(86, 'save_asset', { id: pageId, content: '<html><body><h1>Zima</h1></body></html>', event_id: evB.id, note: 'na zimę' });
+    expect((await call(87, 'get_asset', { id: pageId })).text).toContain('wersja 2/2');
+    expect(JSON.parse((await call(88, 'list_actions', {})).text).map((a: any) => a.action)).toEqual(expect.arrayContaining(['event_kit', 'make_form_script', 'save_asset']));
+    const files = await app.request(`/api/events/${evB.id}/assets`, { headers: { cookie: (await app.request('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'pw' }) })).headers.get('set-cookie')!.split(';')[0] } });
+    expect((await files.json()).length).toBe(3);
+
     // B2C progress from claude.ai
     expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
     expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');

@@ -13,6 +13,7 @@ import { B2c } from './b2c.js';
 import { Processes } from './processes.js';
 import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
+import { buildDefaults, buildFormScript, type Question } from './forms.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -165,6 +166,75 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'event_kit',
+    description: 'Pakiet startowy wydarzenia: co przygotować (strona, formularz zapisów, formularz konkursowy, zlecenie banera, zaproszenia, post), ' +
+      'co już jest w Opal5 dla tego wydarzenia, NAJNOWSZA strona WWW z wcześniejszych wydarzeń do wzięcia jako baza (id do get_asset) ' +
+      'i kto z siatki może pomóc (grafik, druk). Wywołaj od razu, gdy powstaje nowe wydarzenie albo pada „trzeba zrobić stronę/formularz/baner”.',
+    input_schema: { type: 'object', properties: { event_id: { type: 'string' } }, required: ['event_id'], additionalProperties: false },
+  },
+  {
+    name: 'find_assets',
+    description: 'Gotowe materiały zapisane w Opal5 (strony WWW, skrypty formularzy Google, zlecenia/briefy, maile, dokumenty) — najnowsze pierwsze. ' +
+      'kind: www | form | brief | email | doc | deck. Szukaj tu bazy, zanim zaczniesz od zera.',
+    input_schema: {
+      type: 'object',
+      properties: { kind: { type: 'string', enum: ['www', 'form', 'brief', 'email', 'doc', 'deck'] }, query: { type: 'string' }, event_id: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_asset',
+    description: 'Pełna treść materiału z Opal5 (HTML strony, kod skryptu, tekst) — najnowsza wersja albo wskazana.',
+    input_schema: { type: 'object', properties: { id: { type: 'integer' }, version: { type: 'integer', description: '1 = pierwsza' } }, required: ['id'], additionalProperties: false },
+  },
+  {
+    name: 'save_asset',
+    description: 'Zapisuje gotowy materiał w Opal5 i przypina do wydarzenia: stronę WWW (pełny samodzielny HTML), brief/zlecenie, mail, dokument. ' +
+      'Z id — dopisuje nową wersję. Stronę NAJPIERW pokaż użytkownikowi jako artefakt do poprawek, zapisuj wersję, którą zaakceptował.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'istniejący materiał → nowa wersja' }, title: { type: 'string' },
+        kind: { type: 'string', enum: ['www', 'brief', 'email', 'doc', 'deck', 'form'] }, event_id: { type: 'string' },
+        content: { type: 'string', description: 'HTML strony albo tekst' }, note: { type: 'string', description: 'co zmieniono w tej wersji' },
+      },
+      required: ['content'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'make_form_script',
+    description: 'Tworzy gotowy skrypt Google Apps Script, który po wklejeniu na script.google.com i kliknięciu „Uruchom” zakłada formularz Google ' +
+      '(z walidacją i zgodami RODO/wizerunek) i arkusz odpowiedzi, a potem wypisuje linki. kind: registration = zapisy na wydarzenie, ' +
+      'contest = zgłoszenie na konkurs z kartą dziecka, custom = własne pytania. Zapisuje skrypt w Opal5 przy wydarzeniu. Pokaż użytkownikowi skrypt i 4 kroki uruchomienia.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: { type: 'string' }, title: { type: 'string', description: 'tytuł formularza' },
+        kind: { type: 'string', enum: ['registration', 'contest', 'custom'] }, description: { type: 'string' },
+        questions: {
+          type: 'array', description: 'pełna lista pytań — tylko gdy mają być inne niż standardowe',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' }, type: { type: 'string', enum: ['text', 'paragraph', 'email', 'phone', 'number', 'date', 'choice', 'checkbox', 'dropdown', 'consent', 'section'] },
+              options: { type: 'array', items: { type: 'string' } }, required: { type: 'boolean' }, help: { type: 'string' },
+            },
+            required: ['title'],
+            additionalProperties: false,
+          },
+        },
+        extra_questions: {
+          type: 'array', description: 'pytania DOPISANE na końcu standardowych (te same pola co questions)',
+          items: { type: 'object', properties: { title: { type: 'string' }, type: { type: 'string' }, options: { type: 'array', items: { type: 'string' } }, required: { type: 'boolean' } }, required: ['title'] },
+        },
+        close_date: { type: 'string', description: 'yyyy-MM-dd — koniec zapisów' }, max_responses: { type: 'integer', description: 'limit miejsc' },
+        notify_email: { type: 'string', description: 'kto dostaje maila o każdym zgłoszeniu' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 /** The two connector tools that never change — they reach every action, also ones added later. */
 const GATEWAY = [
@@ -188,7 +258,8 @@ const GATEWAY = [
   },
 ];
 
-const CONNECTOR_WRITES = new Set(['log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item']);
+const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
+const CONNECTOR_WRITES = new Set(['log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -677,7 +748,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'create_event',
     description: 'PROPOZYCJA nowego wydarzenia (dzień otwarty, warsztaty, targi, bieg, piknik…). Dostaje tymczasowe id EW1 — w tej samej odpowiedzi ' +
-      'możesz przypinać do niego zadania (create_task / update_task event_id) i osoby. Potem: procedura (suggest_processes / start_process) i ludzie (find_help).',
+      'możesz przypinać do niego zadania (create_task / update_task event_id) i osoby. Zaraz potem: event_kit (strona, formularze, baner), procedura (suggest_processes / start_process) i ludzie (find_help).',
     input_schema: {
       type: 'object',
       properties: {
@@ -1334,7 +1405,7 @@ export class Assistant {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
     // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
     const kb = KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks');
-    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_'));
+    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name));
     return [...READ_TOOLS, ...kb, ...own, ...writes].map((t) => ({
       name: t.name,
       description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
@@ -1350,6 +1421,81 @@ export class Assistant {
    */
   static mcpTools() {
     return [...GATEWAY, ...Assistant.mcpActions()];
+  }
+
+  /** Materials for events: pages, Google Form scripts, briefs — found, reused, saved as versions. */
+  private async assets(name: string, input: Input): Promise<string> {
+    const designs = new Designs(this.crm.db);
+    const events = await this.crm.listEvents();
+    const ev = (id: unknown) => events.find((e) => e.id === txt(id));
+    const row = (d: Awaited<ReturnType<Designs['list']>>[number]) => ({ id: d.id, title: d.title, kind: d.kind, event: d.eventTitle || undefined,
+      event_id: d.eventId || undefined, versions: d.versions, updated: d.updatedAt.slice(0, 10), last_note: d.note || undefined });
+    if (name === 'find_assets') {
+      const k = searchKey(input.query || '');
+      const all = (await designs.list({ eventId: txt(input.event_id) || undefined }))
+        .filter((d) => (!input.kind || d.kind === input.kind) && d.versions > 0 && (!k || searchKey(`${d.title} ${d.eventTitle || ''}`).includes(k)));
+      return all.length ? JSON.stringify(all.slice(0, 20).map(row)) : 'Brak takich materiałów w Opal5.';
+    }
+    if (name === 'get_asset') {
+      const d = await designs.get(Number(input.id));
+      const v = input.version ? d.versions[Number(input.version) - 1] : d.versions.at(-1);
+      if (!v) return `Materiał ${d.id} „${d.title}” nie ma jeszcze treści.`;
+      return `${d.title} (${d.kind}, wersja ${input.version || d.versions.length}/${d.versions.length}${d.eventId ? `, wydarzenie ${d.eventId}` : ''})\n\n${v.html.slice(0, 200_000)}`;
+    }
+    if (name === 'save_asset') {
+      const content = String(input.content || '');
+      if (!content.trim()) throw new Error('Brak treści.');
+      if (input.event_id && !ev(input.event_id)) throw new Error(`Nie ma wydarzenia ${input.event_id}.`);
+      if (input.id) {
+        const d = await designs.saveTurn(Number(input.id), { messages: [], html: content, note: txt(input.note) || 'Nowa wersja z claude.ai', title: input.title });
+        if (input.event_id) await designs.setEvent(d.id, txt(input.event_id));
+        return `Zapisano wersję ${d.versions.length} materiału „${d.title}” (id ${d.id}). Widać go w Opal5 przy wydarzeniu.`;
+      }
+      const d = await designs.create({ title: txt(input.title) || 'Materiał', kind: input.kind || 'www', html: content, note: txt(input.note) || 'Z claude.ai', eventId: txt(input.event_id) });
+      return `Zapisano materiał „${d.title}” (id ${d.id})${d.eventId ? ` przy wydarzeniu ${d.eventId}` : ''}.`;
+    }
+    if (name === 'make_form_script') {
+      const e = input.event_id ? ev(input.event_id) : undefined;
+      if (input.event_id && !e) throw new Error(`Nie ma wydarzenia ${input.event_id}.`);
+      const kind = input.kind === 'contest' ? 'contest' : input.kind === 'custom' ? 'custom' : 'registration';
+      if (kind === 'custom' && !input.questions?.length) throw new Error('Przy kind=custom podaj questions.');
+      const title = txt(input.title) || `${kind === 'contest' ? 'Konkurs' : 'Zapisy'}: ${e?.title || 'wydarzenie'}`;
+      const questions: Question[] | undefined = input.questions?.length ? input.questions
+        : input.extra_questions?.length ? [...buildDefaults(kind, e?.title || title), ...(input.extra_questions as Question[])] : undefined;
+      const script = buildFormScript({
+        title, kind, description: input.description, eventTitle: e?.title,
+        when: e ? `${e.date}${e.time ? `, ${e.time}` : ''}` : undefined, place: e?.location || undefined,
+        questions, closeDate: input.close_date, maxResponses: input.max_responses, notifyEmail: input.notify_email,
+      });
+      const d = await designs.create({ title, kind: 'form', html: script, note: 'Skrypt Google Apps Script', eventId: e?.id || '' });
+      return `Skrypt zapisany w Opal5 (materiał ${d.id}${e ? `, przy wydarzeniu ${e.title}` : ''}). Uruchomienie: 1) https://script.google.com/create, ` +
+        `2) wklej cały skrypt, 3) wybierz funkcję „utworzFormularz” i kliknij Uruchom (za 1. razem zezwól na dostęp), 4) linki pojawią się w Dzienniku wykonania.\n\n${script}`;
+    }
+    // event_kit
+    const e = ev(input.event_id);
+    if (!e) throw new Error(`Nie ma wydarzenia ${input.event_id}.`);
+    const mine = await designs.list({ eventId: e.id });
+    const pages = (await designs.list()).filter((d) => d.kind === 'www' && d.versions > 0 && d.eventId !== e.id);
+    const sameType = pages.find((d) => d.eventId && events.find((x) => x.id === d.eventId)?.type === e.type);
+    const base = sameType || pages[0];
+    const help = async (need: string) => (await this.crm.findHelp(need)).people.slice(0, 3)
+      .map((p) => `${p.name} (id ${p.id})${p.done_tasks ? `, zrobione ${p.done_tasks}` : ''}`);
+    const has = (k: string) => mine.some((d) => d.kind === k);
+    return JSON.stringify({
+      event: { id: e.id, title: e.title, type: e.type, date: e.date, time: e.time || undefined, place: e.location || undefined },
+      already_in_opal5: mine.map(row),
+      base_page: base ? { ...row(base), hint: 'Pobierz get_asset i przerób na to wydarzenie (daty, godziny, miejsce, program, link do formularza).' }
+        : 'Brak wcześniejszych stron — zbuduj od zera w stylu Maple Bear.',
+      to_prepare: [
+        !has('www') && 'Strona wydarzenia: przerób base_page, pokaż jako ARTEFAKT do poprawek; po akceptacji save_asset (kind www, event_id).',
+        !has('form') && 'Formularz zapisów: make_form_script kind=registration (dopytaj o limit miejsc i datę końca zapisów, jeśli ich nie znasz).',
+        'Jeśli jest konkurs: make_form_script kind=contest (karta dziecka, zgody, regulamin).',
+        !has('brief') && 'Zlecenie banera / plakatu dla grafika: wymiary, teksty, data, link do strony/formularza → save_asset kind=brief + zadanie z person_id grafika.',
+        'Zaproszenia (rodzice, przedszkola, partnerzy) jako materiały zadań; link do formularza wstaw, gdy będzie gotowy.',
+        'Post na social media z linkiem do zapisów.',
+      ].filter(Boolean),
+      who_can_help: { banner_graphics: await help('grafika baner plakat'), print: await help('druk wydruk'), social: await help('social media post') },
+    });
   }
 
   /** The connector-only tools: mirror Claude chats, artifacts and notes into Opal5. */
@@ -1405,6 +1551,7 @@ export class Assistant {
       const r = await b2c.save(input);
       return `Zapisano pozycję B2C „${r.title}” (id ${r.id}).`;
     }
+    if (ASSET_ACTIONS.has(name)) return this.assets(name, input);
     if (name === 'save_note') {
       const item = await this.kb.add({ title: txt(input.title) || 'Notatka', text: longTxt(input.text), tags: txt(input.tags) || 'claude' });
       return `Zapisano w Bazie wiedzy Opal5 (id ${item.id}).`;

@@ -196,9 +196,11 @@ export interface ThreadMessage { role: 'user' | 'assistant'; text: string; at: s
 export interface Thread { id: number; title: string; mode: ThreadMode; source: 'claude' | 'opal'; messages: ThreadMessage[]; updatedAt: string }
 export interface ThreadSummary { id: number; title: string; mode: ThreadMode; source: string; count: number; last: string; updatedAt: string }
 
-export const DESIGN_KINDS = ['www', 'deck', 'email', 'doc'] as const;
+export const DESIGN_KINDS = ['www', 'deck', 'email', 'doc', 'form', 'brief'] as const;
 export type DesignKind = (typeof DESIGN_KINDS)[number];
-export const DESIGN_KIND_LABEL: Record<DesignKind, string> = { www: 'Strona WWW', deck: 'Prezentacja', email: 'Mail / szablon', doc: 'Dokument' };
+export const DESIGN_KIND_LABEL: Record<DesignKind, string> = {
+  www: 'Strona WWW', deck: 'Prezentacja', email: 'Mail / szablon', doc: 'Dokument', form: 'Formularz Google (skrypt)', brief: 'Zlecenie / brief',
+};
 
 export interface DesignVersion { html: string; note: string; at: string }
 export interface DesignMessage { role: 'user' | 'assistant'; text: string; files?: KnowledgeItem[]; at: string }
@@ -209,8 +211,10 @@ export interface Design {
   versions: DesignVersion[];
   chat: DesignMessage[];
   updatedAt: string;
+  /** the event it was made for, if any */
+  eventId: string;
 }
-export interface DesignSummary { id: number; title: string; kind: DesignKind; versions: number; updatedAt: string }
+export interface DesignSummary { id: number; title: string; kind: DesignKind; versions: number; updatedAt: string; eventId: string; eventTitle?: string; note?: string }
 
 /** Writing guidance moved over from the Claude project: general rules, B2B emails, relaxed messages. */
 export interface Style { project: string; b2b: string; casual: string }

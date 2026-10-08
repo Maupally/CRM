@@ -183,6 +183,7 @@ export const api = {
   savePerson: (d: Partial<Person>) => post<Person>('/people', d),
   deletePerson: (id: number) => del(`/people/${id}`),
   touchPerson: (id: number) => post<Person>(`/people/${id}/touch`),
+  eventAssets: (id: string) => get<DesignSummary[]>(`/events/${id}/assets`),
   eventPeople: (id: string) => get<EventPerson[]>(`/events/${id}/people`),
   linkEventPerson: (id: string, personId: number, role = '') => post<EventPerson[]>(`/events/${id}/people`, { personId, role }),
   unlinkEventPerson: (id: string, personId: number) => del(`/events/${id}/people/${personId}`),

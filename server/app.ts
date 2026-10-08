@@ -184,10 +184,13 @@ export function createApp(o: AppOptions) {
   /** The document itself: for the preview frame, full screen, printing to PDF, or download (?download=1). */
   api.get('/studio/:id/html', async (c) => {
     const v = c.req.query('v');
-    const r = await (await designs()).render(await kb(), num(c.req.param('id')), v !== undefined ? Number(v) : undefined);
-    const name = `${r.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'projekt'}.html`;
+    const ds = await designs();
+    const id = num(c.req.param('id'));
+    const r = await ds.render(await kb(), id, v !== undefined ? Number(v) : undefined);
+    const text = ['form', 'brief'].includes((await ds.get(id)).kind);   // a script or a brief is text, not a page
+    const name = `${r.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'projekt'}.${text ? ((await ds.get(id)).kind === 'form' ? 'gs' : 'txt') : 'html'}`;
     return c.body(r.html, 200, {
-      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Type': `${text ? 'text/plain' : 'text/html'}; charset=utf-8`,
       'Content-Disposition': `${c.req.query('download') ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
       'Content-Security-Policy': RUN_CSP,
       'Cache-Control': 'no-store',
@@ -214,6 +217,7 @@ export function createApp(o: AppOptions) {
       d.mode === 'casual' ? 'casual' : d.mode === 'project' ? 'project' : 'b2b', (d.chats || []).map(Number)) });
   });
   api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
+  api.get('/events/:id/assets', async (c) => c.json(await (await designs()).list({ eventId: c.req.param('id') })));
   api.get('/events/:id/people', async (c) => c.json(await (await crm()).eventPeople(c.req.param('id'))));
   api.post('/events/:id/people', async (c) => {
     const d = await body<{ personId?: number; role?: string }>(c);

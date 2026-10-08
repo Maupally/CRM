@@ -22,13 +22,25 @@ export class Designs {
     return {
       id: Number(r.id), title: r.title, kind: r.kind as DesignKind,
       versions: parse<DesignVersion[]>(r.versions, []), chat: parse<DesignMessage[]>(r.chat, []),
-      updatedAt: r.updated_at, containerId: r.container_id || '',
+      updatedAt: r.updated_at, containerId: r.container_id || '', eventId: r.event_id || '',
     };
   }
 
-  async list(): Promise<DesignSummary[]> {
-    const rows = await this.db.all('SELECT id, title, kind, versions, updated_at FROM crm.designs ORDER BY updated_at DESC');
-    return rows.map((r) => ({ id: Number(r.id), title: r.title, kind: r.kind, versions: parse<unknown[]>(r.versions, []).length, updatedAt: r.updated_at }));
+  async list(opts: { eventId?: string } = {}): Promise<DesignSummary[]> {
+    const rows = await this.db.all(`SELECT d.id, d.title, d.kind, d.versions, d.updated_at, d.event_id, e.title AS event_title
+      FROM crm.designs d LEFT JOIN crm.events e ON e.id = d.event_id AND d.event_id <> ''
+      ${opts.eventId ? 'WHERE d.event_id = ?' : ''} ORDER BY d.updated_at DESC`, opts.eventId ? [opts.eventId] : []);
+    return rows.map((r) => {
+      const versions = parse<DesignVersion[]>(r.versions, []);
+      return { id: Number(r.id), title: r.title, kind: r.kind, versions: versions.length, updatedAt: r.updated_at,
+        eventId: r.event_id || '', ...(r.event_title ? { eventTitle: r.event_title } : {}), ...(versions.at(-1)?.note ? { note: versions.at(-1)!.note } : {}) };
+    });
+  }
+
+  async setEvent(id: number, eventId: string) {
+    await this.get(id);
+    await this.db.run('UPDATE crm.designs SET event_id = ? WHERE id = ?', [txt(eventId), id]);
+    return this.get(id);
   }
 
   async get(id: number) {
@@ -37,7 +49,7 @@ export class Designs {
     return this.toDesign(r);
   }
 
-  async create(d: { title?: string; kind?: string; html?: string; note?: string; versions?: Partial<DesignVersion>[]; chat?: Partial<DesignMessage>[] }) {
+  async create(d: { title?: string; kind?: string; html?: string; note?: string; versions?: Partial<DesignVersion>[]; chat?: Partial<DesignMessage>[]; eventId?: string }) {
     const kind = (DESIGN_KINDS as readonly string[]).includes(String(d.kind)) ? String(d.kind) : 'www';
     const now = nowIso();
     // an import brings its own versions and conversation (projects in progress in Claude Design)
@@ -47,8 +59,8 @@ export class Designs {
     const chat: DesignMessage[] = (d.chat || []).filter((m) => m && txt(m.text))
       .map((m) => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, text: String(m.text).slice(0, 20_000), at: txt(m.at) || now }))
       .slice(-MAX_CHAT);
-    const r = await this.db.get(`INSERT INTO crm.designs (title, kind, versions, chat, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?) RETURNING id`, [txt(d.title) || 'Bez tytułu', kind, JSON.stringify(versions), JSON.stringify(chat), now, now]);
+    const r = await this.db.get(`INSERT INTO crm.designs (title, kind, versions, chat, created_at, updated_at, event_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`, [txt(d.title) || 'Bez tytułu', kind, JSON.stringify(versions), JSON.stringify(chat), now, now, txt(d.eventId)]);
     return this.get(Number(r!.id));
   }
 

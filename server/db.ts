@@ -183,6 +183,8 @@ CREATE TABLE IF NOT EXISTS crm.designs (
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL
 );
+-- materials made for an event: its page, form scripts, briefs
+ALTER TABLE crm.designs ADD COLUMN IF NOT EXISTS event_id TEXT NOT NULL DEFAULT '';
 
 -- B2C: goals with a count (calls to parents, open days, enrolments…) and how far along they are.
 CREATE TABLE IF NOT EXISTS crm.b2c_items (

@@ -10,13 +10,15 @@ import { FileCard, useFileDrop } from '../components/Files';
 import { Empty, ErrorBox, Loading, Modal, relDay, useAction, useConfig, useToast, useToday } from '../components/ui';
 import { DESIGN_KINDS, DESIGN_KIND_LABEL, type DesignKind, type KnowledgeItem } from '../../shared/domain';
 
-const KIND_ICON = { www: Globe, deck: Presentation, email: Mail, doc: FileText } as const;
+const KIND_ICON = { www: Globe, deck: Presentation, email: Mail, doc: FileText, form: FileText, brief: FileText } as const;
 
 const STARTERS: Record<DesignKind, string[]> = {
   www: ['Landing na Bieg Terry’ego Foxa z zapisami', 'Strona oferty dla firm partnerskich', 'Strona dnia otwartego'],
   deck: ['Prezentacja współpracy B2B dla firm (8 slajdów)', 'Weź prezentację B2B z Bazy wiedzy i odśwież ją', 'Prezentacja dla rodziców o szkole'],
   email: ['Szablon zaproszenia na dzień otwarty dla firm', 'Newsletter dla rodziców o biegu', 'Mail z ofertą partnerstwa'],
   doc: ['Oferta współpracy na 1 stronę A4', 'Ulotka dnia otwartego', 'Regulamin biegu'],
+  form: ['Formularz zapisów na wydarzenie', 'Zgłoszenie na konkurs z kartą dziecka'],
+  brief: ['Zlecenie banera dla grafika', 'Brief na plakat'],
 };
 
 /* ------------------------------------------------------------ list */
