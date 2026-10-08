@@ -52,12 +52,13 @@ export function PeoplePage() {
                 <Avatar name={p.name} size="sm" />
                 <div className="grow" style={{ minWidth: 0 }}>
                   <div className="title trunc">{p.name}{p.company && <span className="soft" style={{ fontWeight: 400 }}> · {p.company}</span>}</div>
+                  {p.scope && <div className="meta trunc">Zakres: {p.scope}</div>}
                   <div className="meta trunc">{p.partner && <span className="tag" style={{ background: 'var(--ok-bg, var(--panel))', color: 'var(--ok)', marginRight: 6 }}>Partner</span>}{p.role || 'bez funkcji'}{p.kind === 'external' ? ' · z zewnątrz' : ''}</div>
                   {p.services && <div className="chips" style={{ marginTop: 4 }}>{p.services.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5).map((x) => <span key={x} className="tag">{x}</span>)}</div>}
                   {p.events.length > 0 && <div className="meta trunc" style={{ marginTop: 2 }}>Wydarzenia: {p.events.slice(0, 3).map((e) => `${e.title}${e.role ? ` (${e.role})` : ''}`).join(', ')}{p.events.length > 3 ? ` +${p.events.length - 3}` : ''}</div>}
                   {!p.email && !p.phone && <div className="meta" style={{ color: 'var(--warn)' }}>brak e-maila i telefonu</div>}
                 </div>
-                <span className="soft small hide-sm nowrap">{p.contacts ? `${p.contacts}× · ${relDay(p.lastContact, today)}` : ''}</span>
+                <span className="soft small hide-sm nowrap">{p.doneCount ? `zrobione: ${p.doneCount}` : ''}{p.contacts ? `${p.doneCount ? ' · ' : ''}${p.contacts}× · ${relDay(p.lastContact, today)}` : ''}</span>
                 {p.phone && <a className="btn sm icon" href={telHref(p.phone)} onClick={(e) => e.stopPropagation()} aria-label="Zadzwoń"><Phone size={14} /></a>}
                 {p.email && <a className="btn sm icon" href={`mailto:${p.email}`} onClick={(e) => e.stopPropagation()} aria-label="Napisz"><Mail size={14} /></a>}
               </li>
@@ -97,13 +98,16 @@ export function PersonForm({ value, onClose, onSaved }: { value: Partial<Person>
         {f('role', 'Funkcja', 'text', d.kind === 'external' ? 'np. Animatorka, Właściciel' : 'np. Dyrektor szkoły')}
         <label className="field">Firma{d.leadId && <Link to={`/firmy/${d.leadId}`} onClick={onClose} className="small" style={{ float: 'right', color: 'var(--accent)' }}>karta firmy →</Link>}
           <input type="text" value={d.company || ''} placeholder="np. Event 360" onChange={(e) => setD({ ...d, company: e.target.value })} /></label>
-        {f('services', 'Co robi / zapewnia', 'text', 'np. ławy, stoły, namioty')}
+        {f('services', 'Umiejętności', 'text', d.kind === 'external' ? 'np. ławy, stoły, namioty' : 'np. grafika, social media, Canva')}
         {f('email', 'E-mail', 'email')}
         {f('phone', 'Telefon', 'tel')}
       </div>
       {f('aliases', 'Jak go nazywasz (dla asystenta)', 'text', 'np. dyrektor, szef, Patryk')}
+      <label className="field">Zakres obowiązków<textarea rows={2} value={d.scope || ''} onChange={(e) => setD({ ...d, scope: e.target.value })}
+        placeholder="np. kampanie płatne, raporty z reklam, budżet promocji" /></label>
       <label className="field">Notatki<textarea rows={2} value={d.notes || ''} onChange={(e) => setD({ ...d, notes: e.target.value })}
         placeholder="np. woli krótkie maile, decyduje o budżecie wydarzeń" /></label>
+      {!!value?.id && <PersonRecord id={value.id} />}
       {!!value?.id && <PersonWork id={value.id} />}
       {!!d.events?.length && (
         <div className="col tight">
@@ -135,6 +139,24 @@ function PersonWork({ id }: { id: number }) {
           {w.blocked && <div style={{ color: 'var(--bad)' }}>stoi: {w.blocked}</div>}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Track record from finished work: how much, what keeps coming back (skills not written down yet), deadlines. */
+function PersonRecord({ id }: { id: number }) {
+  const q = useQuery({ queryKey: ['person-profile', id], queryFn: () => api.personProfile(id) });
+  const r = q.data;
+  if (!r || !r.done_total) return null;
+  return (
+    <div className="col tight">
+      <span className="small soft">Dorobek · zrobione {r.done_total}{r.done_last_90_days !== r.done_total ? ` (90 dni: ${r.done_last_90_days})` : ''}
+        {r.on_time ? ` · ${r.on_time}` : ''}{r.usually_late_by_days ? ` · spóźnia się zwykle o ${r.usually_late_by_days} dni` : ''}
+        {r.typical_days_to_finish !== undefined ? ` · zadanie zajmuje zwykle ${r.typical_days_to_finish} dni` : ''}</span>
+      {r.recurring_work && (
+        <div className="chips">{r.recurring_work.map((w) => <span key={w.word} className="tag" title={w.examples.join('\n')}>{w.word} ×{w.times}</span>)}</div>
+      )}
+      {r.recently_done.slice(0, 5).map((x) => <div key={x} className="small faint trunc">✓ {x}</div>)}
     </div>
   );
 }

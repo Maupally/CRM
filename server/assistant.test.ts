@@ -372,6 +372,13 @@ describe('connector for Claude chats', () => {
     expect(out.isError).toBe(true);
     expect(out.text).toContain('najpierw krok 1');
 
+    // who did what → their record
+    expect((await call(50, 'record_work', { person_id: String(rom.id), what: 'Post o partnerstwie z Armadą' })).isError).toBeUndefined();
+    expect((await call(51, 'save_person', { id: String(rom.id), services: 'social media, Canva', scope: 'content' })).isError).toBeUndefined();
+    const prof = JSON.parse((await call(52, 'get_person_profile', { person_id: String(rom.id) })).text);
+    expect(prof).toMatchObject({ name: 'Roma', skills: 'social media, Canva', scope: 'content', done_total: 1 });
+    expect(JSON.parse((await call(53, 'get_people', {})).text).find((p: any) => p.name === 'Roma')).toMatchObject({ skills: 'social media, Canva', done_tasks: 1 });
+
     // B2C progress from claude.ai
     expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
     expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');

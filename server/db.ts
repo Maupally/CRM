@@ -136,6 +136,8 @@ ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS step INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS blocked TEXT NOT NULL DEFAULT '';
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS started TEXT NOT NULL DEFAULT '';
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS step_days INTEGER NOT NULL DEFAULT 0;
+-- when the task was written down — with completed it tells how long things take each person
+ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS created TEXT NOT NULL DEFAULT '';
 
 -- Procedures: a named sequence of steps, each with who does it, how many days it may take and when it counts as done.
 CREATE TABLE IF NOT EXISTS crm.processes (
@@ -228,6 +230,8 @@ ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'team
 ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
 ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS services TEXT NOT NULL DEFAULT '';
 ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS lead_id TEXT NOT NULL DEFAULT '';
+-- what they are responsible for (zakres obowiązków)
+ALTER TABLE crm.people ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT '';
 -- Who did what at which event — so the next event can be planned from experience.
 CREATE TABLE IF NOT EXISTS crm.event_people (
   event_id      TEXT NOT NULL,

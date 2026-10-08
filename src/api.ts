@@ -96,6 +96,11 @@ export interface ProcessSuggestion {
   steps?: { title: string; personId: number; person: string; days: number; daysBefore: number; seen: number }[]; changes?: string[];
 }
 
+export interface PersonProfile {
+  done_total: number; done_last_90_days: number; on_time?: string; usually_late_by_days?: number; typical_days_to_finish?: number;
+  recurring_work?: { word: string; times: number; examples: string[] }[]; recently_done: string[]; open_now: number; late_now: number;
+}
+
 export interface PersonWork {
   person: string; role: string; open: number;
   items: { task_id: string; task: string; due?: string; late_days?: number; blocked?: string; company?: string; event?: string; process?: string; state: string }[];
@@ -187,6 +192,7 @@ export const api = {
   processSuggestions: () => get<ProcessSuggestion[]>('/processes/suggestions'),
   runs: (all = false) => get<ProcessRun[]>(`/runs${all ? '?all=1' : ''}`),
   cancelRun: (id: number) => post<ProcessRun>(`/runs/${id}/cancel`),
+  personProfile: (id: number) => get<PersonProfile>(`/people/${id}/profile`),
   personWork: (id: number) => get<PersonWork>(`/people/${id}/work`),
   b2c: () => get<B2cItem[]>('/b2c'),
   saveB2c: (d: Partial<B2cItem>) => post<B2cItem>('/b2c', d),

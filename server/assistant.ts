@@ -12,6 +12,7 @@ import { Threads, guessMode } from './threads.js';
 import { B2c } from './b2c.js';
 import { Processes } from './processes.js';
 import { suggestProcesses, suggestText } from './suggest.js';
+import { personProfile } from './profile.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
@@ -59,7 +60,7 @@ export interface AssistantReply {
   savedTo?: { id: number; title: string };
 }
 
-const PERSON_FIELDS = [['name', 'Imię'], ['role', 'Funkcja'], ['company', 'Firma'], ['services', 'Robi / zapewnia'], ['email', 'E-mail'],
+const PERSON_FIELDS = [['name', 'Imię'], ['role', 'Funkcja'], ['company', 'Firma'], ['services', 'Umiejętności'], ['scope', 'Zakres obowiązków'], ['email', 'E-mail'],
   ['phone', 'Telefon'], ['aliases', 'Nazywany']] as const;
 
 /* ------------------------------------------------------------------ tools */
@@ -299,6 +300,13 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'get_person_profile',
+    description: 'Dorobek osoby: umiejętności i zakres obowiązków (zapisane), ile i co zrobiła, jakie prace się u niej powtarzają (recurring_work — ' +
+      'podstawa do dopisania umiejętności), czy robi na czas, ile zwykle zajmuje jej zadanie, przy jakich wydarzeniach była, co ma teraz otwarte. ' +
+      'Używaj, gdy wybierasz, kto ma coś zrobić, szacujesz termin albo aktualizujesz umiejętności.',
+    input_schema: { type: 'object', properties: { person_id: { type: 'string' } }, required: ['person_id'], additionalProperties: false },
+  },
+  {
     name: 'get_person_work',
     description: 'Co ma do zrobienia dana osoba (id z get_people): otwarte zadania, spóźnienia, blokady, a przy krokach procesu — który to proces i krok ' +
       'oraz czy to teraz jej ruch, czy czeka na kogoś innego. Używaj, gdy pada „co ma Patryk”, „Patryk ma zrobić…”.',
@@ -463,7 +471,8 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         kind: { type: 'string', enum: ['team', 'external'], description: 'team — ktoś ze szkoły; external — z zewnątrz' },
         company: { type: 'string', description: 'firma, np. Event 360' },
         lead_id: { type: 'string', description: 'id tej firmy w CRM, jeśli jest (find_companies)' },
-        services: { type: 'string', description: 'co robi / zapewnia, po przecinku: „ławy, stoły, namioty”, „animacje dla dzieci, malowanie twarzy”' },
+        services: { type: 'string', description: 'umiejętności — co robi / zapewnia, po przecinku: „grafika, social media”, „ławy, stoły, namioty”. Przy zmianie podaj pełną listę.' },
+        scope: { type: 'string', description: 'zakres obowiązków — za co odpowiada, np. „kampanie płatne, raporty z reklam”' },
         email: { type: 'string' }, phone: { type: 'string' },
         aliases: { type: 'string', description: 'jak użytkownik ją nazywa, np. „dyrektor, Patryk”' },
         notes: { type: 'string' },
@@ -653,6 +662,21 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         add_note: { type: 'string', description: 'Tekst dopisywany do notatek wydarzenia' },
       },
       required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'record_work',
+    description: 'PROPOZYCJA zapisania, że ktoś COŚ ZROBIŁ (np. „Roma wrzuciła post”, „Patryk załatwił namiot”). Z task_id odhacza istniejące zadanie ' +
+      'i przypisuje je tej osobie; bez — dopisuje wykonaną pracę do historii osoby. Buduje dorobek, z którego wynikają umiejętności i szacunki.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person_id: { type: 'string' }, what: { type: 'string', description: 'co zrobił(a) — krótko' },
+        task_id: { type: 'string', description: 'jeśli to otwarte zadanie (get_person_work / get_tasks)' },
+        date: { type: 'string', description: 'yyyy-MM-dd, domyślnie dziś' }, event_id: { type: 'string' }, lead_id: { type: 'string' },
+      },
+      required: ['person_id'],
       additionalProperties: false,
     },
   },
@@ -1545,12 +1569,14 @@ export class Assistant {
       const people = await this.crm.listPeople();
       if (!people.length) return 'Zespół jest pusty — nikt nie został jeszcze dodany.';
       return JSON.stringify(people.map((p) => ({ id: String(p.id), name: p.name, kind: p.kind, active_partner: p.partner || undefined, role: p.role || undefined,
-        company: p.company || undefined, lead_id: p.leadId || undefined, services: p.services || undefined, email: p.email || undefined,
+        company: p.company || undefined, lead_id: p.leadId || undefined, skills: p.services || undefined, scope: p.scope || undefined,
+        done_tasks: p.doneCount || undefined, email: p.email || undefined,
         phone: p.phone || undefined, aliases: p.aliases || undefined, notes: p.notes || undefined, contacts: p.contacts,
         events: p.events.length ? p.events.map((e) => `${e.eventId} ${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) : undefined })));
     }
     if (name === 'get_processes') return new Processes(this.crm).status(!!input.only_stuck);
     if (name === 'suggest_processes') return suggestText(this.crm);
+    if (name === 'get_person_profile') return JSON.stringify(await personProfile(this.crm, Number(input.person_id)));
     if (name === 'get_person_work') return JSON.stringify(await new Processes(this.crm).personWork(Number(input.person_id)));
     if (name === 'find_help') {
       const r = await this.crm.findHelp(String(input.need || ''));
@@ -1817,6 +1843,27 @@ export class Assistant {
         out.push({ key: ref, tool: name, input, title, lines, warnings });
         return `Propozycja przygotowana; tymczasowe id osoby: ${ref}.`;
       }
+      case 'record_work': {
+        const who = (await this.personName(txt(input.person_id), pending)).split(' · ')[0];
+        if (input.date) this.checkDate(input.date);
+        if (txt(input.task_id)) {
+          const t = (await this.crm.listTasks()).find((x) => x.id === txt(input.task_id));
+          if (!t) throw new Error(`Nie ma zadania ${input.task_id}.`);
+          if (t.runId) {
+            const run = await new Processes(this.crm).run(t.runId);
+            const before = run.steps.find((x) => x.step < t.step && x.status !== 'done');
+            if (before) throw new Error(`To krok ${t.step} procesu „${run.title}” — najpierw krok ${before.step}: „${before.title}”.`);
+          }
+          title = `Zrobione: ${t.task}`;
+          lines.push(`Kto: ${who}`);
+        } else {
+          if (!txt(input.what)) throw new Error('Napisz, co zostało zrobione.');
+          title = `${who}: ${txt(input.what)}`;
+          lines.push('Do historii wykonanej pracy');
+        }
+        if (input.event_id) await this.eventLine({ event_id: input.event_id }, lines);
+        break;
+      }
       case 'save_process': {
         const steps = (input.steps || []) as Input[];
         if (!txt(input.name) || !steps.length) throw new Error('Podaj nazwę i kroki procedury.');
@@ -1986,10 +2033,19 @@ export class Assistant {
           case 'save_person': {
             const p = await crm.savePerson({ id: Number(input.id) || undefined, name: input.name, role: input.role, email: input.email,
               phone: input.phone, aliases: input.aliases, notes: input.notes, kind: input.kind, company: input.company,
-              services: input.services, leadId: input.lead_id });
+              services: input.services, leadId: input.lead_id, scope: input.scope });
             if (input.ref) ids.set(input.ref, String(p.id));
             if (txt(input.event_id)) await crm.linkPersonEvent(txt(input.event_id), p.id, txt(input.event_role));
             leadId = undefined; message = `Zespół: ${p.name} (id osoby ${p.id})`;
+            break;
+          }
+          case 'record_work': {
+            const pid = this.personRef(input.person_id, ids);
+            const t = txt(input.task_id)
+              ? await crm.saveTask({ id: txt(input.task_id), status: 'done', personId: pid })
+              : await crm.saveTask({ task: txt(input.what), status: 'done', personId: pid, completed: input.date || undefined,
+                eventId: input.event_id || '', leadId: input.lead_id || '' });
+            leadId = t.leadId || undefined; message = `Zapisane: ${t.person?.name || 'osoba'} — ${t.task}`;
             break;
           }
           case 'save_process': {

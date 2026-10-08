@@ -174,6 +174,8 @@ export interface Task {
   blocked: string;
   /** when this step became the current one */
   started: string;
+  /** when the task was written down */
+  created: string;
   run?: { title: string; process: string; steps: number };
 }
 
@@ -231,8 +233,12 @@ export interface Person {
   /** their firm, e.g. "Event 360" (and its card in Firmy, when it is there) */
   company: string;
   leadId: string;
-  /** what they can do or provide: "ławy, stoły, namioty" */
+  /** skills — what they can do or provide: "ławy, stoły, namioty", "grafika, social media" */
   services: string;
+  /** what they are responsible for (zakres obowiązków) */
+  scope: string;
+  /** tasks they finished (all time) */
+  doneCount: number;
   /** events they helped with, newest first */
   events: PersonEvent[];
   /** their firm is an active partner right now */

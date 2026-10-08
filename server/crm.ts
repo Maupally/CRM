@@ -689,6 +689,7 @@ export class Crm {
       id: Number(r.id), name: r.name, role: r.role, email: r.email, phone: r.phone, aliases: r.aliases,
       notes: r.notes, contacts: Number(r.contacts) || 0, lastContact: r.last_contact,
       kind: r.kind === 'external' ? 'external' : 'team', company: r.company || '', leadId: r.lead_id || '', services: r.services || '',
+      scope: r.scope || '', doneCount: Number(r.done_count) || 0,
       events, partner: r.lead_stage === 'active',
     };
   }
@@ -732,7 +733,9 @@ export class Crm {
     }
   }
 
-  private static PEOPLE_SQL = `SELECT p.*, l.stage AS lead_stage FROM crm.people p LEFT JOIN crm.leads l ON l.id = p.lead_id AND p.lead_id <> ''`;
+  private static PEOPLE_SQL = `SELECT p.*, l.stage AS lead_stage,
+    (SELECT COUNT(*) FROM crm.tasks t WHERE t.person_id = p.id AND t.status = 'done') AS done_count
+    FROM crm.people p LEFT JOIN crm.leads l ON l.id = p.lead_id AND p.lead_id <> ''`;
 
   /** Most contacted first: the people the user deals with every week float to the top. */
   async listPeople(): Promise<Person[]> {
@@ -784,12 +787,20 @@ export class Crm {
       for (const [text, weight] of fields) { const ts = tokens(text); for (const q of words) if (ts.some((t) => hit(q, t))) s += weight; }
       return s;
     };
-    const people = (await this.listPeople()).map((p) => ({ p, s: score([[p.services, 4], [p.role, 3], [p.company, 2], [p.notes, 1],
-      [p.events.map((e) => `${e.role} ${e.title}`).join(' '), 2]]) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8);
+    // what they actually finished counts too — skills show in the work before anyone writes them down
+    const history = new Map<number, string[]>();
+    for (const r of await this.q.all(`SELECT person_id, task FROM crm.tasks WHERE status = 'done' AND person_id <> 0`)) {
+      history.set(Number(r.person_id), [...(history.get(Number(r.person_id)) || []), r.task]);
+    }
+    const people = (await this.listPeople()).map((p) => ({ p, done: history.get(p.id) || [], s: score([[p.services, 4], [p.scope, 3], [p.role, 3], [p.company, 2],
+      [p.notes, 1], [p.events.map((e) => `${e.role} ${e.title}`).join(' '), 2], [(history.get(p.id) || []).join(' '), 2]]) }))
+      .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8);
     const companies = (await this.listLeads()).map((l) => ({ l, s: score([[l.company, 3], [l.industry, 3], [l.segment, 2], [l.notes, 1], [l.extra, 1]]) }))
       .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 6);
     return {
-      people: people.map(({ p }) => ({ id: String(p.id), name: p.name, kind: p.kind, active_partner: p.partner || undefined, role: p.role, company: p.company || undefined,
+      people: people.map(({ p, done }) => ({ id: String(p.id), name: p.name, kind: p.kind, active_partner: p.partner || undefined, role: p.role, company: p.company || undefined,
+        scope: p.scope || undefined, done_tasks: done.length || undefined,
+        similar_done: done.filter((t) => words.some((q) => tokens(t).some((w) => hit(q, w)))).slice(0, 3),
         services: p.services || undefined, phone: p.phone || undefined, email: p.email || undefined,
         past_events: p.events.slice(0, 4).map((e) => `${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) })),
       companies: companies.map(({ l }) => ({ id: l.id, company: l.company, industry: l.industry || undefined, segment: l.segment || undefined,
@@ -805,18 +816,18 @@ export class Crm {
       name: name || cur?.name || '', role: txt(d.role ?? cur?.role), email: normEmail(d.email ?? cur?.email ?? ''),
       phone: txt(d.phone ?? cur?.phone), aliases: txt(d.aliases ?? cur?.aliases), notes: longTxt(d.notes ?? cur?.notes),
       kind: (d.kind ?? cur?.kind) === 'external' ? 'external' : 'team', company: txt(d.company ?? cur?.company),
-      services: txt(d.services ?? cur?.services), leadId: txt(d.leadId ?? cur?.leadId),
+      services: txt(d.services ?? cur?.services), leadId: txt(d.leadId ?? cur?.leadId), scope: longTxt(d.scope ?? cur?.scope),
     };
     if (!v.name) throw bad('Podaj imię i nazwisko.');
     if (v.leadId && !(await this.q.get('SELECT id FROM crm.leads WHERE id = ?', [v.leadId]))) throw bad(`Nie ma firmy ${v.leadId}.`);
-    const cols = [v.name, v.role, v.email, v.phone, v.aliases, v.notes, v.kind, v.company, v.services, v.leadId];
+    const cols = [v.name, v.role, v.email, v.phone, v.aliases, v.notes, v.kind, v.company, v.services, v.leadId, v.scope];
     if (cur) {
-      await this.q.run('UPDATE crm.people SET name=?, role=?, email=?, phone=?, aliases=?, notes=?, kind=?, company=?, services=?, lead_id=? WHERE id = ?',
+      await this.q.run('UPDATE crm.people SET name=?, role=?, email=?, phone=?, aliases=?, notes=?, kind=?, company=?, services=?, lead_id=?, scope=? WHERE id = ?',
         [...cols, id]);
       return this.getPerson(id);
     }
-    const r = await this.q.get(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, kind, company, services, lead_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, [...cols, nowIso()]);
+    const r = await this.q.get(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, kind, company, services, lead_id, scope, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, [...cols, nowIso()]);
     return this.getPerson(Number(r!.id));
   }
 
@@ -844,7 +855,7 @@ export class Crm {
       ...(r.person_name ? { person: { name: r.person_name, role: r.person_role || '', email: r.person_email || '', phone: r.person_phone || '' } } : {}),
       ...(r.event_title !== undefined ? { eventTitle: r.event_title || '', eventDate: r.event_date || '' } : {}),
       ...(r.company ? { company: r.company } : {}),
-      runId: Number(r.run_id) || 0, step: Number(r.step) || 0, blocked: r.blocked || '', started: r.started || '',
+      runId: Number(r.run_id) || 0, step: Number(r.step) || 0, blocked: r.blocked || '', started: r.started || '', created: r.created || '',
       ...(r.run_title ? { run: { title: r.run_title, process: r.run_process || '', steps: Number(r.run_steps) || 0 } } : {}),
     };
   }
@@ -930,9 +941,9 @@ export class Crm {
     }
     const newId = await this.tx(async (c) => {
       const nid = await c.nextCode('tasks', 'TS');
-      await c.q.run(`INSERT INTO crm.tasks (id, event_id, lead_id, task, owner, due, status, notes, completed, materials, attachments, person_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, leadId, task, owner, due, status, notes,
-        status === 'done' ? c.today() : '', materials, attachments, personId]);
+      await c.q.run(`INSERT INTO crm.tasks (id, event_id, lead_id, task, owner, due, status, notes, completed, materials, attachments, person_id, created)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, leadId, task, owner, due, status, notes,
+        status === 'done' ? (isIsoDay(d.completed) ? d.completed : c.today()) : '', materials, attachments, personId, c.today()]);
       return nid;
     });
     return this.taskById(newId);

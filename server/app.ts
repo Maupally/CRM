@@ -11,6 +11,7 @@ import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
 import { Processes } from './processes.js';
 import { suggestProcesses } from './suggest.js';
+import { personProfile } from './profile.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -228,6 +229,7 @@ export function createApp(o: AppOptions) {
   api.get('/processes/suggestions', async (c) => c.json(await suggestProcesses(await crm())));
   api.get('/runs', async (c) => c.json(await (await procs()).runs({ all: c.req.query('all') === '1' })));
   api.post('/runs/:id/cancel', async (c) => c.json(await (await procs()).cancel(num(c.req.param('id')))));
+  api.get('/people/:id/profile', async (c) => c.json(await personProfile(await crm(), num(c.req.param('id')))));
   api.get('/people/:id/work', async (c) => c.json(await (await procs()).personWork(num(c.req.param('id')))));
 
   /* ---- B2C progress */

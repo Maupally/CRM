@@ -346,3 +346,27 @@ describe('learning procedures from history', () => {
     expect(s.find((x) => x.kind === 'adjust')!.changes![0]).toContain('w praktyce zwykle 6');
   });
 });
+
+describe('people track record', () => {
+  it('builds skills evidence, deadlines and typical time from finished work, and finds people by it', async () => {
+    const { personProfile } = await import('./profile.js');
+    const db = await openDb('memory://');
+    let today = '2026-10-01';
+    const crm = new Crm(db, 'Martin', () => today);
+    const roma = await crm.savePerson({ name: 'Roma', role: 'Social media', scope: 'content i kalendarz publikacji' });
+    const a = await crm.saveTask({ task: 'Post na Instagram o dniu otwartym', personId: roma.id, due: '2026-10-03' });
+    const b = await crm.saveTask({ task: 'Post na Instagram z biegu', personId: roma.id, due: '2026-10-03' });
+    today = '2026-10-03'; await crm.toggleTask(a.id);
+    today = '2026-10-06'; await crm.toggleTask(b.id);
+    await crm.saveTask({ task: 'Rolka na Instagram z pikniku', personId: roma.id, status: 'done', completed: '2026-09-20' });
+
+    const r = await personProfile(crm, roma.id);
+    expect(r).toMatchObject({ done_total: 3, on_time: '1/2 na czas', usually_late_by_days: 3, scope: 'content i kalendarz publikacji', typical_days_to_finish: 2 });
+    expect(r.recurring_work![0]).toMatchObject({ word: 'instagram', times: 3 });
+    expect((await crm.getPerson(roma.id)).doneCount).toBe(3);
+
+    const help = await crm.findHelp('rolka na instagram');
+    expect(help.people[0]).toMatchObject({ name: 'Roma', done_tasks: 3 });
+    expect(help.people[0].similar_done.length).toBeGreaterThan(0);
+  });
+});
