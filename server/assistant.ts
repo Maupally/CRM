@@ -166,6 +166,28 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
 ];
+/** The two connector tools that never change — they reach every action, also ones added later. */
+const GATEWAY = [
+  {
+    name: 'list_actions',
+    description: 'Pełna, aktualna lista akcji Opal5 (nazwa, opis, parametry). Sprawdź ją, gdy potrzebnego narzędzia nie widzisz ' +
+      'na swojej liście (np. tworzenie wydarzeń, procesy, dorobek osób) — Opal5 dostaje nowe akcje, a lista narzędzi w czacie bywa stara.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'run_action',
+    description: 'Wykonuje dowolną akcję Opal5 z list_actions: action = nazwa, input = parametry zgodne z jej opisem. ' +
+      'Działa także dla akcji, których nie ma jako osobnych narzędzi w tym czacie. Akcje zapisujące od razu zmieniają dane.',
+    inputSchema: {
+      type: 'object',
+      properties: { action: { type: 'string', description: 'np. create_event' }, input: { type: 'object', description: 'parametry akcji', additionalProperties: true } },
+      required: ['action'],
+      additionalProperties: false,
+    },
+  },
+];
+
 const CONNECTOR_WRITES = new Set(['log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item']);
 
 /** What a proposal actually contains, written out for the chat log. */
@@ -1307,8 +1329,8 @@ export class Assistant {
 
   /* ---------------------------------------------------------- remote use (MCP connector) */
 
-  /** Tools offered to Claude chats through the CRM connector: reads, plus writes that save straight away. */
-  static mcpTools() {
+  /** Everything the connector can do: reads, plus writes that save straight away. */
+  static mcpActions() {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
     // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
     const kb = KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks');
@@ -1319,6 +1341,15 @@ export class Assistant {
       inputSchema: t.input_schema,
       ...(WRITE_NAMES.has(t.name) || CONNECTOR_WRITES.has(t.name) ? {} : { annotations: { readOnlyHint: true } }),
     }));
+  }
+
+  /**
+   * Tools offered to Claude chats. claude.ai keeps the tool list it saw when the connector was added, so new
+   * actions would stay invisible in running chats. Two tools never change — list_actions and run_action —
+   * and reach every action, including ones added later; the rest are the same actions as direct tools.
+   */
+  static mcpTools() {
+    return [...GATEWAY, ...Assistant.mcpActions()];
   }
 
   /** The connector-only tools: mirror Claude chats, artifacts and notes into Opal5. */
@@ -1383,7 +1414,21 @@ export class Assistant {
 
   /** Runs one tool for a connector call. Writes go through the same checks as proposals, then execute at once. */
   async mcpCall(name: string, input: Input): Promise<{ text: string; isError?: boolean }> {
-    if (!Assistant.mcpTools().some((t) => t.name === name)) return { text: `Nieznane narzędzie ${name}`, isError: true };
+    if (name === 'list_actions') {
+      return { text: JSON.stringify(Assistant.mcpActions().map((t) => ({ action: t.name, description: t.description, input: t.inputSchema }))) };
+    }
+    if (name === 'run_action') {
+      const action = txt(input?.action);
+      if (action === 'run_action' || action === 'list_actions') return { text: 'Podaj nazwę akcji z list_actions.', isError: true };
+      if (!Assistant.mcpActions().some((t) => t.name === action)) {
+        return { text: `Nie ma akcji „${action}”. Dostępne: ${Assistant.mcpActions().map((t) => t.name).join(', ')}`, isError: true };
+      }
+      const args = typeof input?.input === 'string' ? (() => { try { return JSON.parse(input.input); } catch { return {}; } })() : input?.input;
+      return this.mcpCall(action, args && typeof args === 'object' ? args : {});
+    }
+    if (!Assistant.mcpActions().some((t) => t.name === name)) {
+      return { text: `Nieznane narzędzie ${name}. Sprawdź list_actions i użyj run_action.`, isError: true };
+    }
     try {
       if (CONNECTOR_TOOLS.some((t) => t.name === name)) return { text: await this.connector(name, input || {}) };
       if (!WRITE_NAMES.has(name)) return { text: await this.read(name, input || {}) };

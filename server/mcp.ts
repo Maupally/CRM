@@ -14,6 +14,7 @@ export const mcpToken = (secret: string) => createHmac('sha256', secret).update(
 export const TOOLS_VERSION = `1.${createHash('sha256').update(Assistant.mcpTools().map((t) => t.name).join(',')).digest('hex').slice(0, 8)}`;
 
 const INSTRUCTIONS = `CRM Martina (Maple Bear Katowice, partnerstwa B2B, wydarzenia, zespół).
+- Zanim powiesz, że czegoś w Opal5 nie da się zrobić (np. utworzyć wydarzenia), sprawdź list_actions i wykonaj potrzebną akcję przez run_action — lista narzędzi w czacie bywa starsza niż Opal5.
 - Zanim coś zapiszesz dla firmy, znajdź ją (find_companies). Ludzie (dyrektor, Patryk, dostawcy, animatorzy…) → get_people.
 - Buduj siatkę ludzi na bieżąco: gdy pada imię, którego nie ma w get_people, od razu zapisz tę osobę (save_person: kind team/external, rola, firma, services = co robi/zapewnia, event_id gdy chodzi o wydarzenie) — nie czekaj na telefon czy e-mail, o kontakt dopytaj w tej samej odpowiedzi i dopisz go później (save_person z id). Gdy ktoś pomaga przy wydarzeniu — przypnij go (link_person_event z rolą).
 - Przy planowaniu wydarzenia rozbij je na potrzeby (animacje, druk z logo, sprzęt, catering, promocja…) i dla każdej sprawdź find_help — podsuń konkretne osoby i firmy z siatki, z tym, co robili wcześniej. Czego nikt nie pokrywa — powiedz wprost i zapytaj, kogo użytkownik zna.

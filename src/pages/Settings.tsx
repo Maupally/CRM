@@ -300,6 +300,7 @@ function StyleSettings() {
 
 /** What to paste into the Maple Bear project in claude.ai so that everything done there lands in Opal5. */
 const PROJECT_RULES = `Masz podłączony Opal5 — mój CRM (konektor „Opal5”). Zasady:
+0. Jeśli potrzebnego narzędzia Opal5 nie widzisz (np. create_event, procesy, record_work), NIE mów, że się nie da: wywołaj list_actions, a potem run_action z nazwą akcji i parametrami. Opal5 dostaje nowe funkcje, a lista narzędzi w czacie bywa starsza.
 1. Zanim napiszesz do firmy, sprawdź ją w CRM (find_companies, get_company), żeby znać historię kontaktu.
 2. Gdy ustalimy coś z firmą albo coś zrobię (telefon, mail, spotkanie), zapisz to w CRM (log_activity, add_note), a następny krok zaplanuj (plan_activity, create_task).
 2a. Buduj moją siatkę ludzi: gdy pada nowe imię (np. animatorka Marta, Marcin z Event 360), od razu zapisz osobę w Opal5 (save_person: kto to, firma, co robi/zapewnia, przy jakim wydarzeniu), a o telefon i e-mail dopytaj. Kto pomaga przy wydarzeniu — przypnij go (link_person_event).

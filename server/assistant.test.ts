@@ -387,6 +387,20 @@ describe('connector for Claude chats', () => {
     expect((await crm.listTasks()).find((t) => t.id === loose.id)!.eventId).toBe(evId);
     expect((await call(62, 'update_task', { task_id: loose.id, event_id: 'EV-9999' })).text).toContain('create_event');
 
+    // the stable gateway: a chat with an old tool list still reaches every action
+    expect(names.slice(0, 2)).toEqual(['list_actions', 'run_action']);
+    const actions = JSON.parse((await call(70, 'list_actions', {})).text).map((a: any) => a.action);
+    expect(actions).toEqual(expect.arrayContaining(['create_event', 'record_work', 'save_process', 'get_person_profile', 'update_task']));
+    expect(actions).not.toContain('run_action');
+    const viaGateway = await call(71, 'run_action', { action: 'create_event', input: { title: 'Zimowe warsztaty dla dzieci', type: 'Workshop', date: '2026-12-19', time: '10:00-14:00' } });
+    expect(viaGateway.isError).toBeUndefined();
+    const winterId = viaGateway.text.match(/\((EV-\d+)\)/)![1];
+    const t86 = await crm.saveTask({ task: 'Regulamin zimowych warsztatów' });
+    expect((await call(72, 'run_action', { action: 'update_task', input: JSON.stringify({ task_id: t86.id, event_id: winterId }) })).isError).toBeUndefined();
+    expect((await crm.listTasks()).find((t) => t.id === t86.id)!.eventTitle).toBe('Zimowe warsztaty dla dzieci');
+    expect((await call(73, 'run_action', { action: 'nie_ma_takiej', input: {} })).text).toContain('Dostępne:');
+    expect((await call(74, 'run_action', { action: 'run_action', input: {} })).isError).toBe(true);
+
     // B2C progress from claude.ai
     expect((await call(13, 'b2c_save_item', { title: 'Telefony do rodziców', category: 'Rekrutacja', target: 50, unit: 'telefonów' })).text).toContain('id');
     expect((await call(14, 'b2c_progress', { item: 'telefony', amount: 12, note: 'po dniu otwartym' })).text).toContain('12/50 telefonów, zostało 38');
