@@ -12,6 +12,7 @@ import { B2c } from './b2c.js';
 import { Processes } from './processes.js';
 import { suggestProcesses } from './suggest.js';
 import { personProfile } from './profile.js';
+import { callReport, callReportHtml, callReportReady, getCallConfig, parseScriptConfig, saveCallConfig, sendCallReport } from './callreport.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -240,6 +241,25 @@ export function createApp(o: AppOptions) {
   api.post('/runs/:id/cancel', async (c) => c.json(await (await procs()).cancel(num(c.req.param('id')))));
   api.get('/people/:id/profile', async (c) => c.json(await personProfile(await crm(), num(c.req.param('id')))));
   api.get('/people/:id/work', async (c) => c.json(await (await procs()).personWork(num(c.req.param('id')))));
+
+  /* ---- CALL REPORT (Plus call recording) */
+  const stamp = () => new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' });
+  api.get('/reports/calls/config', async (c) => c.json({ ...(await getCallConfig(await crm())), ready: callReportReady(), mail: mailEnabled() }));
+  api.put('/reports/calls/config', async (c) => c.json(await saveCallConfig(await crm(), await body(c))));
+  api.post('/reports/calls/import', async (c) => {
+    const d = await body<{ script?: string }>(c);
+    return c.json(await saveCallConfig(await crm(), parseScriptConfig(String(d.script || ''))));
+  });
+  api.get('/reports/calls', async (c) => {
+    const r = await callReport(await crm(), { from: c.req.query('from'), to: c.req.query('to') });
+    return c.json({ report: r, html: callReportHtml(r, stamp()) });
+  });
+  api.post('/reports/calls/send', async (c) => {
+    const d = await body<{ from?: string; to?: string }>(c);
+    const k = await crm();
+    const r = await callReport(k, { from: d.from, to: d.to });
+    return c.json(await sendCallReport(k, r, callReportHtml(r, stamp())));
+  });
 
   /* ---- B2C progress */
   const b2c = async () => { const k = await crm(); return new B2c(k.db, () => k.today()); };

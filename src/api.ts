@@ -91,6 +91,12 @@ export interface Proposal {
 }
 export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
+export interface CallPerson { person: string; group: 'sales' | 'admin'; recordingNumber: string | null; departmentNames: string[]; treatAllAsExternal: boolean }
+export interface CallConfig { baseUrl: string; people: CallPerson[]; blacklist: string[]; recipients: string[] }
+export interface CallRow { person: string; group: string; stats: { totalAll: number; internal: number; external: number; answered: number; success: number;
+  outTotal: number; inTotal: number; failed: number; totalMin: number; avgMin: number } }
+export interface CallReportData { from: string; to: string; label: string; fetched: number; warnings: string[]; sales: CallRow[]; admin: CallRow[] }
+
 export interface ProcessSuggestion {
   kind: 'new' | 'adjust' | 'start'; title: string; why: string; processId?: number; eventId?: string;
   steps?: { title: string; personId: number; person: string; days: number; daysBefore: number; seen: number }[]; changes?: string[];
@@ -190,6 +196,11 @@ export const api = {
   processes: () => get<Process[]>('/processes'),
   saveProcess: (d: Partial<Process>) => post<Process>('/processes', d),
   deleteProcess: (id: number) => del(`/processes/${id}`),
+  callConfig: () => get<CallConfig & { ready: boolean; mail: boolean }>('/reports/calls/config'),
+  saveCallConfig: (d: Partial<CallConfig>) => req<CallConfig>('PUT', '/reports/calls/config', d),
+  importCallScript: (script: string) => post<CallConfig>('/reports/calls/import', { script }),
+  callReport: (from: string, to: string) => get<{ report: CallReportData; html: string }>(`/reports/calls?from=${from}&to=${to}`),
+  sendCallReport: (from: string, to: string) => post<{ ok: boolean; sent: number }>('/reports/calls/send', { from, to }),
   processSuggestions: () => get<ProcessSuggestion[]>('/processes/suggestions'),
   runs: (all = false) => get<ProcessRun[]>(`/runs${all ? '?all=1' : ''}`),
   cancelRun: (id: number) => post<ProcessRun>(`/runs/${id}/cancel`),

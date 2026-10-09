@@ -370,3 +370,76 @@ describe('people track record', () => {
     expect(help.people[0].similar_done.length).toBeGreaterThan(0);
   });
 });
+
+describe('call report', () => {
+  const script = `
+const CONFIG = {
+  baseUrl:      "https://nagrywanie.plus.pl/recordingApi/recordingsPaged/",
+  username:     "someone",
+  password:     "NOT-A-REAL-PASSWORD",
+  recipients: [
+  "a@example.com",
+  "b@example.com"
+
+  ].join(","),
+  // Lista osób
+  people: [
+    {
+      person: "Martin",
+      group: "sales",
+      recordingNumber: "48600000001",
+      departmentNames: ["Poland Enrollment (Martin)", "Poland Enrollment"],
+      treatAllAsExternal: false
+    },
+    {
+      person: "Dawid",
+      group: "admin",
+      recordingNumber: null,
+      departmentNames: ["Katowice Recepcja (Dawid)", "Katowice Sekretariat"],
+      treatAllAsExternal: true
+    }
+  ],
+  blacklist: [
+    "600000001","600000002",
+  ]
+};`;
+
+  it('takes people, own numbers and recipients from the old script — never the password', async () => {
+    const { parseScriptConfig, saveCallConfig, getCallConfig } = await import('./callreport.js');
+    const parsed = parseScriptConfig(script);
+    expect(JSON.stringify(parsed)).not.toContain('NOT-A-REAL-PASSWORD');
+    expect(parsed.people).toHaveLength(2);
+    expect(parsed.recipients).toEqual(['a@example.com', 'b@example.com']);
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-09');
+    await saveCallConfig(crm, parsed);
+    const c = await getCallConfig(crm);
+    expect(c.people[1]).toMatchObject({ person: 'Dawid', group: 'admin', recordingNumber: null, treatAllAsExternal: true });
+    expect(c.blacklist).toEqual(['600000001', '600000002']);
+  });
+
+  it('counts like the script: by number, internal vs external, receptions all external, Fri–Thu week', async () => {
+    const { parseScriptConfig, saveCallConfig, callReport, callReportHtml, lastReportWeek } = await import('./callreport.js');
+    expect(lastReportWeek('2026-10-09')).toEqual({ from: '2026-10-02', to: '2026-10-08' });   // Friday → last Thursday
+    expect(lastReportWeek('2026-10-08')).toEqual({ from: '2026-10-02', to: '2026-10-08' });
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-09');
+    await saveCallConfig(crm, parseScriptConfig(script));
+    const m = '48600000001';
+    const records = [
+      { recordingNumber: m, callDirection: 'MO', status: 'RECORDED', length: 120000, callingUserPart: '600000001', calledUserPart: '501111111' },
+      { recordingNumber: m, callDirection: 'MT', status: 'RECORDED', length: 60000, callingUserPart: '502222222', calledUserPart: '600000001' },
+      { recordingNumber: m, callDirection: 'MO', status: 'NOT_RECORDED', callingUserPart: '600000001', calledUserPart: '503333333' },
+      { recordingNumber: m, callDirection: 'MO', status: 'RECORDED', length: 60000, callingUserPart: '600000001', calledUserPart: '600000002' }, // internal
+      { recordingNumber: m, callDirection: 'MO', status: 'FAILED', callingUserPart: '600000001', calledUserPart: '504444444' },
+      { departmentName: 'Katowice Sekretariat', callDirection: 'MT', status: 'MISSED', callingUserPart: '600000002', calledUserPart: '600000001' },
+    ];
+    const r = await callReport(crm, { records });
+    const martin = r.sales[0].stats;
+    expect(martin).toMatchObject({ totalAll: 4, internal: 1, external: 3, answered: 2, outTotal: 3, inTotal: 1, failed: 1, totalMin: 4, avgMin: 1.3 });
+    expect(r.admin[0].stats).toMatchObject({ totalAll: 1, external: 1, internal: 1 });   // reception: everything counted as external
+    const html = callReportHtml(r, 'teraz');
+    expect(html).toContain('Martin');
+    expect(html).toContain('4.0 min');
+  });
+});
