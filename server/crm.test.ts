@@ -109,6 +109,13 @@ describe('Crm', () => {
     expect(text).toContain('Contacted 1 company');
     expect(text).toContain('Call 1');
     expect(text).toContain('Contacting - contact attempted (1)');
+    expect(text).toContain('Pipeline now:');
+    // a lead last touched before the period stays out of the list, even though it is in "contacting"
+    const old = await crm.createLead({ company: 'Stara Firma' });
+    await crm.logActivity(old.id, { type: 'Call', result: 'reached', date: '2026-09-10' });
+    const again = (await crm.report('2026-09-22', '2026-09-28')).text;
+    expect(again).not.toContain('Stara Firma');
+    expect(again).toContain('Alfa - Call, Email [new -> contacting]');
   });
 
   it('renames a segment together with its leads', async () => {
@@ -125,6 +132,23 @@ describe('Crm', () => {
     expect((await crm.toggleTask(t.id)).completed).toBe('2026-09-28');
     await crm.deleteEvent(e.id);
     expect(await crm.listTasks()).toHaveLength(0);
+  });
+
+  it('keeps people, ties tasks to them and keeps an email subject out of the body', async () => {
+    const p = await crm.savePerson({ name: 'Patryk Nowak', role: 'Dyrektor', email: 'Patryk@Szkola.pl', aliases: 'dyrektor' });
+    expect(p.email).toBe('patryk@szkola.pl');
+    const t = await crm.saveTask({ task: 'Wyślij dyrektorowi plan biegu', due: '2026-09-25', personId: p.id,
+      materials: [{ title: 'Mail do dyrektora', body: 'Temat: Plan biegu\n\nDzień dobry,\nprzesyłam plan.' }] });
+    expect(t.person).toMatchObject({ name: 'Patryk Nowak', email: 'patryk@szkola.pl' });
+    expect(t.materials[0]).toEqual({ title: 'Mail do dyrektora', subject: 'Plan biegu', body: 'Dzień dobry,\nprzesyłam plan.' });
+
+    // overdue project tasks reach the dashboard; ticking one off counts a contact with the person
+    expect((await crm.dashboard()).tasks.map((x) => x.id)).toContain(t.id);
+    await crm.toggleTask(t.id);
+    expect((await crm.getPerson(p.id)).contacts).toBe(1);
+    expect((await crm.dashboard()).tasksDoneToday).toBe(1);
+    await crm.deletePerson(p.id);
+    expect((await crm.listTasks()).find((x) => x.id === t.id)!.personId).toBe(0);
   });
 });
 
@@ -162,5 +186,260 @@ describe('connection strings', () => {
       .toBe('postgres://u:p@h.supabase.com:6543/postgres');
     expect(cleanUrl('postgresql://u:p@ep-x.neon.tech/db?sslmode=require&channel_binding=require&application_name=crm'))
       .toBe('postgresql://u:p@ep-x.neon.tech/db?application_name=crm');
+  });
+});
+
+describe('login', () => {
+  it('online without a password serves nothing; with one it needs the login', async () => {
+    const { createApp } = await import('./app.js');
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const open = createApp({ crm: async () => crm, requirePassword: true });
+    expect(await (await open.request('/api/me')).json()).toMatchObject({ setupNeeded: true, authenticated: false });
+    expect((await open.request('/api/leads')).status).toBe(503);
+    expect((await open.request('/api/mcp/x', { method: 'POST', body: '{}' })).status).toBe(503);
+
+    const locked = createApp({ crm: async () => crm, password: 'tajne-haslo-123', requirePassword: true });
+    expect((await locked.request('/api/leads')).status).toBe(401);
+    expect((await locked.request('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'zle' }) })).status).toBe(401);
+    const ok = await locked.request('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'tajne-haslo-123' }) });
+    const cookie = ok.headers.get('set-cookie')!.split(';')[0];
+    expect((await locked.request('/api/leads', { headers: { cookie } })).status).toBe(200);
+  });
+});
+
+describe('network of people', () => {
+  it('keeps who does what, links them to events and finds help for a need', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const ev = await crm.saveEvent({ title: 'Bieg Terry\'ego Foxa', date: '2026-10-10' });
+    const marta = await crm.savePerson({ name: 'Marta', kind: 'external', role: 'Animatorka', services: 'animacje dla dzieci, malowanie twarzy' });
+    const marcin = await crm.savePerson({ name: 'Marcin', kind: 'external', company: 'Event 360', services: 'ławy, stoły, namioty' });
+    await crm.savePerson({ name: 'Patryk Kundera', role: 'Wicedyrektor', services: 'tatuaże, grafika' });
+    await crm.createLead({ company: 'Drukarnia Logo-Print', city: 'Katowice', industry: 'druk reklamowy, nadruki z logo' });
+
+    await crm.linkPersonEvent(ev.id, marta.id, 'animacje');
+    await crm.linkPersonEvent(ev.id, marcin.id, 'ławy i stoły');
+    await crm.linkPersonEvent(ev.id, marta.id, '');             // again without a role keeps the role
+    expect((await crm.eventPeople(ev.id)).map((p) => `${p.name}:${p.role}`)).toEqual(['Marcin:ławy i stoły', 'Marta:animacje']);
+    expect((await crm.getPerson(marta.id)).events).toEqual([{ eventId: ev.id, title: 'Bieg Terry\'ego Foxa', date: '2026-10-10', role: 'animacje' }]);
+    expect((await crm.getPerson(marcin.id))).toMatchObject({ kind: 'external', company: 'Event 360' });
+
+    const anim = await crm.findHelp('animacje na piknik wielokulturowy');
+    expect(anim.people[0].name).toBe('Marta');
+    expect(anim.people[0].past_events[0]).toContain('Bieg');
+    const print = await crm.findHelp('wydrukować rzeczy z logotypem');
+    expect(print.companies[0].company).toBe('Drukarnia Logo-Print');
+    expect((await crm.findHelp('stoły')).people[0].name).toBe('Marcin');
+
+    await crm.deletePerson(marta.id);
+    expect(await crm.eventPeople(ev.id)).toHaveLength(1);
+  });
+
+  it('puts active partners into the network on their own', async () => {
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-07');
+    const armada = await crm.createLead({ company: 'Armada Klub Golfowy', person: 'Jan Nowak', phone: '600 100 200', industry: 'golf' });
+    const ev360 = await crm.createLead({ company: 'Event 360' });
+    const marcin = await crm.savePerson({ name: 'Marcin (Event 360)', role: 'wypożyczenie ław i stołów', services: 'ławy, stoły' });
+    expect(await crm.listPeople()).toHaveLength(1);
+
+    await crm.setStage(armada.id, 'active');
+    await crm.setStage(ev360.id, 'active');
+    const people = await crm.listPeople();
+    expect(people).toHaveLength(2);                                   // Marcin linked, not duplicated
+    expect(people.find((p) => p.name === 'Jan Nowak')).toMatchObject({ kind: 'external', company: 'Armada Klub Golfowy', leadId: armada.id, partner: true, services: 'golf' });
+    expect(await crm.getPerson(marcin.id)).toMatchObject({ leadId: ev360.id, partner: true, company: 'Event 360', kind: 'external' });
+    expect(await crm.listPeople()).toHaveLength(2);                   // idempotent
+
+    await crm.setStage(armada.id, 'negotiation');
+    expect((await crm.listPeople()).find((p) => p.name === 'Jan Nowak')!.partner).toBe(false);
+  });
+});
+
+describe('procedures', () => {
+  it('runs steps in order, starts the next one, shows who has what and where it is stuck', async () => {
+    const { Processes } = await import('./processes.js');
+    const db = await openDb('memory://');
+    let today = '2026-10-07';
+    const crm = new Crm(db, 'Martin', () => today);
+    const pr = new Processes(crm);
+    const patryk = await crm.savePerson({ name: 'Patryk' });
+    const roma = await crm.savePerson({ name: 'Roma' });
+    const lead = await crm.createLead({ company: 'Armada' });
+    const proc = await pr.save({ name: 'Nowy partner', steps: [
+      { title: 'Umowa partnerska', personId: patryk.id, days: 3, doneWhen: 'podpisana przez obie strony' },
+      { title: 'Post o partnerstwie', personId: roma.id, days: 2 },
+      { title: 'Logo na stronie', personId: 0, days: 5 },
+    ] });
+    const run = await pr.start({ processId: proc.id, title: 'Nowy partner: Armada', leadId: lead.id });
+    expect(run.current).toBe(1);
+    expect(run.steps.map((s) => [s.person, s.due])).toEqual([['Patryk', '2026-10-10'], ['Roma', ''], ['', '']]);
+
+    // Roma's step waits for Patryk — and cannot be ticked off before
+    const romaWork = await pr.personWork(roma.id);
+    expect(romaWork.items[0].state).toContain('czeka na krok 1');
+    await expect(crm.toggleTask(run.steps[1].taskId)).rejects.toThrow(/najpierw musi być zrobiony krok 1/);
+
+    // Patryk late → stuck; blocked reason shows too
+    today = '2026-10-12';
+    expect((await pr.run(run.id)).stuck).toEqual(['spóźnione o 2 dni']);
+    await crm.saveTask({ id: run.steps[0].taskId, blocked: 'Armada nie odesłała skanu' });
+    expect((await pr.run(run.id)).stuck[0]).toContain('Armada nie odesłała');
+    expect(await pr.status(true)).toContain('UTKNĘŁO');
+
+    // done → next step starts with its own clock
+    await crm.toggleTask(run.steps[0].taskId);
+    const after = await pr.run(run.id);
+    expect(after.current).toBe(2);
+    expect(after.steps[1]).toMatchObject({ due: '2026-10-14', started: '2026-10-12' });
+    expect((await pr.personWork(roma.id)).items[0].state).toBe('teraz jego/jej ruch');
+    expect((await crm.listTasks()).find((t) => t.id === run.steps[1].taskId)!.run).toEqual({ title: 'Nowy partner: Armada', process: 'Nowy partner', steps: 3 });
+
+    await crm.toggleTask(run.steps[1].taskId);
+    expect((await pr.run(run.id)).stuck).toEqual(['nikt nie jest przypisany']);
+    await crm.toggleTask(run.steps[2].taskId);
+    expect(await pr.run(run.id)).toMatchObject({ status: 'done', current: 0, finished: '2026-10-12' });
+    await expect(pr.remove(proc.id)).resolves.toEqual({ ok: true });
+  });
+});
+
+describe('learning procedures from history', () => {
+  it('proposes a procedure from repeated checklists, when to start it, and fixes from finished runs', async () => {
+    const { suggestProcesses } = await import('./suggest.js');
+    const { Processes } = await import('./processes.js');
+    const db = await openDb('memory://');
+    let today = '2026-10-07';
+    const crm = new Crm(db, 'Martin', () => today);
+    const roma = await crm.savePerson({ name: 'Roma' });
+    const patryk = await crm.savePerson({ name: 'Patryk' });
+    for (const [title, date] of [['Dzień otwarty wrzesień', '2026-09-10'], ['Dzień otwarty czerwiec', '2026-06-12']] as const) {
+      const e = await crm.saveEvent({ title, type: 'Open day', date, status: 'done' });
+      await crm.saveTask({ eventId: e.id, task: 'Post na Facebooku o dniu otwartym', personId: roma.id, due: new Date(Date.parse(date) - 14 * 864e5).toISOString().slice(0, 10) });
+      await crm.saveTask({ eventId: e.id, task: 'Zamówić catering', personId: patryk.id, due: new Date(Date.parse(date) - 7 * 864e5).toISOString().slice(0, 10) });
+      await crm.saveTask({ eventId: e.id, task: 'Wydrukować plakaty', personId: patryk.id, due: new Date(Date.parse(date) - 10 * 864e5).toISOString().slice(0, 10) });
+    }
+    const next = await crm.saveEvent({ title: 'Dzień otwarty październik', type: 'Open day', date: '2026-10-21' });
+
+    let s = await suggestProcesses(crm);
+    const fresh = s.find((x) => x.kind === 'new')!;
+    expect(fresh.title).toBe('Przygotowanie: Dzień otwarty');
+    expect(fresh.steps!.map((x) => [x.title, x.person, x.daysBefore])).toEqual([
+      ['Post na Facebooku o dniu otwartym', 'Roma', 14], ['Wydrukować plakaty', 'Patryk', 10], ['Zamówić catering', 'Patryk', 7]]);
+    expect(s.find((x) => x.kind === 'start')).toMatchObject({ eventId: next.id });
+
+    // once saved, the "new" one goes away and "start" points at it
+    const pr = new Processes(crm);
+    const proc = await pr.save({ name: 'Przygotowanie: Dzień otwarty', steps: fresh.steps!.map((x) => ({ title: x.title, personId: x.personId, days: 2 })) });
+    s = await suggestProcesses(crm);
+    expect(s.some((x) => x.kind === 'new')).toBe(false);
+    expect(s.find((x) => x.kind === 'start')).toMatchObject({ processId: proc.id });
+
+    // two runs where step 1 took 6 days instead of 2 → adjust
+    for (const t of ['A', 'B']) {
+      today = '2026-10-01';
+      const run = await pr.start({ processId: proc.id, title: t });
+      today = '2026-10-07';
+      for (const st of run.steps) await crm.toggleTask(st.taskId);
+    }
+    s = await suggestProcesses(crm);
+    expect(s.find((x) => x.kind === 'adjust')!.changes![0]).toContain('w praktyce zwykle 6');
+  });
+});
+
+describe('people track record', () => {
+  it('builds skills evidence, deadlines and typical time from finished work, and finds people by it', async () => {
+    const { personProfile } = await import('./profile.js');
+    const db = await openDb('memory://');
+    let today = '2026-10-01';
+    const crm = new Crm(db, 'Martin', () => today);
+    const roma = await crm.savePerson({ name: 'Roma', role: 'Social media', scope: 'content i kalendarz publikacji' });
+    const a = await crm.saveTask({ task: 'Post na Instagram o dniu otwartym', personId: roma.id, due: '2026-10-03' });
+    const b = await crm.saveTask({ task: 'Post na Instagram z biegu', personId: roma.id, due: '2026-10-03' });
+    today = '2026-10-03'; await crm.toggleTask(a.id);
+    today = '2026-10-06'; await crm.toggleTask(b.id);
+    await crm.saveTask({ task: 'Rolka na Instagram z pikniku', personId: roma.id, status: 'done', completed: '2026-09-20' });
+
+    const r = await personProfile(crm, roma.id);
+    expect(r).toMatchObject({ done_total: 3, on_time: '1/2 na czas', usually_late_by_days: 3, scope: 'content i kalendarz publikacji', typical_days_to_finish: 2 });
+    expect(r.recurring_work![0]).toMatchObject({ word: 'instagram', times: 3 });
+    expect((await crm.getPerson(roma.id)).doneCount).toBe(3);
+
+    const help = await crm.findHelp('rolka na instagram');
+    expect(help.people[0]).toMatchObject({ name: 'Roma', done_tasks: 3 });
+    expect(help.people[0].similar_done.length).toBeGreaterThan(0);
+  });
+});
+
+describe('call report', () => {
+  const script = `
+const CONFIG = {
+  baseUrl:      "https://nagrywanie.plus.pl/recordingApi/recordingsPaged/",
+  username:     "someone",
+  password:     "NOT-A-REAL-PASSWORD",
+  recipients: [
+  "a@example.com",
+  "b@example.com"
+
+  ].join(","),
+  // Lista osób
+  people: [
+    {
+      person: "Martin",
+      group: "sales",
+      recordingNumber: "48600000001",
+      departmentNames: ["Poland Enrollment (Martin)", "Poland Enrollment"],
+      treatAllAsExternal: false
+    },
+    {
+      person: "Dawid",
+      group: "admin",
+      recordingNumber: null,
+      departmentNames: ["Katowice Recepcja (Dawid)", "Katowice Sekretariat"],
+      treatAllAsExternal: true
+    }
+  ],
+  blacklist: [
+    "600000001","600000002",
+  ]
+};`;
+
+  it('takes people, own numbers and recipients from the old script — never the password', async () => {
+    const { parseScriptConfig, saveCallConfig, getCallConfig } = await import('./callreport.js');
+    const parsed = parseScriptConfig(script);
+    expect(JSON.stringify(parsed)).not.toContain('NOT-A-REAL-PASSWORD');
+    expect(parsed.people).toHaveLength(2);
+    expect(parsed.recipients).toEqual(['a@example.com', 'b@example.com']);
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-09');
+    await saveCallConfig(crm, parsed);
+    const c = await getCallConfig(crm);
+    expect(c.people[1]).toMatchObject({ person: 'Dawid', group: 'admin', recordingNumber: null, treatAllAsExternal: true });
+    expect(c.blacklist).toEqual(['600000001', '600000002']);
+  });
+
+  it('counts like the script: by number, internal vs external, receptions all external, Fri–Thu week', async () => {
+    const { parseScriptConfig, saveCallConfig, callReport, callReportHtml, lastReportWeek } = await import('./callreport.js');
+    expect(lastReportWeek('2026-10-09')).toEqual({ from: '2026-10-02', to: '2026-10-08' });   // Friday → last Thursday
+    expect(lastReportWeek('2026-10-08')).toEqual({ from: '2026-10-02', to: '2026-10-08' });
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-09');
+    await saveCallConfig(crm, parseScriptConfig(script));
+    const m = '48600000001';
+    const records = [
+      { recordingNumber: m, callDirection: 'MO', status: 'RECORDED', length: 120000, callingUserPart: '600000001', calledUserPart: '501111111' },
+      { recordingNumber: m, callDirection: 'MT', status: 'RECORDED', length: 60000, callingUserPart: '502222222', calledUserPart: '600000001' },
+      { recordingNumber: m, callDirection: 'MO', status: 'NOT_RECORDED', callingUserPart: '600000001', calledUserPart: '503333333' },
+      { recordingNumber: m, callDirection: 'MO', status: 'RECORDED', length: 60000, callingUserPart: '600000001', calledUserPart: '600000002' }, // internal
+      { recordingNumber: m, callDirection: 'MO', status: 'FAILED', callingUserPart: '600000001', calledUserPart: '504444444' },
+      { departmentName: 'Katowice Sekretariat', callDirection: 'MT', status: 'MISSED', callingUserPart: '600000002', calledUserPart: '600000001' },
+    ];
+    const r = await callReport(crm, { records });
+    const martin = r.sales[0].stats;
+    expect(martin).toMatchObject({ totalAll: 4, internal: 1, external: 3, answered: 2, outTotal: 3, inTotal: 1, failed: 1, totalMin: 4, avgMin: 1.3 });
+    expect(r.admin[0].stats).toMatchObject({ totalAll: 1, external: 1, internal: 1 });   // reception: everything counted as external
+    const html = callReportHtml(r, 'teraz');
+    expect(html).toContain('Martin');
+    expect(html).toContain('4.0 min');
   });
 });

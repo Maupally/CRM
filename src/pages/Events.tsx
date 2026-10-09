@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, MapPin, Pencil, Trash2, X, PartyPopper } from 'lucide-react';
+import { MapPin, Pencil, Trash2, X, PartyPopper, Phone, Copy, Download, Eye, ExternalLink, FileCode2 } from 'lucide-react';
 import { api } from '../api';
-import { DueTag, Empty, ErrorBox, Loading, Modal, relDay, useAction, useToday, weekdayName } from '../components/ui';
-import { EVENT_STATUS, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
+import { Avatar, Empty, ErrorBox, Loading, Modal, copyText, relDay, telHref, useAction, useToast, useToday, weekdayName } from '../components/ui';
+import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
+import { DESIGN_KIND_LABEL, EVENT_STATUS, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
 
 export function EventsPage() {
   const { id } = useParams();
@@ -32,7 +33,6 @@ export function EventsPage() {
         <div><h1>Wydarzenia</h1><div className="sub">Dni otwarte, targi, sponsoring — każde z listą rzeczy do przygotowania.</div></div>
         <span className="spacer" />
         <label className="row small soft"><input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} /> minione</label>
-        <button className="btn primary" onClick={() => setEditing({ type: 'Open day', status: 'planned', date: today })}><Plus size={16} /> Nowe wydarzenie</button>
       </div>
       <div className="grid halves">
         <section className="card">
@@ -78,11 +78,7 @@ export function EventsPage() {
 
 function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; tasks: Task[]; onEdit: () => void; onClose: () => void }) {
   const today = useToday();
-  const [task, setTask] = useState('');
-  const [due, setDue] = useState('');
-  const add = useAction(() => api.saveTask({ eventId: e.id, task, due }), { onDone: () => { setTask(''); setDue(''); } });
-  const toggle = useAction((id: string) => api.toggleTask(id));
-  const drop = useAction((id: string) => api.deleteTask(id));
+  const [detail, setDetail] = useState<Task | null>(null);
   const open = tasks.filter((t) => t.status !== 'done');
   const done = tasks.filter((t) => t.status === 'done');
 
@@ -100,22 +96,13 @@ function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; ta
         {e.cost && <div className="soft">Koszt: {e.cost}</div>}
         {e.notes && <div className="pre">{e.notes}</div>}
       </div>
+      <EventPeople eventId={e.id} />
+      <EventAssets eventId={e.id} />
       <div className="group-label">Checklista · {open.length} otwartych</div>
       <ul className="list">
-        {[...open, ...done].map((t) => (
-          <li key={t.id} className="li">
-            <button className={`check ${t.status === 'done' ? 'on' : ''}`} onClick={() => toggle.mutate(t.id)} aria-label="Przełącz">✓</button>
-            <span className={`grow ${t.status === 'done' ? 'done-text' : ''}`}>{t.task}</span>
-            {t.status !== 'done' ? <DueTag date={t.due} today={today} /> : <span className="faint small">{t.completed && relDay(t.completed, today)}</span>}
-            <button className="btn sm ghost icon" title="Usuń" onClick={() => confirm('Usunąć zadanie?') && drop.mutate(t.id)}><Trash2 size={14} /></button>
-          </li>
-        ))}
+        {[...open, ...done].map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} />)}
       </ul>
-      <form className="row wrap pad" onSubmit={(ev) => { ev.preventDefault(); if (task.trim()) add.mutate(undefined); }}>
-        <input type="text" className="grow" placeholder="Nowe zadanie…" value={task} onChange={(ev) => setTask(ev.target.value)} style={{ minWidth: 180 }} />
-        <input type="date" value={due} onChange={(ev) => setDue(ev.target.value)} style={{ width: 160 }} />
-        <button className="btn" disabled={!task.trim() || add.isPending}>Dodaj</button>
-      </form>
+      <TaskDetail task={detail} onClose={() => setDetail(null)} />
     </section>
   );
 }
@@ -157,5 +144,65 @@ function EventForm({ value, onClose }: { value: Partial<CrmEvent> | null; onClos
         <label className="field wide">Notatki<textarea rows={3} value={d.notes || ''} onChange={s('notes')} /></label>
       </div>
     </Modal>
+  );
+}
+
+/** Who helps with this event and with what — the history the next event is planned from. */
+function EventPeople({ eventId }: { eventId: string }) {
+  const q = useQuery({ queryKey: ['event-people', eventId], queryFn: () => api.eventPeople(eventId) });
+  const drop = useAction((id: number) => api.unlinkEventPerson(eventId, id));
+  return (
+    <>
+      <div className="group-label">Kto pomaga · {q.data?.length || 0}</div>
+      <ul className="list">
+        {(q.data || []).map((p) => (
+          <li key={p.personId} className="li">
+            <Avatar name={p.name} size="sm" />
+            <div className="grow" style={{ minWidth: 0 }}>
+              <Link to={`/zespol?osoba=${p.personId}`} className="title trunc" style={{ display: 'block' }}>{p.name}</Link>
+              <div className="meta trunc">{[p.role, p.company].filter(Boolean).join(' · ') || 'bez roli'}</div>
+            </div>
+            {p.phone && <a className="btn sm icon" href={telHref(p.phone)} aria-label="Zadzwoń"><Phone size={14} /></a>}
+            <button className="btn sm ghost icon" onClick={() => drop.mutate(p.personId)} aria-label="Odepnij"><X size={14} /></button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/** What was made for this event: its page, Google Form scripts, briefs — previewed, downloaded, copied. */
+function EventAssets({ eventId }: { eventId: string }) {
+  const q = useQuery({ queryKey: ['event-assets', eventId], queryFn: () => api.eventAssets(eventId) });
+  const toast = useToast();
+  const copy = async (id: number) => {
+    const d = await api.design(id);
+    copyText(d.versions.at(-1)?.html || '');
+    toast('Skopiowano');
+  };
+  return (
+    <>
+      <div className="group-label">Materiały · {q.data?.length || 0}</div>
+      {!q.data?.length && <div className="small faint" style={{ padding: '0 20px 10px' }}>Strona, formularze Google i zlecenia pojawią się tu, gdy Claude je przygotuje („przygotuj wszystko do tego wydarzenia”).</div>}
+      <ul className="list">
+        {(q.data || []).map((d) => {
+          const page = `/api/studio/${d.id}/html`;
+          const text = d.kind === 'form' || d.kind === 'brief';
+          return (
+            <li key={d.id} className="li">
+              <span className="type-ic"><FileCode2 size={16} /></span>
+              <div className="grow" style={{ minWidth: 0 }}>
+                <div className="title trunc">{d.title}</div>
+                <div className="meta trunc">{DESIGN_KIND_LABEL[d.kind]} · wersja {d.versions}{d.note ? ` · ${d.note}` : ''}</div>
+              </div>
+              {!text && <a className="btn sm icon" href={page} target="_blank" rel="noreferrer" aria-label="Podgląd" title="Podgląd"><Eye size={14} /></a>}
+              {text && <button className="btn sm icon" onClick={() => copy(d.id)} aria-label="Kopiuj" title={d.kind === 'form' ? 'Kopiuj skrypt' : 'Kopiuj tekst'}><Copy size={14} /></button>}
+              {d.kind === 'form' && <a className="btn sm icon" href="https://script.google.com/create" target="_blank" rel="noreferrer" aria-label="Google Apps Script" title="Otwórz Google Apps Script — wklej skrypt i kliknij Uruchom"><ExternalLink size={14} /></a>}
+              <a className="btn sm icon" href={`${page}?download=1`} aria-label="Pobierz" title="Pobierz"><Download size={14} /></a>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }

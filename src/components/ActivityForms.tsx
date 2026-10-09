@@ -97,13 +97,13 @@ const RESULT_LABELS = { reached: 'Odebrał', 'no answer': 'Nie odebrał', done: 
 
 type Mode = 'log' | 'plan';
 
-export function Composer({ lead, initialMode = 'log', onDone }: { lead: Lead; initialMode?: Mode; onDone?: () => void }) {
+export function Composer({ lead, initialMode = 'log', initialDate = '', onDone }: { lead: Lead; initialMode?: Mode; initialDate?: string; onDone?: () => void }) {
   const today = useToday();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [type, setType] = useState<string>('Call');
   const [result, setResult] = useState<string>('reached');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState('');
+  const [date, setDate] = useState(initialDate);
   const [stage, setStage] = useState<StageValue>({ stage: '', reason: '' });
   const [next, setNext] = useState<NextStepValue>(noNextStep());
 

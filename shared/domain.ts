@@ -158,8 +158,114 @@ export interface Task {
   status: string;
   notes: string;
   completed: string;
+  leadId: string;
+  materials: Material[];
+  attachments: number[];
+  /** who the task is for (0 = nobody in particular) */
+  personId: number;
+  person?: { name: string; role: string; email: string; phone: string };
   eventTitle?: string;
   eventDate?: string;
+  company?: string;
+  /** when the task is a step of a running procedure */
+  runId: number;
+  step: number;
+  /** why it cannot move on, if it is stuck */
+  blocked: string;
+  /** when this step became the current one */
+  started: string;
+  /** when the task was written down */
+  created: string;
+  run?: { title: string; process: string; steps: number };
+}
+
+/** A ready-to-use piece of text prepared for a task (post, SMS, email, text for teachers…). */
+export interface Material {
+  title: string;
+  body: string;
+  /** set for an email: the subject goes in its own field, never inside the body */
+  subject?: string;
+  /** email address, when the material is an email to someone outside the task's person */
+  to?: string;
+}
+
+export const THREAD_MODES = ['b2b', 'casual', 'other'] as const;
+export type ThreadMode = (typeof THREAD_MODES)[number];
+export const THREAD_MODE_LABEL: Record<ThreadMode, string> = { b2b: 'B2B — firmy', casual: 'Swobodny — rodzice, zespół', other: 'Ogólny' };
+export interface ThreadMessage { role: 'user' | 'assistant'; text: string; at: string; via?: 'mikrofon' | 'czat' | 'claude' }
+export interface Thread { id: number; title: string; mode: ThreadMode; source: 'claude' | 'opal'; messages: ThreadMessage[]; updatedAt: string }
+export interface ThreadSummary { id: number; title: string; mode: ThreadMode; source: string; count: number; last: string; updatedAt: string }
+
+export const DESIGN_KINDS = ['www', 'deck', 'email', 'doc', 'form', 'brief'] as const;
+export type DesignKind = (typeof DESIGN_KINDS)[number];
+export const DESIGN_KIND_LABEL: Record<DesignKind, string> = {
+  www: 'Strona WWW', deck: 'Prezentacja', email: 'Mail / szablon', doc: 'Dokument', form: 'Formularz Google (skrypt)', brief: 'Zlecenie / brief',
+};
+
+export interface DesignVersion { html: string; note: string; at: string }
+export interface DesignMessage { role: 'user' | 'assistant'; text: string; files?: KnowledgeItem[]; at: string }
+export interface Design {
+  id: number;
+  title: string;
+  kind: DesignKind;
+  versions: DesignVersion[];
+  chat: DesignMessage[];
+  updatedAt: string;
+  /** the event it was made for, if any */
+  eventId: string;
+}
+export interface DesignSummary { id: number; title: string; kind: DesignKind; versions: number; updatedAt: string; eventId: string; eventTitle?: string; note?: string }
+
+/** Writing guidance moved over from the Claude project: general rules, B2B emails, relaxed messages. */
+export interface Style { project: string; b2b: string; casual: string }
+
+/** Someone the user works with — the director, a colleague, a teacher. */
+export interface Person {
+  id: number;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+  /** other ways the user calls them: "dyrektor, Patryk, szef" */
+  aliases: string;
+  notes: string;
+  /** how many times tasks/emails went to them, and when last */
+  contacts: number;
+  lastContact: string;
+  /** team = people at the school; external = suppliers, animators, partners' people */
+  kind: PersonKind;
+  /** their firm, e.g. "Event 360" (and its card in Firmy, when it is there) */
+  company: string;
+  leadId: string;
+  /** skills — what they can do or provide: "ławy, stoły, namioty", "grafika, social media" */
+  services: string;
+  /** what they are responsible for (zakres obowiązków) */
+  scope: string;
+  /** tasks they finished (all time) */
+  doneCount: number;
+  /** events they helped with, newest first */
+  events: PersonEvent[];
+  /** their firm is an active partner right now */
+  partner: boolean;
+}
+
+export const PERSON_KINDS = ['team', 'external'] as const;
+export type PersonKind = (typeof PERSON_KINDS)[number];
+export const PERSON_KIND_LABEL: Record<PersonKind, string> = { team: 'Zespół szkoły', external: 'Kontakty zewnętrzne' };
+export interface PersonEvent { eventId: string; title: string; date: string; role: string }
+export interface EventPerson { personId: number; name: string; role: string; company: string; phone: string; email: string }
+
+export interface KnowledgeItem {
+  id: number;
+  title: string;
+  filename: string;
+  mime: string;
+  size: number;
+  description: string;
+  tags: string;
+  createdAt: string;
+  hasFile: boolean;
+  textLength: number;
 }
 
 /* ------------------------------------------------------ normalisation */
@@ -327,4 +433,35 @@ export function fillTemplate(s: string, lead: Pick<Lead, 'company' | 'city' | 'p
 
 export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/* ------------------------------------------------------------------ B2C progress */
+
+/** One B2C goal: e.g. "Telefony do rodziców z dni otwartych", 40 of 120 done. */
+export interface B2cItem {
+  id: number; title: string; category: string; target: number; done: number; unit: string; due: string; notes: string;
+  updatedAt: string;
+  /** Done in the last 7 days (from the log). */
+  week: number;
+}
+export interface B2cLog { id: number; itemId: number; delta: number; note: string; day: string; at: string }
+
+/* ------------------------------------------------------------------ procedures */
+
+/** One step of a procedure: what, who does it, how many days it may take, when it counts as done. */
+export interface ProcessStep { title: string; personId: number; days: number; doneWhen: string }
+export interface Process { id: number; name: string; description: string; steps: ProcessStep[]; updatedAt: string; activeRuns: number }
+
+export interface RunStep {
+  taskId: string; step: number; title: string; status: string; due: string; completed: string; blocked: string; started: string;
+  personId: number; person: string; doneWhen: string;
+}
+/** A running procedure with where it stands and — if so — why it is stuck. */
+export interface ProcessRun {
+  id: number; processId: number; process: string; title: string; leadId: string; company: string; eventId: string; eventTitle: string;
+  status: 'active' | 'done' | 'cancelled'; started: string; finished: string;
+  steps: RunStep[];
+  /** 1-based number of the step it is on now (0 when finished) */
+  current: number;
+  stuck: string[];
 }

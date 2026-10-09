@@ -3,34 +3,57 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../api';
+import { useNavigate } from 'react-router-dom';
 import { ErrorBox, Loading, Seg, TYPE_ICON, useToday, weekdayName } from '../components/ui';
+import { MonthCalendar, monthOf, monthRange, type CalItem } from '../components/MonthCalendar';
 import { addDays, shortDate, startOfWeek } from '../../shared/domain';
 
 export function CalendarPage() {
   const today = useToday();
   const [start, setStart] = useState(() => startOfWeek(today));
-  const [weeks, setWeeks] = useState<'1' | '2'>('1');
+  const [weeks, setWeeks] = useState<'1' | '2' | 'm'>(() => (window.innerWidth < 900 ? '1' : 'm'));
+  const [month, setMonth] = useState(() => monthOf(today));
   const [showDone, setShowDone] = useState(true);
-  const n = Number(weeks);
+  const nav = useNavigate();
+  const n = weeks === 'm' ? 1 : Number(weeks);
   const end = addDays(start, 7 * n - 1);
-  const q = useQuery({ queryKey: ['agenda', start, end], queryFn: () => api.agenda(start, end) });
+  const [mFrom, mTo] = monthRange(month);
+  const from = weeks === 'm' ? mFrom : start;
+  const to = weeks === 'm' ? mTo : end;
+  const q = useQuery({ queryKey: ['agenda', from, to], queryFn: () => api.agenda(from, to) });
   const days = Array.from({ length: 7 * n }, (_, i) => addDays(start, i));
 
   return (
     <>
       <div className="page-head">
-        <div><h1>Kalendarz</h1><div className="sub">{shortDate(start)} – {shortDate(end)}.{end.slice(0, 4)}</div></div>
+        <div><h1>Kalendarz</h1>{weeks !== 'm' && <div className="sub">{shortDate(start)} – {shortDate(end)}.{end.slice(0, 4)}</div>}</div>
         <span className="spacer" />
         <label className="row small soft"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> pokaż zrobione</label>
-        <Seg value={weeks} options={['1', '2'] as const} onChange={setWeeks} labels={{ '1': 'Tydzień', '2': '2 tygodnie' }} />
-        <div className="row">
+        <Seg value={weeks} options={['1', '2', 'm'] as const} onChange={setWeeks} labels={{ '1': 'Tydzień', '2': '2 tyg.', m: 'Miesiąc' }} />
+        {weeks !== 'm' && <div className="row">
           <button className="btn icon" onClick={() => setStart(addDays(start, -7))} aria-label="Poprzedni"><ChevronLeft size={18} /></button>
           <button className="btn" onClick={() => setStart(startOfWeek(today))}>Dziś</button>
           <button className="btn icon" onClick={() => setStart(addDays(start, 7))} aria-label="Następny"><ChevronRight size={18} /></button>
-        </div>
+        </div>}
       </div>
 
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : weeks === 'm' ? (
+        <div className="card pad">
+          <MonthCalendar size="lg" month={month} onMonth={setMonth} today={today}
+            items={[
+              ...q.data!.events.map((e): CalItem => ({ date: e.date, kind: 'event', label: e.title, href: `/wydarzenia/${e.id}` })),
+              ...q.data!.activities.filter((a) => showDone || a.result === 'planned').map((a): CalItem => ({
+                date: a.date, label: a.company || a.leadId, href: `/firmy/${a.leadId}`,
+                kind: a.result === 'planned' ? (a.date < today ? 'late' : 'planned') : a.result === 'no answer' ? 'noans' : 'done',
+              })),
+            ]}
+            onDay={(d) => { setStart(startOfWeek(d)); setWeeks('1'); }}
+            renderItem={(it, i) => (
+              <span key={i} className={`ev ${it.kind}`} title={it.label}
+                onClick={(e) => { if (it.href) { e.stopPropagation(); nav(it.href); } }}><span className="t">{it.label}</span></span>
+            )} />
+        </div>
+      ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
           {Array.from({ length: n }, (_, w) => (
             <div key={w} className="week" style={w ? { borderTop: '1px solid var(--line-strong)' } : undefined}>

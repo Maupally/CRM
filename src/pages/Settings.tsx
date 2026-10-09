@@ -1,25 +1,26 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Upload, Plus, Trash2 } from 'lucide-react';
+import { Download, Upload, Plus, Trash2, Sparkles, Copy } from 'lucide-react';
 import { api } from '../api';
-import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, useAction } from '../components/ui';
-import type { Segment, Template } from '../../shared/domain';
+import { useFileDrop } from '../components/Files';
+import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, copyText, useAction, useConfig, useToast } from '../components/ui';
+import type { Segment, Style, Template } from '../../shared/domain';
 
-type Tab = 'playbook' | 'szablony' | 'dane';
+type Tab = 'playbook' | 'szablony' | 'dane' | 'styl' | 'claude';
 
 export function SettingsPage() {
   const [sp, setSp] = useSearchParams();
-  const tab = (sp.get('tab') || 'playbook') as Tab;
+  const tab = (sp.get('tab') || 'claude') as Tab;
   return (
     <>
       <div className="page-head">
         <div><h1>Ustawienia</h1><div className="sub">Segmenty i pitch, szablony maili, import i kopia zapasowa.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'playbook' ? {} : { tab: t }, { replace: true })}
-          labels={{ playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
+        <Seg value={tab} options={['claude', 'playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'claude' ? {} : { tab: t }, { replace: true })}
+          labels={{ claude: 'Claude', playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
       </div>
-      {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : <Data />}
+      {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : tab === 'styl' ? <StyleSettings /> : tab === 'claude' ? <Connector /> : <Data />}
     </>
   );
 }
@@ -155,6 +156,7 @@ function Templates() {
 function Data() {
   const dup = useQuery({ queryKey: ['duplicates'], queryFn: api.duplicates });
   const [file, setFile] = useState<File | null>(null);
+  const xlsxDrop = useFileDrop((f) => setFile(f.find((x) => x.name.toLowerCase().endsWith('.xlsx')) || null));
   const [result, setResult] = useState<Awaited<ReturnType<typeof api.importXlsx>> | null>(null);
   const imp = useAction(() => api.importXlsx(file!), { ok: 'Import zakończony', onDone: (r) => { setResult(r); setFile(null); } });
 
@@ -171,8 +173,8 @@ function Data() {
           <h2>Import z arkusza</h2>
           <div className="soft">W Google Sheets: Plik → Pobierz → Microsoft Excel (.xlsx), potem wgraj plik tutaj.
             <b> Import zastępuje wszystkie dane w CRM.</b> Najpierw pobierz kopię.</div>
-          <label className="btn" style={{ width: 'fit-content' }}>
-            <Upload size={16} /> {file ? file.name : 'Wybierz plik .xlsx'}
+          <label className={`btn drop-zone ${xlsxDrop.over ? 'drop-over' : ''}`} data-drop="Upuść" style={{ width: 'fit-content' }} {...xlsxDrop.props}>
+            <Upload size={16} /> {file ? file.name : 'Wybierz albo przeciągnij plik .xlsx'}
             <input type="file" accept=".xlsx" hidden onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </label>
           <div>
@@ -210,6 +212,173 @@ function Data() {
             {!dup.data!.length && <Empty>Brak duplikatów.</Empty>}
           </ul>
         )}
+      </section>
+    </div>
+  );
+}
+
+const STYLE_FIELDS: { key: keyof Style; label: string; hint: string }[] = [
+  { key: 'project', label: 'Instrukcje ogólne', hint: 'Kim jesteś, czym jest szkoła, oferta, fakty, zasady — to, co było w instrukcjach projektu „Maple Bear”.' },
+  { key: 'b2b', label: 'Maile do firm (B2B)', hint: 'Ton, długość, struktura, stałe zwroty — jak w czacie B2B.' },
+  { key: 'casual', label: 'Rozmowy swobodne', hint: 'Rodzice, nauczyciele, zespół — jak w czacie „conversation”.' },
+];
+
+/** How the assistant writes — moved over from the Claude project, editable here. */
+function StyleSettings() {
+  const q = useQuery({ queryKey: ['style'], queryFn: api.style });
+  const kb = useQuery({ queryKey: ['knowledge'], queryFn: api.knowledge });
+  const chats = useQuery({ queryKey: ['threads'], queryFn: api.threads });
+  const [pickChats, setPickChats] = useState<number[]>([]);
+  const toast = useToast();
+  const [d, setD] = useState<Style | null>(null);
+  const [learn, setLearn] = useState<keyof Style | null>(null);
+  const [pick, setPick] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (q.data) setD(q.data); }, [q.data]);
+  const save = useAction(() => api.saveStyle(d!), { ok: 'Zapisano styl' });
+  if (q.isLoading || !d) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  const sources = (kb.data || []).filter((k) => k.textLength > 0 && !k.mime.includes('html'))
+    .sort((a, b) => Number(b.tags.includes('czat')) - Number(a.tags.includes('czat')));
+  const dirty = JSON.stringify(d) !== JSON.stringify(q.data);
+
+  const runLearn = async () => {
+    if (!learn) return;
+    setBusy(true);
+    try {
+      const r = await api.learnStyle(pick, learn, pickChats);
+      setD({ ...d, [learn]: r.text });
+      toast('Gotowe — sprawdź i zapisz');
+      setLearn(null); setPick([]); setPickChats([]);
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="card pad col" style={{ gap: 16, maxWidth: 860 }}>
+      <div><h2>Styl pisania</h2>
+        <div className="soft">Asystent pisze maile i wiadomości według tych zasad. Przenieś je z projektu „Maple Bear”: w Bazie wiedzy
+          „Przenieś z Claude”, a potem tutaj „Ucz się z czatów” — albo wklej instrukcje ręcznie.</div></div>
+      {STYLE_FIELDS.map((f) => (
+        <div key={f.key} className="col tight">
+          <div className="row between wrap"><b>{f.label}</b>
+            <button className="btn sm ghost" onClick={() => { setLearn(f.key); setPick([]); setPickChats((chats.data || []).filter((c) => c.mode === (f.key === 'casual' ? 'casual' : 'b2b') && f.key !== 'project').slice(0, 3).map((c) => c.id)); }}><Sparkles size={14} /> Ucz się z czatów</button></div>
+          <span className="soft small">{f.hint}</span>
+          <textarea rows={8} value={d[f.key]} onChange={(e) => setD({ ...d, [f.key]: e.target.value })} placeholder="Pusto — asystent pisze po swojemu." />
+        </div>
+      ))}
+      <div className="row"><button className="btn primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined)}>Zapisz</button></div>
+
+      <Modal open={!!learn} onClose={() => setLearn(null)} wide title={`Ucz się: ${STYLE_FIELDS.find((x) => x.key === learn)?.label || ''}`}
+        footer={<><button className="btn" onClick={() => setLearn(null)}>Anuluj</button>
+          <button className="btn primary" disabled={(!pick.length && !pickChats.length) || busy} onClick={runLearn}>{busy ? 'Czytam…' : `Przygotuj (${pick.length + pickChats.length})`}</button></>}>
+        <div className="soft small">Wybierz czaty lub dokumenty (do 6). Asystent przeczyta je i napisze zasady stylu — zastąpią obecną treść pola (przed zapisem możesz poprawić).</div>
+        <div className="col tight" style={{ maxHeight: 360, overflow: 'auto' }}>
+          {(chats.data || []).length > 0 && <b className="small">Czaty</b>}
+          {(chats.data || []).map((c) => (
+            <label key={`c${c.id}`} className="row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={pickChats.includes(c.id)} disabled={!pickChats.includes(c.id) && pickChats.length >= 6}
+                onChange={() => setPickChats(pickChats.includes(c.id) ? pickChats.filter((x) => x !== c.id) : [...pickChats, c.id])} />
+              <span className="grow trunc">{c.title}</span><span className="soft small">{c.count} wiad.</span>
+            </label>
+          ))}
+          {sources.length > 0 && <b className="small" style={{ marginTop: 8 }}>Baza wiedzy</b>}
+          {sources.map((k) => (
+            <label key={k.id} className="row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={pick.includes(k.id)} disabled={!pick.includes(k.id) && pick.length >= 6}
+                onChange={() => setPick(pick.includes(k.id) ? pick.filter((x) => x !== k.id) : [...pick, k.id])} />
+              <span className="grow trunc">{k.title}</span><span className="soft small">{k.tags}</span>
+            </label>
+          ))}
+          {!sources.length && !(chats.data || []).length && <span className="soft small">Pusto — najpierw „Przenieś z Claude” w Bazie wiedzy.</span>}
+        </div>
+      </Modal>
+    </section>
+  );
+}
+
+/** What to paste into the Maple Bear project in claude.ai so that everything done there lands in Opal5. */
+const PROJECT_RULES = `Masz podłączony Opal5 — mój CRM (konektor „Opal5”). Zasady:
+0. Jeśli potrzebnego narzędzia Opal5 nie widzisz (np. create_event, procesy, record_work), NIE mów, że się nie da: wywołaj list_actions, a potem run_action z nazwą akcji i parametrami. Opal5 dostaje nowe funkcje, a lista narzędzi w czacie bywa starsza.
+1. Zanim napiszesz do firmy, sprawdź ją w CRM (find_companies, get_company), żeby znać historię kontaktu.
+2. Gdy ustalimy coś z firmą albo coś zrobię (telefon, mail, spotkanie), zapisz to w CRM (log_activity, add_note), a następny krok zaplanuj (plan_activity, create_task).
+2a. Buduj moją siatkę ludzi: gdy pada nowe imię (np. animatorka Marta, Marcin z Event 360), od razu zapisz osobę w Opal5 (save_person: kto to, firma, co robi/zapewnia, przy jakim wydarzeniu), a o telefon i e-mail dopytaj. Kto pomaga przy wydarzeniu — przypnij go (link_person_event).
+2b. Gdy planuję wydarzenie, rozbij je na potrzeby (animacje, druk z logo, sprzęt, catering, promocja) i dla każdej sprawdź find_help — podsuń, kto i która firma to załatwi, na podstawie wcześniejszych wydarzeń.
+3. Maile do wysłania zapisuj jako materiał zadania: temat osobno, treść bez stopki i podpisu, adresat z Zespołu (get_people).
+4. „Co mam dziś?” → get_my_day.
+4b. Ludzie: gdy mówię, że ktoś coś zrobił — zapisz to jako jego wykonaną pracę (record_work), a gdy ma coś zrobić — zadanie dla niego. Dopisuj umiejętności i zakres obowiązków, gdy o nich wspominam (save_person). Gdy wybierasz, kto ma coś zrobić, albo szacujesz termin — sprawdź get_person_profile (co już robił, czy na czas, ile mu to zajmuje) i powiedz, kto pasuje najlepiej. Gdy z historii wynika nowa umiejętność — zaproponuj jej dopisanie.
+4a. Procesy: gdy mówię „Patryk ma zrobić…”, zapisz zadanie dla Patryka. Jeśli to część ustalonej procedury (get_processes) — uruchom ją (start_process), żeby kroki szły po kolei i każdy wiedział, kiedy jego ruch. „Co ma Patryk?” → get_person_work. „Gdzie utknęło?” → get_processes z only_stuck. Gdy coś stoi, zapisz dlaczego (blokada). Gdy opisuję, jak coś robimy krok po kroku — zaproponuj zapisanie tego jako procedury (save_process). Sam sprawdzaj suggest_processes (przy planowaniu wydarzeń i przeglądzie dnia) i proponuj procedury na podstawie wcześniejszych doświadczeń: nowe, do uruchomienia teraz albo do poprawienia.
+4c. Materiały do wydarzeń: gdy powstaje wydarzenie albo trzeba zrobić stronę, formularz czy baner — nie czekaj, od razu wywołaj event_kit i zacznij. Stronę buduj na bazie najnowszej pasującej z Opal5 (get_asset) i najpierw pokaż mi ją jako artefakt HTML do poprawek; po mojej akceptacji zapisz ją w Opal5 (save_asset, kind www, event_id). Zapisy na wydarzenia i zgłoszenia na konkursy (z kartą dziecka) zawsze przez formularze Google: make_form_script — daj mi skrypt i 4 kroki uruchomienia. Prośbę do grafika o baner napisz od razu (brief: wymiary, tekst, data, link) i zapisz jako save_asset kind brief + zadanie dla tej osoby.
+5. B2C: gdy powiem, ile zrobiłem (np. „zadzwoniłem do 5 rodziców”), dopisz to w Opal5 (b2c_progress). Pytany o postępy B2C — sprawdź b2c_status.`;
+
+function Connector() {
+  const q = useQuery({ queryKey: ['connector'], queryFn: api.connector });
+  const cfg = useConfig();
+  const toast = useToast();
+  const [show, setShow] = useState(false);
+  return (
+    <div className="col" style={{ gap: 18, maxWidth: 820 }}>
+      <section className="card pad col" style={{ gap: 14 }}>
+        <h2>Pracuj w claude.ai, zapisuj w Opal5</h2>
+        <div className="soft">Piszesz w claude.ai (w projekcie Maple Bear, w ramach planu Pro), a Claude przez konektor czyta i zapisuje w Opal5:
+          firmy, zadania, maile, Zespół i postępy B2C. Rozmowy, pliki i projekty zostają w claude.ai.</div>
+        {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+          <div className="col tight">
+            <span className="small soft">Adres konektora (tajny — działa jak hasło)</span>
+            <div className="row wrap" style={{ gap: 6 }}>
+              <input type="text" readOnly value={show ? q.data!.url : q.data!.url.replace(/[a-f0-9]{32}$/, '••••••••')} style={{ flex: 1, minWidth: 220 }} />
+              <button className="btn sm" onClick={() => setShow(!show)}>{show ? 'Ukryj' : 'Pokaż'}</button>
+              <button className="btn sm primary" onClick={() => { copyText(q.data!.url); toast('Skopiowano adres'); }}><Copy size={14} /> Kopiuj</button>
+            </div>
+          </div>
+        )}
+        <ol className="steps">
+          <li>Na komputerze otwórz <b>claude.ai → Ustawienia → Konektory</b> (Settings → Connectors).</li>
+          <li><b>Dodaj własny konektor</b> (Add custom connector): nazwa „Opal5”, adres — wklej skopiowany wyżej. Zapisz.</li>
+          <li>W projekcie „Maple Bear” kliknij ikonę narzędzi pod polem wpisywania i włącz <b>Opal5</b>. Działa też w aplikacji na telefonie.</li>
+          <li>Przy pierwszym zapisie Claude zapyta o zgodę — wybierz „Zawsze zezwalaj”, żeby nie pytał za każdym razem.</li>
+          <li>Wklej zasady z ramki niżej na koniec instrukcji projektu „Maple Bear” (Project instructions) — zamiast poprzednich, jeśli już je wklejałeś.</li>
+        </ol>
+        <div className="hint">Adres zmienia się, gdy zmienisz hasło do Opal5 (APP_PASSWORD) — wtedy podmień go w konektorze.
+          Żeby sprawdzić adres, otwórz go w przeglądarce — zobaczysz ✅ albo ❌.</div>
+      </section>
+
+      {q.data && (
+        <section className="card pad col" style={{ gap: 8 }}>
+          <h2>Ostatnie użycie przez claude.ai</h2>
+          {q.data.last ? (
+            <div className={q.data.last.ok ? 'soft' : 'error-box'}>
+              {q.data.last.ok ? '✅' : '❌'} {new Date(q.data.last.at).toLocaleString('pl-PL')} · narzędzie <code>{q.data.last.tool}</code>
+              {q.data.last.error && <div className="small" style={{ marginTop: 4 }}>{q.data.last.error}</div>}
+            </div>
+          ) : <div className="soft">Claude jeszcze niczego nie zrobił przez aktualny adres.</div>}
+          {q.data.badUrl && (!q.data.last || q.data.badUrl.at > q.data.last.at) && (
+            <div className="error-box">❌ {new Date(q.data.badUrl.at).toLocaleString('pl-PL')} claude.ai użył <b>starego adresu</b> konektora.
+              Skopiuj adres wyżej i podmień go w claude.ai → Settings → Connectors (najprościej: usuń konektor i dodaj od nowa), potem zacznij nowy czat.</div>
+          )}
+          <details className="small">
+            <summary className="soft">Narzędzia, które Opal5 udostępnia teraz ({q.data.tools.length}, wersja {q.data.version})</summary>
+            <div style={{ lineHeight: 1.9, marginTop: 6 }}>{q.data.tools.map((t) => <code key={t} style={{ marginRight: 6 }}>{t}</code>)}</div>
+            <div className="hint">Jeśli Claude w czacie nie widzi któregoś z nich, claude.ai trzyma starą listę: odłącz i podłącz konektor, w czacie (ikona narzędzi → Opal5) sprawdź, czy nowe narzędzia są włączone, i zacznij nowy czat.</div>
+          </details>
+          <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => q.refetch()}>Odśwież</button>
+        </section>
+      )}
+
+      <section className="card pad col" style={{ gap: 10 }}>
+        <div className="row"><h2 className="grow" style={{ margin: 0 }}>Zasady do instrukcji projektu</h2>
+          <button className="btn sm primary" onClick={() => { copyText(PROJECT_RULES); toast('Skopiowano'); }}><Copy size={14} /> Kopiuj</button></div>
+        <div className="pre soft small" style={{ background: 'var(--tint)', padding: 12, borderRadius: 10 }}>{PROJECT_RULES}</div>
+      </section>
+
+      <section className="card pad col" style={{ gap: 8 }}>
+        <h2>Co kosztuje</h2>
+        <div className="soft"><b>Bez dodatkowych kosztów:</b> wszystko, co klikasz w Opal5 (firmy, zadania, pulpit, lejek, raporty, Zespół, B2C)
+          oraz cała praca w claude.ai przez konektor — to idzie z planu Pro.</div>
+        <div className="soft"><b>Płatne z konta API</b> (console.anthropic.com): asystent pod mikrofonem w Opal5 i podsumowanie raportu przez AI. {cfg.data?.assistant
+            ? 'Teraz te funkcje są włączone. Żeby nic nie płacić, usuń ANTHROPIC_API_KEY w Vercel (Settings → Environment Variables) i zrób Redeploy.'
+            : 'Teraz są wyłączone (brak ANTHROPIC_API_KEY) — Opal5 nic nie kosztuje.'}</div>
       </section>
     </div>
   );
