@@ -6,7 +6,7 @@ import { api } from '../api';
 import { useNavigate } from 'react-router-dom';
 import { ErrorBox, Loading, Seg, TYPE_ICON, useToday, weekdayName } from '../components/ui';
 import { MonthCalendar, monthOf, monthRange, type CalItem } from '../components/MonthCalendar';
-import { addDays, shortDate, startOfWeek } from '../../shared/domain';
+import { addDays, isClosed, shortDate, startOfWeek } from '../../shared/domain';
 
 export function CalendarPage() {
   const today = useToday();
@@ -60,7 +60,7 @@ export function CalendarPage() {
               {days.slice(w * 7, w * 7 + 7).map((d) => {
                 const acts = q.data!.activities.filter((a) => a.date === d && (showDone || a.result === 'planned'));
                 const evs = q.data!.events.filter((e) => e.date === d);
-                const tks = q.data!.tasks.filter((t) => t.due === d && (showDone || t.status !== 'done'));
+                const tks = q.data!.tasks.filter((t) => t.due === d && (showDone || !isClosed(t.status)));
                 const wd = weekdayName(d);
                 return (
                   <div key={d} className={`day ${d === today ? 'today' : ''} ${wd === 'sob.' || wd === 'niedz.' ? 'weekend' : ''}`}>
@@ -83,7 +83,7 @@ export function CalendarPage() {
                     })}
                     {tks.map((t) => (
                       <Link key={t.id} to={`/wydarzenia/${t.eventId}`} className="ev task" title={t.eventTitle}>
-                        <span className={`t ${t.status === 'done' ? 'done-text' : ''}`}>☐ {t.task}</span>
+                        <span className={`t ${isClosed(t.status) ? 'done-text' : ''}`}>☐ {t.task}</span>
                       </Link>
                     ))}
                   </div>

@@ -5,7 +5,7 @@ import { MapPin, Pencil, Trash2, X, PartyPopper, Phone, Copy, Download, Eye, Ext
 import { api } from '../api';
 import { Avatar, Empty, ErrorBox, Loading, Modal, copyText, relDay, telHref, useAction, useToast, useToday, weekdayName } from '../components/ui';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
-import { DESIGN_KIND_LABEL, EVENT_STATUS, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
+import { DESIGN_KIND_LABEL, EVENT_STATUS, isClosed, EVENT_STATUS_LABEL, EVENT_TYPES, EVENT_TYPE_LABEL, shortDate, type CrmEvent, type Task } from '../../shared/domain';
 
 export function EventsPage() {
   const { id } = useParams();
@@ -79,8 +79,8 @@ export function EventsPage() {
 function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; tasks: Task[]; onEdit: () => void; onClose: () => void }) {
   const today = useToday();
   const [detail, setDetail] = useState<Task | null>(null);
-  const open = tasks.filter((t) => t.status !== 'done');
-  const done = tasks.filter((t) => t.status === 'done');
+  const open = tasks.filter((t) => !isClosed(t.status));
+  const done = tasks.filter((t) => isClosed(t.status));
 
   return (
     <section className="card">

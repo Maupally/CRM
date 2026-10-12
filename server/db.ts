@@ -138,6 +138,8 @@ ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS started TEXT NOT NULL DEFAULT '';
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS step_days INTEGER NOT NULL DEFAULT 0;
 -- when the task was written down — with completed it tells how long things take each person
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS created TEXT NOT NULL DEFAULT '';
+-- status skipped = not done (and not deleted): why
+ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS skip_reason TEXT NOT NULL DEFAULT '';
 
 -- Procedures: a named sequence of steps, each with who does it, how many days it may take and when it counts as done.
 CREATE TABLE IF NOT EXISTS crm.processes (

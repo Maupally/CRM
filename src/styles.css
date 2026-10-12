@@ -694,3 +694,5 @@ a.qa { text-decoration: none; color: inherit; }
 .run-step.now { background: var(--accent); border-color: var(--accent); color: #fff; }
 .run-step.stuck { background: var(--bad); border-color: var(--bad); color: #fff; }
 .proc-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
+
+.run-step.skipped { background: var(--panel); color: var(--faint, #999); text-decoration: line-through; }

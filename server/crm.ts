@@ -3,7 +3,7 @@ import { nowIso } from './db.js';
 import {
   STAGES, TYPES, RESULTS, COUNTED, CLOSED_STAGES, EVENT_STATUS, TASK_STATUS, DEFAULT_SEGMENT, STAGE_LABEL,
   type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material, type Person, type PersonEvent, type EventPerson, type Style,
-  txt, longTxt, searchKey, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
+  txt, longTxt, searchKey, isClosed, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
   fillTemplate, isoDay,
 } from '../shared/domain.js';
 import { buildReport } from './report.js';
@@ -510,7 +510,7 @@ export class Crm {
     const [planned, leads, tasks, events, done, week] = await Promise.all([
       this.activities({ open: true, to: addDays(t, 7) }),
       this.listLeads(),
-      this.q.all(TASK_SQL + ` WHERE (t.status <> 'done' AND t.due <> '' AND t.due <= ?) OR (t.status = 'done' AND t.completed = ?)
+      this.q.all(TASK_SQL + ` WHERE (t.status NOT IN ('done', 'skipped') AND t.due <> '' AND t.due <= ?) OR (t.status = 'done' AND t.completed = ?)
         ORDER BY t.due`, [addDays(t, 7), t]),
       this.q.all(`SELECT * FROM crm.events WHERE date BETWEEN ? AND ? AND status <> 'cancelled' ORDER BY date, time`,
         [t, addDays(t, 30)]),
@@ -534,7 +534,7 @@ export class Crm {
       upcoming: planned.filter((r) => r.date > t),
       queue,
       pipeline,
-      tasks: tasks.map((r) => this.toTask(r)).filter((x) => x.status !== 'done'),
+      tasks: tasks.map((r) => this.toTask(r)).filter((x) => !isClosed(x.status)),
       tasksDoneToday: tasks.filter((r) => r.status === 'done').length,
       events: events.map((e) => this.toEvent(e)),
       doneToday: { activities: Number(done!.n), companies: Number(done!.c) },
@@ -631,7 +631,7 @@ export class Crm {
 
   async listEvents(): Promise<CrmEvent[]> {
     return (await this.q.all(`SELECT e.*,
-        (SELECT COUNT(*) FROM crm.tasks t WHERE t.event_id = e.id AND t.status <> 'done') AS open_tasks,
+        (SELECT COUNT(*) FROM crm.tasks t WHERE t.event_id = e.id AND t.status NOT IN ('done', 'skipped')) AS open_tasks,
         (SELECT COUNT(*) FROM crm.tasks t WHERE t.event_id = e.id) AS total_tasks
       FROM crm.events e ORDER BY e.date, e.time`)).map((r) => this.toEvent(r));
   }
@@ -856,6 +856,7 @@ export class Crm {
       ...(r.event_title !== undefined ? { eventTitle: r.event_title || '', eventDate: r.event_date || '' } : {}),
       ...(r.company ? { company: r.company } : {}),
       runId: Number(r.run_id) || 0, step: Number(r.step) || 0, blocked: r.blocked || '', started: r.started || '', created: r.created || '',
+      skipReason: r.skip_reason || '',
       ...(r.run_title ? { run: { title: r.run_title, process: r.run_process || '', steps: Number(r.run_steps) || 0 } } : {}),
     };
   }
@@ -868,7 +869,7 @@ export class Crm {
     const runId = Number(cur.run_id);
     if (!runId) return;
     const before = await this.q.get(`SELECT t.step, t.task, p.name FROM crm.tasks t LEFT JOIN crm.people p ON p.id = t.person_id
-      WHERE t.run_id = ? AND t.step < ? AND t.status <> 'done' ORDER BY t.step LIMIT 1`, [runId, Number(cur.step)]);
+      WHERE t.run_id = ? AND t.step < ? AND t.status NOT IN ('done', 'skipped') ORDER BY t.step LIMIT 1`, [runId, Number(cur.step)]);
     if (before) {
       throw bad(`To krok ${cur.step} procesu — najpierw musi być zrobiony krok ${before.step}: „${before.task}”${before.name ? ` (${before.name})` : ''}.`);
     }
@@ -876,7 +877,7 @@ export class Crm {
 
   private async advanceRun(runId: number) {
     if (!runId) return;
-    const next = await this.q.get(`SELECT id, due, started, step_days FROM crm.tasks WHERE run_id = ? AND status <> 'done' ORDER BY step LIMIT 1`, [runId]);
+    const next = await this.q.get(`SELECT id, due, started, step_days FROM crm.tasks WHERE run_id = ? AND status NOT IN ('done', 'skipped') ORDER BY step LIMIT 1`, [runId]);
     if (!next) {
       await this.q.run(`UPDATE crm.process_runs SET status = 'done', finished = ? WHERE id = ? AND status = 'active'`, [this.today(), runId]);
       return;
@@ -927,23 +928,26 @@ export class Crm {
     const notes = longTxt(pick(d.notes, cur?.notes ?? ''));
     const personId = Number(pick(d.personId, Number(cur?.person_id) || 0)) || 0;
     if (personId) await this.getPerson(personId);
-    const blocked = status === 'done' ? '' : longTxt(pick(d.blocked, cur?.blocked ?? ''));
+    const blocked = isClosed(status) ? '' : longTxt(pick(d.blocked, cur?.blocked ?? ''));
+    const skipReason = status === 'skipped' ? longTxt(pick(d.skipReason, cur?.skip_reason ?? '')) : '';
 
     if (cur) {
       if (status === 'done' && cur.status !== 'done') await this.guardStep(cur);
-      const completed = status === 'done' ? (cur.completed || this.today()) : '';
+      // closed (done or not done) keeps the day it was closed
+      const completed = isClosed(status) ? (status === cur.status && cur.completed ? cur.completed : this.today()) : '';
       await this.q.run(`UPDATE crm.tasks SET event_id=?, lead_id=?, task=?, owner=?, due=?, status=?, notes=?, completed=?,
-        materials=?, attachments=?, person_id=?, blocked=? WHERE id = ?`,
-        [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, personId, blocked, id]);
+        materials=?, attachments=?, person_id=?, blocked=?, skip_reason=? WHERE id = ?`,
+        [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, personId, blocked, skipReason, id]);
       if (status === 'done' && cur.status !== 'done' && personId) await this.touchPerson(personId);
-      if ((status === 'done') !== (cur.status === 'done')) await this.advanceRun(Number(cur.run_id));
+      if (isClosed(status) !== isClosed(cur.status)) await this.advanceRun(Number(cur.run_id));
       return this.taskById(id);
     }
     const newId = await this.tx(async (c) => {
       const nid = await c.nextCode('tasks', 'TS');
       await c.q.run(`INSERT INTO crm.tasks (id, event_id, lead_id, task, owner, due, status, notes, completed, materials, attachments, person_id, created)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, leadId, task, owner, due, status, notes,
-        status === 'done' ? (isIsoDay(d.completed) ? d.completed : c.today()) : '', materials, attachments, personId, c.today()]);
+        isClosed(status) ? (isIsoDay(d.completed) ? d.completed : c.today()) : '', materials, attachments, personId, c.today()]);
+      if (skipReason) await c.q.run('UPDATE crm.tasks SET skip_reason = ? WHERE id = ?', [skipReason, nid]);
       return nid;
     });
     return this.taskById(newId);
@@ -952,9 +956,9 @@ export class Crm {
   async toggleTask(id: string): Promise<Task> {
     const cur = await this.q.get('SELECT * FROM crm.tasks WHERE id = ?', [id]);
     if (!cur) throw notFound(`Nie ma zadania ${id}.`);
-    const next = cur.status === 'done' ? 'todo' : 'done';
+    const next = isClosed(cur.status) ? 'todo' : 'done';
     if (next === 'done') await this.guardStep(cur);
-    await this.q.run(`UPDATE crm.tasks SET status = ?, completed = ?, blocked = CASE WHEN ? = 'done' THEN '' ELSE blocked END WHERE id = ?`,
+    await this.q.run(`UPDATE crm.tasks SET status = ?, completed = ?, skip_reason = '', blocked = CASE WHEN ? = 'done' THEN '' ELSE blocked END WHERE id = ?`,
       [next, next === 'done' ? this.today() : '', next, id]);
     if (next === 'done' && Number(cur.person_id)) await this.touchPerson(Number(cur.person_id));
     await this.advanceRun(Number(cur.run_id));

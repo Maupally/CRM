@@ -9,7 +9,7 @@ import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
 import { Empty, ErrorBox, Loading, ResultTag, TYPE_ICON, TypeIcon, relDay, typeLabel, useToday, weekdayName } from '../components/ui';
-import { addDays, shortDate, TYPES, type Stage, type Task } from '../../shared/domain';
+import { addDays, isClosed, shortDate, TYPES, type Stage, type Task } from '../../shared/domain';
 
 const VIEWS = [
   { id: 'dzis', label: 'Dziś i zaległe' },
@@ -38,10 +38,10 @@ export function TasksPage() {
 
   const all = openQ.data || [];
   // project tasks (Bieg, Dzień otwarty…) sit in the same day groups as calls and meetings
-  const openTasks = (tasksQ.data || []).filter((t) => t.status !== 'done');
+  const openTasks = (tasksQ.data || []).filter((t) => !isClosed(t.status));
   const taskDay = (t: Task) => t.due || 'none';
   const tasksIn = (v: View): Task[] => type ? [] : v === 'zrobione'
-    ? (tasksQ.data || []).filter((t) => t.status === 'done' && t.completed >= addDays(today, -13))
+    ? (tasksQ.data || []).filter((t) => isClosed(t.status) && t.completed >= addDays(today, -13))
     : openTasks.filter((t) => v === 'dzis' ? !!t.due && t.due <= today : v === 'zalegle' ? !!t.due && t.due < today
       : v === 'nadchodzace' ? t.due > today : true);
   const counts: Record<View, number> = {
@@ -144,14 +144,14 @@ function Projects({ today }: { today: string }) {
   const groups = useMemo(() => {
     const g = new Map<string, { title: string; date?: string; eventId?: string; items: Task[] }>();
     for (const t of tasks.data || []) {
-      if (!showDone && t.status === 'done') continue;
+      if (!showDone && isClosed(t.status)) continue;
       const key = t.run ? `R:${t.runId}` : t.eventId || (t.leadId ? `L:${t.leadId}` : 'other');
       if (!g.has(key)) g.set(key, { title: t.run ? (t.run.title.toLowerCase().startsWith(t.run.process.toLowerCase()) ? t.run.title : `${t.run.process}: ${t.run.title}`) : t.eventTitle || t.company || 'Inne',
         date: t.run ? undefined : t.eventDate, eventId: t.run ? undefined : t.eventId || undefined, items: [] });
       g.get(key)!.items.push(t);
     }
     for (const x of g.values()) x.items.sort((a, b) => (a.runId && a.runId === b.runId ? a.step - b.step
-      : Number(a.status === 'done') - Number(b.status === 'done') || (a.due || '9').localeCompare(b.due || '9')));
+      : Number(isClosed(a.status)) - Number(isClosed(b.status)) || (a.due || '9').localeCompare(b.due || '9')));
     return [...g.values()].sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
   }, [tasks.data, showDone]);
 

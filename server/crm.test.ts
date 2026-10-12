@@ -443,3 +443,30 @@ const CONFIG = {
     expect(html).toContain('4.0 min');
   });
 });
+
+describe('not done', () => {
+  it('closes a task without deleting it, keeps the reason, lets a process move on, and shows in the report', async () => {
+    const { Processes } = await import('./processes.js');
+    const { personProfile } = await import('./profile.js');
+    const db = await openDb('memory://');
+    const crm = new Crm(db, 'Martin', () => '2026-10-12');
+    const p = await crm.savePerson({ name: 'Patryk' });
+    const t = await crm.saveTask({ task: 'Zadzwonić do Gliwic', due: '2026-10-10', personId: p.id });
+    const s = await crm.saveTask({ id: t.id, status: 'skipped', skipReason: 'nieaktualne' });
+    expect(s).toMatchObject({ status: 'skipped', skipReason: 'nieaktualne', completed: '2026-10-12' });
+    expect((await crm.dashboard()).tasks.some((x) => x.id === t.id)).toBe(false);          // off the to-do list
+    expect((await crm.listTasks()).some((x) => x.id === t.id)).toBe(true);                // still there
+    expect((await crm.report('2026-10-06', '2026-10-12')).text).toMatch(/NOT DONE \(1\)[\s\S]*Zadzwonić do Gliwic\s+— nieaktualne/);
+    expect((await personProfile(crm, p.id)).not_done).toContain('nieaktualne');
+    expect((await crm.toggleTask(t.id)).status).toBe('todo');                            // brought back
+    expect((await crm.listTasks()).find((x) => x.id === t.id)!.skipReason).toBe('');
+
+    const pr = new Processes(crm);
+    const proc = await pr.save({ name: 'P', steps: [{ title: 'A', days: 1 }, { title: 'B', days: 2 }] });
+    const run = await pr.start({ processId: proc.id });
+    await crm.saveTask({ id: run.steps[0].taskId, status: 'skipped', skipReason: 'niepotrzebne' });
+    const after = await pr.run(run.id);
+    expect(after.current).toBe(2);                                                     // skipping a step moves the process on
+    expect(after.steps[1].due).toBe('2026-10-14');
+  });
+});

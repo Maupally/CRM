@@ -4,7 +4,7 @@
  * Claude uses it to update skills and to pick and estimate who should do what.
  */
 import type { Crm } from './crm.js';
-import { searchKey } from '../shared/domain.js';
+import { isClosed, searchKey } from '../shared/domain.js';
 
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : 0; };
@@ -16,7 +16,8 @@ export async function personProfile(crm: Crm, personId: number) {
   const today = crm.today();
   const mine = (await crm.listTasks()).filter((t) => t.personId === personId);
   const done = mine.filter((t) => t.status === 'done' && t.completed).sort((a, b) => b.completed.localeCompare(a.completed));
-  const open = mine.filter((t) => t.status !== 'done');
+  const open = mine.filter((t) => !isClosed(t.status));
+  const notDone = mine.filter((t) => t.status === 'skipped');
 
   // recurring kinds of work: word stems that come back across finished tasks
   const stems = new Map<string, { n: number; words: Map<string, number>; tasks: Set<string> }>();
@@ -49,6 +50,7 @@ export async function personProfile(crm: Crm, personId: number) {
     typical_days_to_finish: took.length >= 2 ? median(took) : undefined,
     recurring_work: recurring.length ? recurring : undefined,
     events: p.events.length ? p.events.map((e) => `${e.title} (${e.date})${e.role ? ` — ${e.role}` : ''}`) : undefined,
+    not_done: notDone.length ? `${notDone.length} (np. ${notDone.slice(0, 3).map((t) => `${t.task}${t.skipReason ? ` — ${t.skipReason}` : ''}`).join('; ')})` : undefined,
     open_now: open.length,
     late_now: open.filter((t) => t.due && t.due < today).length,
     recently_done: done.slice(0, 10).map((t) => `${t.completed}: ${t.task}${t.eventTitle ? ` [${t.eventTitle}]` : t.company ? ` [${t.company}]` : ''}`),

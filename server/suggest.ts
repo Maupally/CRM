@@ -52,7 +52,7 @@ export async function suggestProcesses(crm: Crm): Promise<ProcessSuggestion[]> {
   const name = (id: number) => people.find((p) => p.id === id)?.name || '';
   const out: ProcessSuggestion[] = [];
   const byEvent = new Map<string, Task[]>();
-  for (const t of tasks) if (t.eventId && !t.runId) byEvent.set(t.eventId, [...(byEvent.get(t.eventId) || []), t]);
+  for (const t of tasks) if (t.eventId && !t.runId && t.status !== 'skipped') byEvent.set(t.eventId, [...(byEvent.get(t.eventId) || []), t]);
 
   // 1. Checklists that repeat across events of one kind → a procedure ("Przygotowanie: Dzień otwarty")
   const groups = new Map<string, { label: string; past: CrmEvent[]; next: CrmEvent[] }>();

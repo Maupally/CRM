@@ -17,7 +17,7 @@ import { buildDefaults, buildFormScript, type Question } from './forms.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
 import {
-  STAGES, STAGE_LABEL, STAGE_INFO, TYPES, TYPE_LABEL, CLOSED_STAGES, addDays, isIsoDay, searchKey, shortDate, txt, longTxt,
+  STAGES, STAGE_LABEL, STAGE_INFO, TYPES, TYPE_LABEL, CLOSED_STAGES, addDays, isClosed, isIsoDay, searchKey, shortDate, txt, longTxt,
   weekday, normEmail, type Lead, type KnowledgeItem, type Style,
 } from '../shared/domain.js';
 
@@ -431,7 +431,7 @@ const KNOWLEDGE_TOOLS: Anthropic.Beta.BetaTool[] = [
       type: 'object',
       properties: {
         event_id: { type: 'string' }, lead_id: { type: 'string' },
-        status: { type: 'string', enum: ['open', 'done', 'all'] },
+        status: { type: 'string', enum: ['open', 'done', 'skipped', 'all'] },
       },
       additionalProperties: false,
     },
@@ -531,7 +531,8 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
       type: 'object',
       properties: {
         task_id: { type: 'string' },
-        status: { type: 'string', enum: ['todo', 'doing', 'done'] },
+        status: { type: 'string', enum: ['todo', 'doing', 'done', 'skipped'], description: 'skipped = NIE wykonano (zostaje w historii, podaj skip_reason)' },
+        skip_reason: { type: 'string', description: 'dlaczego nie wykonano' },
         due: { type: 'string' },
         task: { type: 'string' },
         add_materials: {
@@ -1798,7 +1799,7 @@ export class Assistant {
       const all = await this.crm.listTasks();
       const st = input.status || 'open';
       return JSON.stringify(all.filter((t) => (!input.event_id || t.eventId === input.event_id) && (!input.lead_id || t.leadId === input.lead_id) &&
-        (st === 'all' || (st === 'done' ? t.status === 'done' : t.status !== 'done'))).slice(0, 80)
+        (st === 'all' || (st === 'open' ? !isClosed(t.status) : t.status === st))).slice(0, 80)
         .map((t) => ({ task_id: t.id, task: t.task, due: t.due || null, status: t.status, event: t.eventTitle || undefined,
           event_id: t.eventId || undefined, company: t.company || undefined, person: t.person?.name, materials: t.materials.map((m) => m.title),
           attachments: t.attachments.length || undefined })));
@@ -2008,7 +2009,8 @@ export class Assistant {
         const t = (await this.crm.listTasks()).find((x) => x.id === txt(input.task_id));
         if (!t) throw new Error(`Nie ma zadania ${input.task_id} — sprawdź get_tasks.`);
         if (input.due) this.checkDate(input.due);
-        title = `${input.status === 'done' ? 'Odhacz' : 'Zmień'}: ${t.task}`;
+        title = `${input.status === 'done' ? 'Odhacz' : input.status === 'skipped' ? 'Niewykonane' : 'Zmień'}: ${t.task}`;
+        if (input.status === 'skipped' && txt(input.skip_reason)) lines.push(`Powód: ${txt(input.skip_reason)}`);
         if (input.status) lines.push(`Status → ${({ todo: 'do zrobienia', doing: 'w toku', done: 'zrobione' } as Record<string, string>)[input.status]}`);
         if (input.due) lines.push(`Termin → ${WD[weekday(input.due)]} ${shortDate(input.due)}`);
         if (input.task) lines.push(`Opis → ${input.task}`);
@@ -2328,12 +2330,12 @@ export class Assistant {
           case 'update_task': {
             const cur = (await crm.listTasks()).find((x) => x.id === input.task_id);
             if (!cur) throw new Error(`Nie ma zadania ${input.task_id}.`);
-            const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task, blocked: input.blocked,
+            const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task, blocked: input.blocked, skipReason: input.skip_reason,
               eventId: input.event_id === undefined ? undefined : this.eventRef(input.event_id, ids), leadId: input.lead_id === undefined ? undefined : txt(input.lead_id),
               personId: input.person_id ? this.personRef(input.person_id, ids) : undefined,
               materials: input.add_materials?.length ? [...cur.materials, ...input.add_materials] : undefined,
               attachments: input.add_attachments?.length ? [...new Set([...cur.attachments, ...input.add_attachments.map(Number)])] : undefined });
-            leadId = undefined; message = t.status === 'done' ? `Odhaczono: ${t.task}` : `Zmieniono: ${t.task}`;
+            leadId = undefined; message = t.status === 'done' ? `Odhaczono: ${t.task}` : t.status === 'skipped' ? `Niewykonane: ${t.task}` : `Zmieniono: ${t.task}`;
             break;
           }
           case 'draft_campaign': {

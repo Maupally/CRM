@@ -101,8 +101,8 @@ function RunRow({ r, onOpen }: { r: ProcessRun; onOpen: (taskId: string) => void
         <div className="run-steps">
           {r.steps.map((s) => (
             <button key={s.taskId} onClick={() => onOpen(s.taskId)} title={`${s.step}. ${s.title}${s.person ? ` — ${s.person}` : ''}`}
-              className={`run-step ${s.status === 'done' ? 'done' : s.step === r.current ? (r.stuck.length ? 'stuck' : 'now') : ''}`}>
-              {s.status === 'done' ? <Check size={12} /> : s.step}<span className="trunc">{s.title}</span>
+              className={`run-step ${s.status === 'done' ? 'done' : s.status === 'skipped' ? 'skipped' : s.step === r.current ? (r.stuck.length ? 'stuck' : 'now') : ''}`}>
+              {s.status === 'done' ? <Check size={12} /> : s.status === 'skipped' ? <X size={12} /> : s.step}<span className="trunc">{s.title}</span>
             </button>
           ))}
         </div>

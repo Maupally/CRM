@@ -129,8 +129,15 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
     || attached.join() !== task.attachments.join() || personId !== (task.personId || 0));
 
   const save = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId }), { ok: 'Zapisano', onDone: onClose });
+  const closed = !!task && (task.status === 'done' || task.status === 'skipped');
   const toggle = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId,
-    status: task!.status === 'done' ? 'todo' : 'done' }), { ok: (t) => t.status === 'done' ? 'Zrobione' : 'Przywrócone', onDone: onClose });
+    status: closed ? 'todo' : 'done' }), { ok: (t) => t.status === 'done' ? 'Zrobione' : 'Przywrócone', onDone: onClose });
+  const skip = useAction((reason: string) => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId,
+    status: 'skipped', skipReason: reason }), { ok: 'Oznaczone jako niewykonane', onDone: onClose });
+  const askSkip = () => {
+    const reason = prompt('Dlaczego nie wykonano? (zostanie w historii i w raporcie)', '');
+    if (reason !== null) skip.mutate(reason.trim());
+  };
   const drop = useAction(() => api.deleteTask(task!.id), { ok: 'Usunięto', onDone: onClose });
   const touch = useAction((id: number) => api.touchPerson(id));
   if (!task) return null;
@@ -140,14 +147,16 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
 
   return (
     <Modal open={!!task} onClose={() => (!dirty || confirm('Masz niezapisane zmiany. Zamknąć bez zapisu?')) && onClose()} wide
-      title={task.status === 'done' ? <span className="done-text">{task.task}</span> : task.task}
+      title={closed ? <span className="done-text">{task.task}</span> : task.task}
       footer={<>
         <button className="btn ghost danger" style={{ marginRight: 'auto' }} onClick={() => confirm('Usunąć zadanie?') && drop.mutate(undefined)}><Trash2 size={15} /></button>
         {dirty && <button className="btn" onClick={() => save.mutate(undefined)} disabled={save.isPending}>Zapisz zmiany</button>}
+        {!closed && <button className="btn" onClick={askSkip} disabled={skip.isPending} title="Nie zrobione — zostaje w historii, znika z listy do zrobienia"><X size={16} /> Niewykonane</button>}
         <button className="btn primary" onClick={() => toggle.mutate(undefined)} disabled={toggle.isPending}>
-          <Check size={16} /> {task.status === 'done' ? 'Przywróć' : 'Zrobione'}
+          <Check size={16} /> {closed ? 'Przywróć' : 'Zrobione'}
         </button>
       </>}>
+      {task.status === 'skipped' && <div className="error-box small">Niewykonane{task.completed ? ` (${task.completed})` : ''}{task.skipReason ? ` — ${task.skipReason}` : ''}</div>}
       <div className="row wrap" style={{ gap: 8 }}>
         {task.due && <DueTag date={task.due} today={today} />}
         {task.eventTitle && <Link className="tag soon" to={`/wydarzenia/${task.eventId}`} onClick={onClose}>{task.eventTitle}</Link>}
@@ -193,11 +202,11 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
 /** One project task in a list: tick it off, or tap to open its materials. */
 export function ProjectTaskRow({ t, today, onOpen, sub }: { t: Task; today: string; onOpen: (t: Task) => void; sub?: string }) {
   const toggle = useAction((id: string) => api.toggleTask(id));
-  const done = t.status === 'done';
+  const done = t.status === 'done' || t.status === 'skipped';
   const meta = [sub, t.run && `krok ${t.step}/${t.run.steps}`, t.person && `do: ${t.person.name}`].filter(Boolean).join(' · ');
   return (
     <li className="li">
-      <button className={`check ${done ? 'on' : ''}`} onClick={() => toggle.mutate(t.id)} aria-label={done ? 'Przywróć' : 'Zrobione'}>✓</button>
+      <button className={`check ${done ? 'on' : ''}`} onClick={() => toggle.mutate(t.id)} aria-label={done ? 'Przywróć' : 'Zrobione'}>{t.status === 'skipped' ? '✕' : '✓'}</button>
       <button className="grow plain" style={{ textAlign: 'left', minWidth: 0 }} onClick={() => onOpen(t)}>
         <div className={`small ${done ? 'done-text' : ''}`}>{t.task}</div>
         {(meta || t.materials.length > 0 || t.attachments.length > 0) && (
@@ -208,6 +217,7 @@ export function ProjectTaskRow({ t, today, onOpen, sub }: { t: Task; today: stri
           </div>
         )}
       </button>
+      {t.status === 'skipped' && <span className="tag" title={t.skipReason}>niewykonane</span>}
       {!done && t.blocked && <span className="tag overdue" title={t.blocked}>stoi</span>}
       {!done && t.due && <DueTag date={t.due} today={today} />}
     </li>

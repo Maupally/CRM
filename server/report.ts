@@ -109,6 +109,13 @@ export function buildReport(r: ReportInput): string {
     for (const x of doneTasks) o.push(`  ${shortDate(x.completed)}  ${x.task}${x.eventTitle ? `  (${x.eventTitle})` : x.company ? `  (${x.company})` : ''}`);
     o.push('');
   }
+  const skipped = r.tasks.filter((x) => x.status === 'skipped' && x.completed >= a && x.completed <= b);
+  if (skipped.length) {
+    o.push(`NOT DONE (${skipped.length})`);
+    o.push(rule);
+    for (const x of skipped) o.push(`  ${shortDate(x.completed)}  ${x.task}${x.skipReason ? `  — ${x.skipReason}` : ''}`);
+    o.push('');
+  }
 
   const happened = r.events.filter((e) => e.date >= a && e.date <= b);
   const upcoming = r.events.filter((e) => e.date > b && e.status !== 'cancelled');
@@ -125,7 +132,7 @@ export function buildReport(r: ReportInput): string {
   if (upcoming.length) {
     o.push('  Coming up:');
     for (const e of upcoming.slice(0, 5)) {
-      const open = r.tasks.filter((x) => x.eventId === e.id && x.status !== 'done').length;
+      const open = r.tasks.filter((x) => x.eventId === e.id && x.status !== 'done' && x.status !== 'skipped').length;
       o.push(`    ${shortDate(e.date)}${e.time ? ' ' + e.time : ''}  ${e.title}  (` +
         `${plural(daysBetween(t, e.date), 'day', 'days')}` +
         `${open ? ', ' + plural(open, 'task', 'tasks') + ' open' : ''})`);

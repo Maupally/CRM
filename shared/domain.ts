@@ -53,7 +53,9 @@ export const EVENT_STATUS = ['planned', 'confirmed', 'done', 'cancelled'] as con
 export const EVENT_STATUS_LABEL: Record<string, string> = {
   planned: 'planowane', confirmed: 'potwierdzone', done: 'odbyło się', cancelled: 'odwołane',
 };
-export const TASK_STATUS = ['todo', 'doing', 'done'] as const;
+export const TASK_STATUS = ['todo', 'doing', 'done', 'skipped'] as const;
+/** done or not done (skipped) — either way off the to-do list, but kept in the history */
+export const isClosed = (status: string) => status === 'done' || status === 'skipped';
 
 export const DEFAULT_SEGMENT = 'NIEZNANA';
 
@@ -176,6 +178,8 @@ export interface Task {
   started: string;
   /** when the task was written down */
   created: string;
+  /** why it was not done (status skipped) */
+  skipReason: string;
   run?: { title: string; process: string; steps: number };
 }
 

@@ -6,7 +6,7 @@
 import type { Row } from './db.js';
 import { nowIso } from './db.js';
 import { HttpError, type Crm } from './crm.js';
-import { addDays, isIsoDay, longTxt, txt, type Process, type ProcessRun, type ProcessStep, type RunStep, type Task } from '../shared/domain.js';
+import { addDays, isClosed, isIsoDay, longTxt, txt, type Process, type ProcessRun, type ProcessStep, type RunStep, type Task } from '../shared/domain.js';
 
 const parseSteps = (raw: unknown): ProcessStep[] => {
   try {
@@ -130,7 +130,7 @@ export class Processes {
       taskId: t.id, step: Number(t.step), title: t.task, status: t.status, due: t.due, completed: t.completed, blocked: t.blocked,
       started: t.started, personId: Number(t.person_id) || 0, person: t.person_name || '', doneWhen: String(t.notes || '').replace(/^Gotowe, gdy: /, ''),
     }));
-    const firstOpen = steps.findIndex((s) => s.status !== 'done');
+    const firstOpen = steps.findIndex((s) => !isClosed(s.status));
     const current = r.status === 'active' && firstOpen >= 0 ? firstOpen + 1 : 0;
     return {
       id: Number(r.id), processId: Number(r.process_id), process: r.process_name || '', title: r.title, leadId: r.lead_id, company: r.company || '',
@@ -162,7 +162,7 @@ export class Processes {
    */
   async personWork(personId: number) {
     const p = await this.crm.getPerson(personId);
-    const tasks = (await this.crm.listTasks()).filter((t) => t.personId === personId && t.status !== 'done');
+    const tasks = (await this.crm.listTasks()).filter((t) => t.personId === personId && !isClosed(t.status));
     const runs = new Map<number, ProcessRun>();
     for (const t of tasks) if (t.runId && !runs.has(t.runId)) runs.set(t.runId, await this.run(t.runId));
     const today = this.crm.today();
