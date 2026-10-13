@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Calculator, Check, Copy, MessageSquareText, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { Check, Copy, MessageSquareText, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBox, Loading, Modal, Seg, copyText, useAction, useToast, useToday } from '../components/ui';
-import { CITIES, CITY_NAME, materialsText, pln, schoolYear, yearFor, type City, type FeeBook, type FeeItem, type FeeRow, type FeeYear } from '../../shared/fees';
+import { CITIES, CITY_NAME, pln, schoolYear, yearFor, type City, type FeeBook, type FeeItem, type FeeRow, type FeeYear } from '../../shared/fees';
 import { MODULES, SIGNATURE, TEMPLATES, type TplItem } from '../lib/szablonyData';
 import { PRESETS, companionSms, copyHtml, handoverHtml, offerMailHtml, type Handover } from '../lib/offerMail';
 
 type Lang = 'pl' | 'en';
-type Tab = 'cennik' | 'wiadomosci' | 'mail' | 'umowa';
-const TABS = ['cennik', 'wiadomosci', 'mail', 'umowa'] as const;
-const TAB_LABEL: Record<Tab, string> = { cennik: 'Cennik i wycena', wiadomosci: 'Wiadomości', mail: 'Mail z ofertą', umowa: 'Nowa umowa' };
+type Tab = 'mail' | 'wiadomosci' | 'umowa';
+const TABS = ['mail', 'wiadomosci', 'umowa'] as const;
+const TAB_LABEL: Record<Tab, string> = { mail: 'Mail z ofertą', wiadomosci: 'Wiadomości', umowa: 'Nowa umowa' };
 
 const useRemember = <T extends string>(key: string, fallback: T, ok: readonly T[]): [T, (v: T) => void] => {
   const [v, set] = useState<T>(() => { try { const s = localStorage.getItem(key) as T; return ok.includes(s) ? s : fallback; } catch { return fallback; } });
@@ -32,7 +32,7 @@ function yearHint(year: string, current: string) {
 export function TemplatesPage() {
   const q = useQuery({ queryKey: ['fees'], queryFn: api.fees });
   const [sp, setSp] = useSearchParams();
-  const tab = (TABS.includes(sp.get('tab') as Tab) ? sp.get('tab') : 'cennik') as Tab;
+  const tab = (TABS.includes(sp.get('tab') as Tab) ? sp.get('tab') : 'mail') as Tab;
   const [city, setCity] = useRemember<City>('szablony.city', 'katowice', CITIES);
   const [lang, setLang] = useRemember<Lang>('szablony.lang', 'pl', ['pl', 'en'] as const);
   const [year, setYear] = useState('');
@@ -55,21 +55,19 @@ export function TemplatesPage() {
       <div className="page-head">
         <div><h1>Szablony</h1><div className="sub">Cenniki, wiadomości i maile do rodziców — wszystko z jednego cennika, osobno dla każdego roku szkolnego.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={TABS} labels={TAB_LABEL} onChange={(t) => setSp(t === 'cennik' ? {} : { tab: t }, { replace: true })} />
+        <Seg value={tab} options={TABS} labels={TAB_LABEL} onChange={(t) => setSp(t === 'mail' ? {} : { tab: t }, { replace: true })} />
       </div>
 
       <section className="card pad row wrap" style={{ gap: 12, marginBottom: 16, alignItems: 'center' }}>
         <Seg value={city} options={CITIES} labels={CITY_NAME} onChange={setCity} className="accent" />
         {tab !== 'umowa' && <Seg value={year} options={years} onChange={setYear}
           labels={Object.fromEntries(years.map((y) => [y, <span key={y}>{y} <span className="faint small">· {yearHint(y, current)}</span></span>]))} />}
-        {tab !== 'cennik' && tab !== 'umowa' && <Seg value={lang} options={['pl', 'en'] as const} labels={{ pl: 'PL', en: 'EN' }} onChange={setLang} />}
+        {tab !== 'umowa' && <Seg value={lang} options={['pl', 'en'] as const} labels={{ pl: 'PL', en: 'EN' }} onChange={setLang} />}
         {(tab === 'wiadomosci' || tab === 'mail') && (
           <input type="text" placeholder="Imię dziecka (wstawi się w tekst)" value={child} onChange={(e) => setChild(e.target.value)} style={{ maxWidth: 240 }} />
         )}
-        {fees.status === 'draft' && <span className="tag today"><AlertTriangle size={12} /> cennik roboczy — sprawdź</span>}
       </section>
 
-      {tab === 'cennik' && <FeesTab book={book} city={city} year={year} edited={q.data!.edited} current={current} onYear={setYear} />}
       {tab === 'wiadomosci' && <MessagesTab lang={lang} child={child} />}
       {tab === 'mail' && <MailTab book={book} city={city} year={year} lang={lang} child={child} />}
       {tab === 'umowa' && <HandoverTab book={book} city={city} onYear={setYear} />}
@@ -77,172 +75,7 @@ export function TemplatesPage() {
   );
 }
 
-/* ------------------------------------------------------------------ Cennik */
-
-function FeesTab({ book, city, year, edited, current, onYear }: { book: FeeBook; city: City; year: string; edited: string[]; current: string; onYear: (y: string) => void }) {
-  const f = book[city][year];
-  const years = Object.keys(book[city]).sort();
-  const prev = years[years.indexOf(year) - 1];
-  const before = prev ? book[city][prev] : undefined;
-  const [edit, setEdit] = useState(false);
-  const toast = useToast();
-  const reset = useAction(() => api.resetFees(city, year), { ok: 'Przywrócono cennik z prezentacji' });
-  const isEdited = edited.includes(`${city}:${year}`);
-  const anyMonths = f.rows.some((r) => r.months);
-  const anyMat = f.rows.some((r) => r.materials);
-  const change = (r: FeeRow) => {
-    const o = before?.rows.find((x) => x.level.pl === r.level.pl) || before?.rows[f.rows.indexOf(r)];
-    if (!o || !o.monthly) return null;
-    const d = (r.monthly - o.monthly) / o.monthly * 100;
-    return Math.abs(d) < 0.05 ? '=' : `${d > 0 ? '+' : ''}${d.toFixed(1)}%`;
-  };
-
-  return (
-    <div className="grid main-side">
-      <div className="col" style={{ gap: 16 }}>
-        <section className="card">
-          <div className="card-head">
-            <h2>{CITY_NAME[city]} · cennik {year} <span className="soft small">({yearHint(year, current)})</span></h2>
-            <button className="btn sm" onClick={() => { copyText(feesPlain(f, city, year)); toast('Skopiowano cennik'); }}><Copy size={14} /> Kopiuj</button>
-            <button className="btn sm" onClick={() => setEdit(true)}><Pencil size={14} /> Edytuj</button>
-          </div>
-          {f.note && <div className="hint" style={{ padding: '0 20px 10px' }}><AlertTriangle size={13} /> {f.note}</div>}
-          <div className="table-wrap">
-            <table className="tbl">
-              <thead><tr>
-                <th>Etap</th><th className="num">Czesne / mies.</th>{anyMonths && <th className="num">Mies.</th>}{anyMonths && <th className="num">Rocznie</th>}
-                <th className="num">Wpisowe</th>{anyMat && <th className="num">Materiały</th>}{before && <th className="num">vs {prev}</th>}
-              </tr></thead>
-              <tbody>
-                {f.rows.map((r, i) => (
-                  <tr key={i} style={{ cursor: 'default' }}>
-                    <td><b>{r.level.pl}</b></td>
-                    <td className="num nowrap"><b>{pln(r.monthly)}</b></td>
-                    {anyMonths && <td className="num nowrap">{r.months || '—'}</td>}
-                    {anyMonths && <td className="num nowrap">{r.months ? pln(r.monthly * r.months) : '—'}</td>}
-                    <td className="num nowrap">{r.enrol ? pln(r.enrol) : '—'}</td>
-                    {anyMat && <td className="num nowrap">{materialsText(r) || '—'}</td>}
-                    {before && <td className="num soft nowrap">{change(r) ?? '—'}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="small faint" style={{ padding: '10px 20px 14px' }}>
-            Źródło: {f.source}{f.hours ? ` · godziny ${f.hours}` : ''}{isEdited ? ' · edytowany w Opal5' : ''}
-            {isEdited && <button className="btn sm ghost" style={{ marginLeft: 8 }} onClick={() => confirm('Wrócić do cennika z prezentacji? Twoje zmiany dla tego roku znikną.') && reset.mutate(undefined)}><RotateCcw size={13} /> Przywróć</button>}
-          </div>
-        </section>
-
-        <Quote f={f} city={city} year={year} />
-      </div>
-
-      <div className="col" style={{ gap: 16 }}>
-        <ItemsCard title="Zniżki" items={f.discounts} />
-        {f.extras.length > 0 && <ItemsCard title="Dodatkowo płatne" items={f.extras} />}
-        <section className="card pad col" style={{ gap: 8 }}>
-          <h2>Co w cenie</h2>
-          {f.included.pl.map((x) => <div key={x} className="small"><Check size={13} style={{ color: 'var(--ok)' }} /> {x}</div>)}
-          {f.notIncluded.pl.length > 0 && <>
-            <div className="eyebrow" style={{ marginTop: 8 }}>Nie wliczone</div>
-            {f.notIncluded.pl.map((x) => <div key={x} className="small soft">✗ {x}</div>)}
-          </>}
-        </section>
-      </div>
-
-      <FeeEditor open={edit} onClose={() => setEdit(false)} city={city} year={year} f={f} onSaved={onYear} />
-    </div>
-  );
-}
-
-function ItemsCard({ title, items }: { title: string; items: FeeItem[] }) {
-  return (
-    <section className="card pad col" style={{ gap: 10 }}>
-      <h2>{title}</h2>
-      {items.map((d, i) => (
-        <div key={i} className="col" style={{ gap: 2 }}>
-          <div className="row" style={{ gap: 8 }}><b className="small grow">{d.label.pl}</b><span className="tag soon">{d.value.pl}</span></div>
-          {d.note && <div className="small soft">{d.note.pl}</div>}
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function feesPlain(f: FeeYear, city: City, year: string, lang: Lang = 'pl') {
-  const en = lang === 'en';
-  const lines = [`Maple Bear ${CITY_NAME[city]} — ${en ? 'pricing' : 'cennik'} ${year}`, ''];
-  for (const r of f.rows) {
-    lines.push(`• ${r.level[lang]}: ${pln(r.monthly, lang)}${en ? '/month' : '/mies.'}${r.months ? ` × ${r.months}` : ''}` +
-      `${r.enrol ? `, ${en ? 'enrolment fee' : 'wpisowe'} ${pln(r.enrol, lang)}` : ''}${r.materials ? `, ${en ? 'materials' : 'materiały'} ${materialsText(r, lang)}` : ''}`);
-  }
-  if (f.discounts.length) lines.push('', en ? 'Discounts:' : 'Zniżki:', ...f.discounts.map((d) => `• ${d.label[lang]}: ${d.value[lang]}`));
-  return lines.join('\n');
-}
-
-/* A quote for a family: children, siblings and annual payment. */
-const pct = (f: FeeYear, re: RegExp) => {
-  const d = f.discounts.find((x) => re.test(x.label.pl));
-  const m = d?.value.pl.match(/-?\s*(\d+)\s*%/);
-  return m ? Number(m[1]) / 100 : 0;
-};
-
-function Quote({ f, city, year }: { f: FeeYear; city: City; year: string }) {
-  const [kids, setKids] = useState<number[]>([0]);
-  const [annual, setAnnual] = useState(false);
-  const [lang, setLang] = useState<Lang>('pl');
-  const toast = useToast();
-  const sib = [0, pct(f, /drugie/i), pct(f, /trzecie/i) || pct(f, /drugie/i)];
-  const ann = annual ? pct(f, /roczn|jednorazow/i) : 0;
-  const lines = kids.map((li, i) => {
-    const r = f.rows[li] || f.rows[0];
-    const d = Math.min(i, 2);
-    const monthly = Math.round(r.monthly * (1 - sib[d]) * (1 - ann));
-    return { r, monthly, sib: sib[d] };
-  });
-  const total = lines.reduce((n, l) => n + l.monthly, 0);
-  const enrol = lines.reduce((n, l) => n + (l.r.enrol || 0), 0);
-  const en = lang === 'en';
-  const text = [
-    en ? 'Good morning,' : 'Dzień dobry,',
-    en ? `here is the cost of Maple Bear ${CITY_NAME[city]} for the ${year} school year:` : `przesyłam wycenę Maple Bear ${CITY_NAME[city]} na rok szkolny ${year}:`,
-    '',
-    ...lines.map((l, i) => `• ${l.r.level[lang]}: ${pln(l.monthly, lang)}${en ? '/month' : '/mies.'}` +
-      `${l.sib ? ` (${en ? `${['', 'second', 'third'][Math.min(i, 2)]} child` : `${['', 'drugie', 'trzecie'][Math.min(i, 2)]} dziecko`} -${Math.round(l.sib * 100)}%)` : ''}`),
-    ...(kids.length > 1 ? [`${en ? 'Total' : 'Razem'}: ${pln(total, lang)}${en ? '/month' : '/mies.'}`] : []),
-    ...(ann ? [en ? `Prices include the -${Math.round(ann * 100)}% annual payment discount.` : `Ceny uwzględniają zniżkę -${Math.round(ann * 100)}% przy płatności za cały rok z góry.`] : []),
-    ...(enrol ? [`${en ? 'One-time enrolment fee' : 'Jednorazowa opłata rekrutacyjna'}: ${pln(enrol, lang)}`] : []),
-    ...lines.filter((l) => l.r.materials).slice(0, 1).map(() => `${en ? 'Educational materials' : 'Materiały edukacyjne'}: ${lines.map((l) => materialsText(l.r, lang)).filter(Boolean).join(', ')}`),
-    '', SIGNATURE[lang],
-  ].join('\n');
-
-  return (
-    <section className="card">
-      <div className="card-head"><h2><Calculator size={16} /> Wycena dla rodziny</h2>
-        <Seg value={lang} options={['pl', 'en'] as const} labels={{ pl: 'PL', en: 'EN' }} onChange={setLang} /></div>
-      <div className="col" style={{ gap: 10, padding: '0 20px 16px' }}>
-        {kids.map((li, i) => (
-          <div key={i} className="row" style={{ gap: 8 }}>
-            <span className="small soft" style={{ width: 70 }}>{i + 1}. dziecko</span>
-            <select value={li} onChange={(e) => setKids(kids.map((k, j) => (j === i ? Number(e.target.value) : k)))} style={{ flex: 1 }}>
-              {f.rows.map((r, j) => <option key={j} value={j}>{r.level.pl} — {pln(r.monthly)}</option>)}
-            </select>
-            <b className="nowrap" style={{ width: 100, textAlign: 'right' }}>{pln(lines[i].monthly)}</b>
-            {kids.length > 1 && <button className="btn sm ghost" onClick={() => setKids(kids.filter((_, j) => j !== i))} aria-label="Usuń"><Trash2 size={13} /></button>}
-          </div>
-        ))}
-        <div className="row wrap" style={{ gap: 12 }}>
-          {kids.length < 4 && <button className="btn sm" onClick={() => setKids([...kids, 0])}><Plus size={14} /> Rodzeństwo</button>}
-          <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={annual} onChange={(e) => setAnnual(e.target.checked)} /> Płatność roczna z góry</label>
-          <span className="spacer grow" />
-          <span>Razem <b>{pln(total)}</b> / mies.{enrol ? <span className="soft small"> · wpisowe {pln(enrol)}</span> : null}</span>
-        </div>
-        <div className="pre small" style={{ background: 'var(--tint)', padding: 12, borderRadius: 10 }}>{text}</div>
-        <div><button className="btn sm primary" onClick={() => { copyText(text); toast('Skopiowano wycenę'); }}><Copy size={14} /> Kopiuj wiadomość</button></div>
-      </div>
-    </section>
-  );
-}
+/* ------------------------------------------------------------------ Cennik (edycja)
 
 /* Editing one city's list for one year — the inputs mirror the table. */
 const linesOf = (items: FeeItem[], l: Lang) => items.map((d) => [d.label[l], d.value[l], d.note?.[l] || ''].join(' | ').replace(/( \| )+$/, '')).join('\n');
@@ -272,7 +105,7 @@ function FeeEditor({ open, onClose, city, year, f, onSaved }: { open: boolean; o
   const n = (v: string) => (v.trim() ? Number(v.replace(/\s/g, '').replace(',', '.')) : undefined);
   const split = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
   const submit = () => save.mutate({
-    status: meta.status, source: meta.source, hours: meta.hours || undefined, note: meta.note || undefined, rows,
+    status: 'confirmed', source: meta.source, hours: meta.hours || undefined, rows,
     discounts: itemsOf(txt.disc, txt.discEn), extras: itemsOf(txt.extra, txt.extraEn),
     included: { pl: split(txt.inc), en: split(txt.incEn) }, notIncluded: { pl: split(txt.not), en: split(txt.notEn) },
   });
@@ -284,11 +117,8 @@ function FeeEditor({ open, onClose, city, year, f, onSaved }: { open: boolean; o
       <div className="col" style={{ gap: 14 }}>
         <div className="fields">
           <label className="field">Rok szkolny<input type="text" value={y} onChange={(e) => setY(e.target.value)} placeholder="2027/28" /></label>
-          <label className="field">Status<select value={meta.status} onChange={(e) => setMeta({ ...meta, status: e.target.value as FeeYear['status'] })}>
-            <option value="confirmed">Potwierdzony</option><option value="draft">Roboczy — do sprawdzenia</option></select></label>
           <label className="field">Godziny<input type="text" value={meta.hours} onChange={(e) => setMeta({ ...meta, hours: e.target.value })} /></label>
           <label className="field wide">Źródło<input type="text" value={meta.source} onChange={(e) => setMeta({ ...meta, source: e.target.value })} /></label>
-          <label className="field wide">Uwaga (widoczna przy cenniku)<input type="text" value={meta.note} onChange={(e) => setMeta({ ...meta, note: e.target.value })} /></label>
         </div>
         <div className="table-wrap">
           <table className="tbl">
@@ -296,13 +126,13 @@ function FeeEditor({ open, onClose, city, year, f, onSaved }: { open: boolean; o
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} style={{ cursor: 'default' }}>
-                  <td><input type="text" value={r.level.pl} onChange={(e) => set(i, 'level', { ...r.level, pl: e.target.value })} /></td>
-                  <td><input type="text" value={r.level.en} onChange={(e) => set(i, 'level', { ...r.level, en: e.target.value })} /></td>
+                  <td><input type="text" value={r.level.pl} onChange={(e) => set(i, 'level', { ...r.level, pl: e.target.value })} style={{ minWidth: 170 }} /></td>
+                  <td><input type="text" value={r.level.en} onChange={(e) => set(i, 'level', { ...r.level, en: e.target.value })} style={{ minWidth: 170 }} /></td>
                   <td><input type="text" inputMode="numeric" value={r.monthly ?? ''} onChange={(e) => set(i, 'monthly', n(e.target.value))} style={{ width: 90 }} /></td>
                   <td><input type="text" inputMode="numeric" value={r.months ?? ''} onChange={(e) => set(i, 'months', n(e.target.value))} style={{ width: 50 }} /></td>
                   <td><input type="text" inputMode="numeric" value={r.enrol ?? ''} onChange={(e) => set(i, 'enrol', n(e.target.value))} style={{ width: 80 }} /></td>
                   <td><input type="text" inputMode="numeric" value={r.materials ?? ''} onChange={(e) => set(i, 'materials', n(e.target.value))} style={{ width: 80 }} /></td>
-                  <td><select value={r.materialsPer || 'year'} onChange={(e) => set(i, 'materialsPer', e.target.value)}><option value="year">rok</option><option value="month">mies.</option></select></td>
+                  <td><select value={r.materialsPer || 'year'} onChange={(e) => set(i, 'materialsPer', e.target.value)} style={{ minWidth: 90 }}><option value="year">rok</option><option value="month">mies.</option></select></td>
                   <td><button className="btn sm ghost" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="Usuń"><Trash2 size={13} /></button></td>
                 </tr>
               ))}
@@ -390,6 +220,7 @@ function MessageCard({ item, lang, child, pm }: { item: TplItem; lang: Lang; chi
 function MailTab({ book, city, year, lang, child }: { book: FeeBook; city: City; year: string; lang: Lang; child: string }) {
   const [mods, setMods] = useState<string[]>(PRESETS[0].mods);
   const [both, setBoth] = useState(false);
+  const [edit, setEdit] = useState(false);
   const toast = useToast();
   const years = Object.keys(book[city]).sort();
   const nextYear = years[years.indexOf(year) + 1];
@@ -428,7 +259,8 @@ function MailTab({ book, city, year, lang, child }: { book: FeeBook; city: City;
             <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={both} onChange={(e) => setBoth(e.target.checked)} />
               Dodaj też cennik {nextYear} (dla rodziny, która zaczyna teraz i zostaje po wrześniu)</label>
           )}
-          {mods.includes('pricing') && <div className="hint">Ceny w mailu: rok {year}. Zmień rok na górze, jeśli dziecko zaczyna od września.</div>}
+          {mods.includes('pricing') && <div className="row wrap hint" style={{ gap: 8 }}><span className="grow">Ceny w mailu: rok {year}. Zmień rok na górze, jeśli dziecko zaczyna od września.</span>
+            <button className="btn sm" onClick={() => setEdit(true)}><Pencil size={14} /> Zmień ceny {CITY_NAME[city]} {year}</button></div>}
         </section>
         <section className="card pad col" style={{ gap: 8 }}>
           <h2><MessageSquareText size={16} /> SMS do maila</h2>
@@ -446,6 +278,7 @@ function MailTab({ book, city, year, lang, child }: { book: FeeBook; city: City;
           <div style={{ background: '#fff', borderRadius: 12, padding: 12, overflow: 'auto', border: '1px solid var(--line)' }} dangerouslySetInnerHTML={{ __html: html }} />
         ) : <div className="empty">Wybierz zestaw albo moduły.</div>}
       </section>
+      <FeeEditor open={edit} onClose={() => setEdit(false)} city={city} year={year} f={book[city][year]} onSaved={() => undefined} />
     </div>
   );
 }
@@ -494,7 +327,7 @@ function HandoverTab({ book, city, onYear }: { book: FeeBook; city: City; onYear
               {f.rows.map((r, i) => <option key={i} value={i}>{r.level.pl} — {pln(r.monthly)}</option>)}
             </select>
           </label>
-          <div className="wide hint">Start {h.start || '—'} → <b>cennik {year}</b> ({yearHint(year, schoolYear(today))}).{f.status === 'draft' ? ' Cennik roboczy — sprawdź kwoty.' : ''}</div>
+          <div className="wide hint">Start {h.start || '—'} → <b>cennik {year}</b> ({yearHint(year, schoolYear(today))}).</div>
           <label className="field">Grupa<input type="text" value={h.group} onChange={(e) => set('group', e.target.value)} /></label>
           <label className="field">Wpisowe<input type="text" value={h.enrol} onChange={(e) => set('enrol', e.target.value)} /></label>
           <label className="field">Czesne<input type="text" value={h.tuition} onChange={(e) => set('tuition', e.target.value)} /></label>

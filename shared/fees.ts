@@ -95,10 +95,9 @@ export const DEFAULT_FEES: FeeBook = {
       discounts: KTW_DISCOUNTS, extras: [], included: KTW_INCLUDED, notIncluded: { pl: [], en: [] },
     },
     '2027/28': {
-      status: 'draft', source: 'Marketing Plan Katowice 2026/27 — slajd „Fee structure” (bez roku)', hours: '7:30-17:30',
+      status: 'confirmed', source: 'Marketing Plan Katowice 2026/27 — ceny bez zmian w 2027/28', hours: '7:30-17:30',
       rows: rows([3349, 3649, 3949, 4149, 4349], same(3400), [1700, 1900, 1900, 1900, 1900]),
       discounts: KTW_DISCOUNTS, extras: [], included: KTW_INCLUDED, notIncluded: { pl: [], en: [] },
-      note: 'Prezentacja Katowic nie podaje roku przy cenniku, a kwoty są takie same jak 2026/27. Wpisz ceny od września 2027, gdy będą ustalone.',
     },
   },
   krakow: {
@@ -149,7 +148,6 @@ export const DEFAULT_FEES: FeeBook = {
         pl: ['Wyżywienie - według cennika firmy cateringowej', 'Transport szkolny - według cennika firmy przewozowej', 'Opieka popołudniowa 16:00-17:30', 'Materiały i SLM (płatne miesięcznie - patrz cennik)'],
         en: ['Meals - catering company price list', 'School transport - transport company price list', 'Aftercare 16:00-17:30', 'SLM and materials (paid monthly - see price list)'],
       },
-      note: 'Prezentacja nie podaje opłaty rekrutacyjnej na 2027/28 — wpisana jak w 2026/27, sprawdź.',
     },
   },
 };
