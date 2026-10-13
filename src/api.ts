@@ -1,4 +1,5 @@
 import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun } from '../shared/domain';
+import type { FeeYear, FeesView } from '../shared/fees';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -206,6 +207,9 @@ export const api = {
   cancelRun: (id: number) => post<ProcessRun>(`/runs/${id}/cancel`),
   personProfile: (id: number) => get<PersonProfile>(`/people/${id}/profile`),
   personWork: (id: number) => get<PersonWork>(`/people/${id}/work`),
+  fees: () => get<FeesView>('/fees'),
+  saveFees: (city: string, year: string, d: FeeYear) => req<FeesView>('PUT', `/fees/${city}/${year}`, d),
+  resetFees: (city: string, year: string) => req<FeesView>('DELETE', `/fees/${city}/${year}`),
   b2c: () => get<B2cItem[]>('/b2c'),
   saveB2c: (d: Partial<B2cItem>) => post<B2cItem>('/b2c', d),
   deleteB2c: (id: number) => del(`/b2c/${id}`),

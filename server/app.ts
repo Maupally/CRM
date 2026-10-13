@@ -13,6 +13,7 @@ import { Processes } from './processes.js';
 import { suggestProcesses } from './suggest.js';
 import { personProfile } from './profile.js';
 import { callReport, callReportHtml, callReportReady, getCallConfig, parseScriptConfig, saveCallConfig, sendCallReport } from './callreport.js';
+import { getFees, resetFeeYear, saveFeeYear } from './fees.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -263,6 +264,9 @@ export function createApp(o: AppOptions) {
 
   /* ---- B2C progress */
   const b2c = async () => { const k = await crm(); return new B2c(k.db, () => k.today()); };
+  api.get('/fees', async (c) => c.json(await getFees(await crm())));
+  api.put('/fees/:city/:y1/:y2', async (c) => c.json(await saveFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`, await body(c))));
+  api.delete('/fees/:city/:y1/:y2', async (c) => c.json(await resetFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`)));
   api.get('/b2c', async (c) => c.json(await (await b2c()).list()));
   api.post('/b2c', async (c) => c.json(await (await b2c()).save(await body(c))));
   api.delete('/b2c/:id', async (c) => c.json(await (await b2c()).remove(num(c.req.param('id')))));

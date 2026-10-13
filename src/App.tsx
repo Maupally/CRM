@@ -5,7 +5,7 @@ import {
   Users,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
-  Target, Workflow,
+  Target, Workflow, FileText,
 } from 'lucide-react';
 import { api } from './api';
 import { searchKey } from '../shared/domain';
@@ -23,6 +23,7 @@ import { SettingsPage } from './pages/Settings';
 import { PeoplePage } from './pages/People';
 import { B2cPage } from './pages/B2c';
 import { ProcessesPage } from './pages/Processes';
+import { TemplatesPage } from './pages/Templates';
 
 export function App() {
   const qc = useQueryClient();
@@ -94,6 +95,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
     { to: '/lejek', label: 'Lejek', icon: KanbanSquare },
     { to: '/firmy', label: 'Firmy', icon: Building2 },
     { to: '/b2c', label: 'B2C', icon: Target },
+    { to: '/szablony', label: 'Szablony', icon: FileText },
   ] },
   { group: 'Plan', items: [
     { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
@@ -173,6 +175,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/wydarzenia/:id" element={<EventsPage />} />
             <Route path="/zespol" element={<PeoplePage />} />
             <Route path="/b2c" element={<B2cPage />} />
+            <Route path="/szablony" element={<TemplatesPage />} />
             <Route path="/procesy" element={<ProcessesPage />} />
             <Route path="/raporty" element={<ReportsPage />} />
             <Route path="/ustawienia" element={<SettingsPage />} />
@@ -193,6 +196,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
         <div className="list card flat">
           {[
             { to: '/b2c', label: 'B2C', icon: Target },
+            { to: '/szablony', label: 'Szablony', icon: FileText },
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
             { to: '/zespol', label: 'Zespół', icon: Users },

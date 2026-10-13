@@ -13,6 +13,7 @@ import { B2c } from './b2c.js';
 import { Processes } from './processes.js';
 import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
+import { feesText } from './fees.js';
 import { buildDefaults, buildFormScript, type Question } from './forms.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
@@ -351,6 +352,21 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
     name: 'get_templates',
     description: 'Szablony maili i skryptów (kod, rodzaj, dla jakich segmentów, temat, treść). Pola [Firma] [Miasto] [Osoba] uzupełniasz sam.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_fees',
+    description: 'Cennik Maple Bear (czesne, opłata rekrutacyjna, materiały, zniżki, co w cenie) dla miasta. UWAGA: są osobne cenniki na lata szkolne — ' +
+      'rodzina, która zaczyna teraz, płaci wg roku bieżącego (2026/27), a ta, która zaczyna od września 2027 — wg 2027/28. Podaj start_date (dzień rozpoczęcia nauki) ' +
+      'albo year. Status ROBOCZY = ceny do potwierdzenia, powiedz o tym użytkownikowi.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        city: { type: 'string', enum: ['katowice', 'krakow', 'wroclaw'], description: 'domyślnie katowice' },
+        start_date: { type: 'string', description: 'yyyy-MM-dd — kiedy dziecko zaczyna; z tego wynika rok szkolny' },
+        year: { type: 'string', description: 'rok szkolny, np. 2027/28 — zamiast start_date' },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'get_events',
@@ -1755,6 +1771,7 @@ export class Assistant {
         call_queue: d.queue.slice(0, 5).map((l) => ({ id: l.id, company: l.company, city: l.city, segment: l.segment })),
       });
     }
+    if (name === 'get_fees') return feesText(this.crm, input);
     if (name === 'get_templates') {
       return JSON.stringify(await this.crm.listTemplates());
     }
