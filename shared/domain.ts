@@ -495,3 +495,18 @@ export interface Idea {
   createdAt: string;
   updatedAt: string;
 }
+
+/* -------------------------------------------------------------- messages sent (copied from templates) */
+
+export const MSG_CHANNELS = ['email', 'sms', 'internal'] as const;
+export type MsgChannel = (typeof MSG_CHANNELS)[number];
+export const MSG_CHANNEL_LABEL: Record<MsgChannel, string> = { email: 'E-maile', sms: 'SMS', internal: 'Wewnętrzne' };
+export interface MsgCount { email: number; sms: number; internal: number; total: number }
+export interface MsgStats {
+  /** last 12 months, oldest first: yyyy-MM */
+  months: (MsgCount & { month: string })[];
+  /** the requested period */
+  period: MsgCount & { from: string; to: string; top: { template: string; channel: MsgChannel; n: number }[] };
+  /** last 30 days, one entry per day */
+  daily: (MsgCount & { date: string })[];
+}

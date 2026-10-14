@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Check, Copy, MessageSquareText, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBox, Loading, Modal, Seg, copyText, useAction, useToast, useToday } from '../components/ui';
@@ -38,6 +38,13 @@ export function TemplatesPage() {
   const [year, setYear] = useState('');
   const [child, setChild] = useState('');
 
+  const qc = useQueryClient();
+  const sent = useQuery({ queryKey: ['msgstats', 'now'], queryFn: () => api.messageStats() });
+  useEffect(() => {
+    const f = () => qc.invalidateQueries({ queryKey: ['msgstats'] });
+    window.addEventListener('crm:msg', f);
+    return () => window.removeEventListener('crm:msg', f);
+  }, [qc]);
   const book = q.data?.book;
   const current = q.data?.current || '';
   const years = useMemo(() => (book ? Object.keys(book[city]).sort() : []), [book, city]);
@@ -55,6 +62,7 @@ export function TemplatesPage() {
       <div className="page-head">
         <div><h1>Szablony</h1><div className="sub">Cenniki, wiadomości i maile do rodziców — wszystko z jednego cennika, osobno dla każdego roku szkolnego.</div></div>
         <span className="spacer" />
+        {sent.data && <Link to="/raporty?tab=wiadomosci" className="tag soon" title="Policzone kopiowania w tym miesiącu">W tym miesiącu: {sent.data.period.email} e-maili · {sent.data.period.sms} SMS</Link>}
         <Seg value={tab} options={TABS} labels={TAB_LABEL} onChange={(t) => setSp(t === 'mail' ? {} : { tab: t }, { replace: true })} />
       </div>
 
@@ -68,7 +76,7 @@ export function TemplatesPage() {
         )}
       </section>
 
-      {tab === 'wiadomosci' && <MessagesTab lang={lang} child={child} />}
+      {tab === 'wiadomosci' && <MessagesTab lang={lang} child={child} city={city} />}
       {tab === 'mail' && <MailTab book={book} city={city} year={year} lang={lang} child={child} />}
       {tab === 'umowa' && <HandoverTab book={book} city={city} onYear={setYear} />}
     </>
@@ -155,7 +163,7 @@ function FeeEditor({ open, onClose, city, year, f, onSaved }: { open: boolean; o
 
 const fillChild = (text: string, child: string) => (child.trim() ? text.replace(/\[(imię dziecka|child's name)\]/gi, child.trim()) : text);
 
-function MessagesTab({ lang, child }: { lang: Lang; child: string }) {
+function MessagesTab({ lang, child, city }: { lang: Lang; child: string; city: City }) {
   const [cat, setCat] = useState('');
   const [find, setFind] = useState('');
   const [pm, setPm] = useState(() => new Date().getHours() >= 12);
@@ -185,7 +193,7 @@ function MessagesTab({ lang, child }: { lang: Lang; child: string }) {
             <div key={bi} className="col" style={{ gap: 8 }}>
               {b.name && <div className="eyebrow">{b.name}</div>}
               <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
-                {b.items.map((it, i) => <MessageCard key={i} item={it} lang={lang} child={child} pm={pm} />)}
+                {b.items.map((it, i) => <MessageCard key={i} item={it} lang={lang} child={child} pm={pm} city={city} />)}
               </div>
             </div>
           ))}
@@ -196,7 +204,7 @@ function MessagesTab({ lang, child }: { lang: Lang; child: string }) {
   );
 }
 
-function MessageCard({ item, lang, child, pm }: { item: TplItem; lang: Lang; child: string; pm: boolean }) {
+function MessageCard({ item, lang, child, pm, city }: { item: TplItem; lang: Lang; child: string; pm: boolean; city: City }) {
   const [sms, setSms] = useState(false);
   const toast = useToast();
   let t = fillChild(item.text[lang], child);
@@ -210,7 +218,7 @@ function MessageCard({ item, lang, child, pm }: { item: TplItem; lang: Lang; chi
         <Seg value={sms ? 'sms' : 'email'} options={['email', 'sms'] as const} labels={{ email: 'E-mail', sms: 'SMS' }} onChange={(v) => setSms(v === 'sms')} />
       </div>
       <div className="pre small" style={{ flex: 1 }}>{parts.map((p, i) => (/^\[.*\]$/.test(p) ? <mark key={i}>{p}</mark> : p))}</div>
-      <div><button className="btn sm primary" onClick={() => { copyText(t); toast('Skopiowano'); }}><Copy size={14} /> Kopiuj</button></div>
+      <div><button className="btn sm primary" onClick={() => { copyText(t); toast(sms ? 'Skopiowano SMS — policzony' : 'Skopiowano e-mail — policzony'); api.logMessage({ channel: sms ? 'sms' : 'email', template: item.title.pl, source: 'wiadomosci', lang, city }); }}><Copy size={14} /> Kopiuj</button></div>
     </div>
   );
 }
@@ -231,6 +239,7 @@ function MailTab({ book, city, year, lang, child }: { book: FeeBook; city: City;
   const toggle = (id: string) => setMods(mods.includes(id) ? mods.filter((m) => m !== id) : [...mods.filter((m) => !(id === 'confirm' && m === 'visit_cta')), id]);
   const plain = () => { const d = document.createElement('div'); d.innerHTML = html; return d.innerText; };
   const sms = companionSms(lang, SIGNATURE[lang]);
+  const logMail = () => api.logMessage({ channel: 'email', template: `Mail: ${PRESETS.find((p) => p.mods.join() === mods.join())?.label || 'własny zestaw'}`, source: 'mail', lang, city });
 
   return (
     <div className="grid main-side" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 500px)' }}>
@@ -265,14 +274,14 @@ function MailTab({ book, city, year, lang, child }: { book: FeeBook; city: City;
         <section className="card pad col" style={{ gap: 8 }}>
           <h2><MessageSquareText size={16} /> SMS do maila</h2>
           <div className="pre small">{sms}</div>
-          <div><button className="btn sm" onClick={() => { copyText(sms); toast('Skopiowano SMS'); }}><Copy size={14} /> Kopiuj SMS</button></div>
+          <div><button className="btn sm" onClick={() => { copyText(sms); toast('Skopiowano SMS — policzony'); api.logMessage({ channel: 'sms', template: 'SMS do maila', source: 'mail', lang, city }); }}><Copy size={14} /> Kopiuj SMS</button></div>
         </section>
       </div>
       <section className="card pad col" style={{ gap: 10 }}>
         <div className="row wrap" style={{ gap: 8 }}>
           <h2 className="grow">Podgląd</h2>
-          <button className="btn sm primary" disabled={!mods.length} onClick={async () => { await copyHtml(html, plain()); toast('Skopiowano — wklej w Gmailu'); }}><Copy size={14} /> Kopiuj mail</button>
-          <button className="btn sm" disabled={!mods.length} onClick={() => { copyText(html); toast('Skopiowano HTML'); }}>HTML</button>
+          <button className="btn sm primary" disabled={!mods.length} onClick={async () => { await copyHtml(html, plain()); toast('Skopiowano — wklej w Gmailu'); logMail(); }}><Copy size={14} /> Kopiuj mail</button>
+          <button className="btn sm" disabled={!mods.length} onClick={() => { copyText(html); toast('Skopiowano HTML'); logMail(); }}>HTML</button>
         </div>
         {mods.length ? (
           <div style={{ background: '#fff', borderRadius: 12, padding: 12, overflow: 'auto', border: '1px solid var(--line)' }} dangerouslySetInnerHTML={{ __html: html }} />
@@ -348,7 +357,7 @@ function HandoverTab({ book, city, onYear }: { book: FeeBook; city: City; onYear
       <section className="card pad col" style={{ gap: 10 }}>
         <div className="row" style={{ gap: 8 }}>
           <h2 className="grow">Podgląd (po angielsku, dla zespołu)</h2>
-          <button className="btn sm primary" onClick={async () => { const d = document.createElement('div'); d.innerHTML = html; await copyHtml(html, d.innerText); toast('Skopiowano — wklej w Gmailu'); }}><Copy size={14} /> Kopiuj mail</button>
+          <button className="btn sm primary" onClick={async () => { const d = document.createElement('div'); d.innerHTML = html; await copyHtml(html, d.innerText); toast('Skopiowano — wklej w Gmailu'); api.logMessage({ channel: 'internal', template: 'Nowa umowa (zespół)', source: 'umowa', city }); }}><Copy size={14} /> Kopiuj mail</button>
         </div>
         <div style={{ background: '#fff', borderRadius: 12, padding: 12, overflow: 'auto', border: '1px solid var(--line)' }} dangerouslySetInnerHTML={{ __html: html }} />
       </section>

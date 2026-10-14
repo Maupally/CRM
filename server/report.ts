@@ -12,6 +12,8 @@ export interface ReportInput {
   activities: Activity[];
   events: CrmEvent[];
   tasks: Task[];
+  /** messages copied from Opal5 templates in the period */
+  messages?: { email: number; sms: number; internal: number; total: number; top: { template: string; channel: string; n: number }[] };
 }
 
 /**
@@ -114,6 +116,15 @@ export function buildReport(r: ReportInput): string {
     o.push(`NOT DONE (${skipped.length})`);
     o.push(rule);
     for (const x of skipped) o.push(`  ${shortDate(x.completed)}  ${x.task}${x.skipReason ? `  — ${x.skipReason}` : ''}`);
+    o.push('');
+  }
+
+  if (r.messages?.total) {
+    const m = r.messages;
+    o.push(`MESSAGES SENT FROM TEMPLATES (${m.total})`);
+    o.push(rule);
+    o.push(`  E-mails ${m.email}   ·   SMS ${m.sms}${m.internal ? `   ·   internal ${m.internal}` : ''}`);
+    if (m.top.length) o.push(`  Most used: ${m.top.slice(0, 5).map((x) => `${x.template} (${x.channel === 'sms' ? 'SMS' : x.channel === 'internal' ? 'internal' : 'e-mail'}) ×${x.n}`).join(', ')}`);
     o.push('');
   }
 

@@ -10,6 +10,7 @@ import { Designs } from './designs.js';
 import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
 import { Ideas } from './ideas.js';
+import { Messages } from './messages.js';
 import { Processes } from './processes.js';
 import { suggestProcesses } from './suggest.js';
 import { personProfile } from './profile.js';
@@ -268,6 +269,9 @@ export function createApp(o: AppOptions) {
   api.get('/fees', async (c) => c.json(await getFees(await crm())));
   api.put('/fees/:city/:y1/:y2', async (c) => c.json(await saveFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`, await body(c))));
   api.delete('/fees/:city/:y1/:y2', async (c) => c.json(await resetFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`)));
+  const messages = async () => { const k = await crm(); return new Messages(k.db, () => k.today()); };
+  api.post('/messages/log', async (c) => c.json(await (await messages()).log(await body(c))));
+  api.get('/messages/stats', async (c) => c.json(await (await messages()).stats(c.req.query('from'), c.req.query('to'))));
   const ideas = async () => { const k = await crm(); return new Ideas(k.db, () => k.today()); };
   api.get('/ideas', async (c) => c.json(await (await ideas()).list()));
   api.post('/ideas', async (c) => c.json(await (await ideas()).save(await body(c))));

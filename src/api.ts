@@ -1,4 +1,4 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea, MsgChannel, MsgStats } from '../shared/domain';
 import type { FeeYear, FeesView } from '../shared/fees';
 
 export class ApiError extends Error {
@@ -210,6 +210,8 @@ export const api = {
   fees: () => get<FeesView>('/fees'),
   saveFees: (city: string, year: string, d: FeeYear) => req<FeesView>('PUT', `/fees/${city}/${year}`, d),
   resetFees: (city: string, year: string) => req<FeesView>('DELETE', `/fees/${city}/${year}`),
+  logMessage: (d: { channel: MsgChannel; template: string; source: string; lang?: string; city?: string }) => post<{ ok: boolean }>('/messages/log', d).then(() => { window.dispatchEvent(new Event('crm:msg')); }, () => undefined),
+  messageStats: (from?: string, to?: string) => get<MsgStats>(`/messages/stats${from && to ? `?from=${from}&to=${to}` : ''}`),
   ideas: () => get<Idea[]>('/ideas'),
   saveIdea: (d: Partial<Idea>) => post<Idea>('/ideas', d),
   deleteIdea: (id: number) => del(`/ideas/${id}`),

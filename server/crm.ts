@@ -611,9 +611,18 @@ export class Crm {
         WHERE a.date BETWEEN ? AND ? OR (a.result = 'planned' AND a.date >= ?)`, [a, b, this.today()]),
       this.listLeads(), this.listEvents(), this.listTasks(),
     ]);
+    const msgRows = await this.q.all(`SELECT channel, template, COUNT(*) AS n FROM crm.msg_log WHERE day BETWEEN ? AND ?
+      GROUP BY channel, template ORDER BY n DESC`, [a, b]);
+    const messages = { email: 0, sms: 0, internal: 0, total: 0, top: [] as { template: string; channel: string; n: number }[] };
+    for (const r of msgRows) {
+      const n = Number(r.n);
+      if (r.channel === 'email' || r.channel === 'sms' || r.channel === 'internal') messages[r.channel as 'email'] += n;
+      messages.total += n;
+      if (r.template) messages.top.push({ template: r.template, channel: r.channel, n });
+    }
     const text = buildReport({
       from: a, to: b, today: this.today(), owner: this.owner,
-      leads, activities: acts.map((r) => this.toActivity(r)), events, tasks,
+      leads, activities: acts.map((r) => this.toActivity(r)), events, tasks, messages,
     });
     return { from: a, to: b, text };
   }

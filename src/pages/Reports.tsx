@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, AlarmClock, PhoneCall, Target, Copy, Send, Sparkles, Loader2, Download, Settings2 } from 'lucide-react';
+import { Activity, AlarmClock, PhoneCall, Target, Mail, MessageSquare, Building, Copy, Send, Sparkles, Loader2, Download, Settings2 } from 'lucide-react';
 import { api, type Bucket, type CallConfig } from '../api';
 import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, typeLabel, useConfig, useToast, useToday } from '../components/ui';
-import { COUNTED, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
+import { COUNTED, MSG_CHANNEL_LABEL, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
 
 const TYPE_COLOR: Record<string, string> = {
   Call: 'var(--accent)', Email: 'var(--violet)', SMS: 'var(--warn)', Meeting: 'var(--ok)', Visit: '#1E9E8F',
@@ -12,16 +12,16 @@ const TYPE_COLOR: Record<string, string> = {
 
 export function ReportsPage() {
   const [sp, setSp] = useSearchParams();
-  const tab = (sp.get('tab') || 'przeglad') as 'przeglad' | 'tygodniowy' | 'polaczenia';
+  const tab = (sp.get('tab') || 'przeglad') as 'przeglad' | 'tygodniowy' | 'polaczenia' | 'wiadomosci';
   return (
     <>
       <div className="page-head">
         <div><h1>Raporty</h1><div className="sub">Aktywność, lejek i raport tygodniowy do wysłania.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['przeglad', 'tygodniowy', 'polaczenia'] as const} onChange={(t) => setSp(t === 'przeglad' ? {} : { tab: t }, { replace: true })}
-          labels={{ przeglad: 'Przegląd', tygodniowy: 'Raport tygodniowy', polaczenia: 'Call report' }} />
+        <Seg value={tab} options={['przeglad', 'tygodniowy', 'wiadomosci', 'polaczenia'] as const} onChange={(t) => setSp(t === 'przeglad' ? {} : { tab: t }, { replace: true })}
+          labels={{ przeglad: 'Przegląd', tygodniowy: 'Raport tygodniowy', wiadomosci: 'Wiadomości', polaczenia: 'Call report' }} />
       </div>
-      {tab === 'przeglad' ? <Overview /> : tab === 'polaczenia' ? <CallReport /> : <Weekly />}
+      {tab === 'przeglad' ? <Overview /> : tab === 'polaczenia' ? <CallReport /> : tab === 'wiadomosci' ? <MessagesReport /> : <Weekly />}
     </>
   );
 }
@@ -300,5 +300,79 @@ function CallConfigPanel({ c }: { c: CallConfig & { ready: boolean; mail: boolea
       <label className="field">Numery wewnętrzne (blacklist) — połączenie między nimi liczy się jako wewnętrzne<textarea rows={3} value={blacklist} onChange={(e) => setBlacklist(e.target.value)} /></label>
       <button className="btn primary sm" style={{ alignSelf: 'flex-start' }} disabled={save.isPending} onClick={() => save.mutate()}>Zapisz konfigurację</button>
     </section>
+  );
+}
+
+const MSG_COLOR = { email: 'var(--violet)', sms: 'var(--warn)', internal: 'var(--ok)' } as const;
+const MONTH = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
+const monthLabel = (m: string) => `${MONTH[Number(m.slice(5, 7)) - 1]} ${m.slice(2, 4)}`;
+const monthEnd = (m: string) => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
+
+/** Messages copied from Opal5 templates: e-mails and SMS per month, what is used most. */
+function MessagesReport() {
+  const today = useToday();
+  const [month, setMonth] = useState(today.slice(0, 7));
+  const q = useQuery({ queryKey: ['msgstats', month], queryFn: () => api.messageStats(`${month}-01`, monthEnd(month)) });
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  const s = q.data!;
+  const p = s.period;
+  const max = Math.max(1, ...s.months.map((m) => m.total));
+  const maxDay = Math.max(1, ...s.daily.map((d) => d.total));
+  const prev = s.months[s.months.findIndex((m) => m.month === month) - 1];
+  const diff = prev && prev.total ? Math.round(((p.total - prev.total) / prev.total) * 100) : null;
+  const keys = ['email', 'sms', 'internal'] as const;
+  return (
+    <div className="col loose" style={{ gap: 18 }}>
+      <div className="chips">
+        {s.months.slice(-6).map((m) => <button key={m.month} className={`chip ${m.month === month ? 'on' : ''}`} onClick={() => setMonth(m.month)}>{monthLabel(m.month)} <span className="n">{m.total}</span></button>)}
+      </div>
+      <div className="grid kpis">
+        <StatTile label={`E-maile · ${monthLabel(month)}`} value={p.email} icon={Mail} tone="violet" />
+        <StatTile label={`SMS · ${monthLabel(month)}`} value={p.sms} icon={MessageSquare} tone="amber" />
+        <StatTile label="Wewnętrzne (nowe umowy)" value={p.internal} icon={Building} tone="green" />
+        <StatTile label="Razem wiadomości" value={p.total} icon={Send} hint={diff === null ? 'z szablonów Opal5' : `${diff >= 0 ? '+' : ''}${diff}% vs ${monthLabel(prev!.month)}`} />
+      </div>
+      <div className="grid halves">
+        <section className="card pad">
+          <div className="row between wrap" style={{ marginBottom: 18 }}><h2>Miesięcznie — 12 miesięcy</h2>
+            <div className="legend">{keys.map((k) => <span key={k}><i style={{ background: MSG_COLOR[k] }} />{MSG_CHANNEL_LABEL[k]}</span>)}</div></div>
+          <div className="bars">
+            {s.months.map((m) => (
+              <div key={m.month} className={`b ${m.month === month ? 'today' : ''} ${m.total ? '' : 'empty'}`} style={{ cursor: 'pointer' }} onClick={() => setMonth(m.month)}
+                title={`${monthLabel(m.month)}: ${m.total} — e-maile ${m.email}, SMS ${m.sms}, wewnętrzne ${m.internal}`}>
+                {m.total ? keys.filter((k) => m[k]).map((k) => <span key={k} style={{ height: `${(m[k] / max) * 100}%`, background: MSG_COLOR[k] }} />) : <span />}
+              </div>
+            ))}
+          </div>
+          <div className="axis"><span>{monthLabel(s.months[0].month)}</span><span>{monthLabel(s.months.at(-1)!.month)}</span></div>
+        </section>
+        <section className="card pad">
+          <h2 style={{ marginBottom: 18 }}>Ostatnie 30 dni</h2>
+          <div className="bars">
+            {s.daily.map((d) => (
+              <div key={d.date} className={`b ${d.date === today ? 'today' : ''} ${d.total ? '' : 'empty'}`} title={`${shortDate(d.date)}: e-maile ${d.email}, SMS ${d.sms}, wewnętrzne ${d.internal}`}>
+                {d.total ? keys.filter((k) => d[k]).map((k) => <span key={k} style={{ height: `${(d[k] / maxDay) * 100}%`, background: MSG_COLOR[k] }} />) : <span />}
+              </div>
+            ))}
+          </div>
+          <div className="axis"><span>{shortDate(s.daily[0].date)}</span><span>dziś</span></div>
+        </section>
+      </div>
+      <section className="card">
+        <div className="card-head"><h2>Najczęściej wysyłane · {monthLabel(month)}</h2></div>
+        {p.top.length ? (
+          <ul className="list">
+            {p.top.map((t) => (
+              <li key={`${t.channel}:${t.template}`} className="li">
+                <span className="grow">{t.template}</span>
+                <span className="tag" style={{ color: MSG_COLOR[t.channel] }}>{MSG_CHANNEL_LABEL[t.channel]}</span>
+                <b style={{ width: 40, textAlign: 'right' }}>{t.n}</b>
+              </li>
+            ))}
+          </ul>
+        ) : <div className="empty">W tym miesiącu nic nie skopiowano z Szablonów. Każde „Kopiuj” w Szablonach liczy się tu jako wysłana wiadomość.</div>}
+      </section>
+    </div>
   );
 }
