@@ -9,6 +9,7 @@ import { TOOLS_VERSION, handleMcp, handleStaleMcp, lastMcp, mcpToken } from './m
 import { Designs } from './designs.js';
 import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
+import { Ideas } from './ideas.js';
 import { Processes } from './processes.js';
 import { suggestProcesses } from './suggest.js';
 import { personProfile } from './profile.js';
@@ -267,6 +268,10 @@ export function createApp(o: AppOptions) {
   api.get('/fees', async (c) => c.json(await getFees(await crm())));
   api.put('/fees/:city/:y1/:y2', async (c) => c.json(await saveFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`, await body(c))));
   api.delete('/fees/:city/:y1/:y2', async (c) => c.json(await resetFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`)));
+  const ideas = async () => { const k = await crm(); return new Ideas(k.db, () => k.today()); };
+  api.get('/ideas', async (c) => c.json(await (await ideas()).list()));
+  api.post('/ideas', async (c) => c.json(await (await ideas()).save(await body(c))));
+  api.delete('/ideas/:id', async (c) => c.json(await (await ideas()).remove(num(c.req.param('id')))));
   api.get('/b2c', async (c) => c.json(await (await b2c()).list()));
   api.post('/b2c', async (c) => c.json(await (await b2c()).save(await body(c))));
   api.delete('/b2c/:id', async (c) => c.json(await (await b2c()).remove(num(c.req.param('id')))));

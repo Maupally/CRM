@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AlarmClock, AlertTriangle, CalendarCheck, CheckCircle2, Flame, Handshake, ArrowRight, Sparkles } from 'lucide-react';
+import { AlarmClock, AlertTriangle, CalendarCheck, CheckCircle2, Flame, Handshake, ArrowRight, Sparkles, Lightbulb } from 'lucide-react';
 import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
@@ -18,6 +18,7 @@ type Item = { kind: 'act'; date: string; a: OpenItem } | { kind: 'task'; date: s
 export function DashboardPage() {
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard });
   const runs = useQuery({ queryKey: ['runs', false], queryFn: () => api.runs() });
+  const ideas = useQuery({ queryKey: ['ideas'], queryFn: api.ideas });
   const tips = useQuery({ queryKey: ['process-suggestions'], queryFn: api.processSuggestions });
   const cfg = useConfig();
   const [open, setOpen] = useState<OpenItem | null>(null);
@@ -43,6 +44,7 @@ export function DashboardPage() {
   const hello = hour < 12 ? 'Dzień dobry' : hour < 18 ? 'Cześć' : 'Dobry wieczór';
   const todo = late.length + today.length;
   const stuck = (runs.data || []).filter((r) => r.stuck.length);
+  const laterDue = (ideas.data || []).filter((i) => i.status === 'open' && i.remindOn && i.remindOn <= t);
 
   const row = (i: Item, showDate: boolean) => i.kind === 'act'
     ? <TaskRow key={`a${i.a.id}`} a={i.a} today={t} onComplete={setOpen} showDate={showDate} />
@@ -82,6 +84,14 @@ export function DashboardPage() {
           <Sparkles size={18} style={{ color: 'var(--warn)', flexShrink: 0 }} />
           <span className="grow"><b>Czas uruchomić procedurę</b>
             <span className="soft small" style={{ display: 'block' }}>{tips.data.filter((x) => x.kind === 'start').map((x) => x.title).join(' · ')}</span></span>
+          <ArrowRight size={16} />
+        </Link>
+      )}
+      {laterDue.length > 0 && (
+        <Link to="/na-pozniej" className="card pad row" style={{ marginBottom: 18, color: 'inherit', gap: 10 }}>
+          <Lightbulb size={18} style={{ color: 'var(--warn)', flexShrink: 0 }} />
+          <span className="grow"><b>Wraca z listy „Na później”</b>
+            <span className="soft small" style={{ display: 'block' }}>{laterDue.map((i) => i.title).join(' · ')}</span></span>
           <ArrowRight size={16} />
         </Link>
       )}

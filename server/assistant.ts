@@ -14,6 +14,7 @@ import { Processes } from './processes.js';
 import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
 import { feesText } from './fees.js';
+import { Ideas } from './ideas.js';
 import { buildDefaults, buildFormScript, type Question } from './forms.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
@@ -168,6 +169,30 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'save_idea',
+    description: 'Lista „Na później” — luźne tematy niepowiązane z niczym: firma z ofertą, która dziś nie jest potrzebna albo nie jest tematem użytkownika, ' +
+      'pomysł na przyszły rok, kontakt „może się przyda”. Zapisz, gdy użytkownik mówi „zapamiętaj”, „na później”, „może kiedyś”, „to nie mój temat, ale…”. ' +
+      'topic = czego dotyczy (np. zajęcia dodatkowe), when_relevant = kiedy to wraca (słowami), remind_on = konkretny dzień przypomnienia (jeśli wynika z rozmowy), ' +
+      'owner = czyj to temat. Z id — zmienia (status used = wykorzystane, dropped = odpuszczone).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' }, title: { type: 'string', description: 'np. Dzika Droga — zajęcia survivalowe dla szkół' },
+        topic: { type: 'string' }, note: { type: 'string', description: 'co oferują, dlaczego warto, co ustalono' }, url: { type: 'string' },
+        contact: { type: 'string', description: 'osoba / e-mail / telefon' }, owner: { type: 'string', description: 'czyj to temat, np. dyrekcja, Patryk' },
+        when_relevant: { type: 'string', description: 'np. przy ustalaniu zajęć dodatkowych na 2027/28' },
+        remind_on: { type: 'string', description: 'yyyy-MM-dd' }, status: { type: 'string', enum: ['open', 'used', 'dropped'] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_ideas',
+    description: 'Lista „Na później”. Z query — tylko pasujące do tematu rozmowy (sprawdzaj przy planowaniu wydarzeń, zajęć dodatkowych, ' +
+      'nowego roku szkolnego, szukaniu dostawców i partnerów). Bez query — wszystkie otwarte.',
+    input_schema: { type: 'object', properties: { query: { type: 'string' }, include_closed: { type: 'boolean' } }, additionalProperties: false },
+  },
+  {
     name: 'event_kit',
     description: 'Pakiet startowy wydarzenia: co przygotować (strona, formularz zapisów, formularz konkursowy, zlecenie banera, zaproszenia, post), ' +
       'co już jest w Opal5 dla tego wydarzenia, NAJNOWSZA strona WWW z wcześniejszych wydarzeń do wzięcia jako baza (id do get_asset) ' +
@@ -259,8 +284,9 @@ const GATEWAY = [
   },
 ];
 
+const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
-const CONNECTOR_WRITES = new Set(['log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
+const CONNECTOR_WRITES = new Set(['save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -1422,7 +1448,7 @@ export class Assistant {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
     // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
     const kb = KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks');
-    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name));
+    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name));
     return [...READ_TOOLS, ...kb, ...own, ...writes].map((t) => ({
       name: t.name,
       description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
@@ -1567,6 +1593,16 @@ export class Assistant {
       }
       const r = await b2c.save(input);
       return `Zapisano pozycję B2C „${r.title}” (id ${r.id}).`;
+    }
+    if (IDEA_ACTIONS.has(name)) {
+      const ideas = new Ideas(this.crm.db, () => this.crm.today());
+      if (name === 'save_idea') {
+        const i = await ideas.save(input);
+        return `Zapisano na liście „Na później” (id ${i.id}): ${i.title}${i.remindOn ? `, przypomnę ${i.remindOn}` : ''}${i.whenRelevant ? `, wraca: ${i.whenRelevant}` : ''}.`;
+      }
+      const list = input.query ? await ideas.match(String(input.query), 10) : (await ideas.list(!!input.include_closed));
+      if (input.query && list.length) await ideas.shown(list.map((i) => i.id));
+      return list.length ? JSON.stringify(list.map(Ideas.brief)) : (input.query ? 'Nic z listy „Na później” nie pasuje.' : 'Lista „Na później” jest pusta.');
     }
     if (ASSET_ACTIONS.has(name)) return this.assets(name, input);
     if (name === 'save_note') {
@@ -1809,8 +1845,12 @@ export class Assistant {
     if (name === 'get_person_work') return JSON.stringify(await new Processes(this.crm).personWork(Number(input.person_id)));
     if (name === 'find_help') {
       const r = await this.crm.findHelp(String(input.need || ''));
-      if (!r.people.length && !r.companies.length) return 'Nikt w siatce ani w CRM nie pasuje. Zapytaj użytkownika, kogo zna, i zapisz tę osobę (save_person z services).';
-      return JSON.stringify(r);
+      const ideas = new Ideas(this.crm.db, () => this.crm.today());
+      const later = await ideas.match(String(input.need || ''), 3);
+      if (later.length) await ideas.shown(later.map((i) => i.id));
+      const fromLater = later.length ? { from_later_list: later.map(Ideas.brief) } : {};
+      if (!r.people.length && !r.companies.length && !later.length) return 'Nikt w siatce ani w CRM nie pasuje. Zapytaj użytkownika, kogo zna, i zapisz tę osobę (save_person z services).';
+      return JSON.stringify({ ...r, ...fromLater });
     }
     if (name === 'get_tasks') {
       const all = await this.crm.listTasks();
@@ -1830,9 +1870,23 @@ export class Assistant {
         done_today: d.doneToday, process_suggestions: await suggestProcesses(this.crm).then((x) => x.length ? `${x.length} — sprawdź suggest_processes i zaproponuj` : undefined).catch(() => undefined),
         stuck_processes: await new Processes(this.crm).runs().then((r) => r.filter((x) => x.stuck.length).map((x) => `${x.title}: ${x.stuck.join('; ')}`)).then((x) => x.length ? x : undefined),
         top_call_queue: d.queue.slice(0, 5).map((l) => ({ id: l.id, company: l.company, city: l.city })),
+        ...(await this.laterForDay()),
       });
     }
     throw new Error(`Nieznane narzędzie ${name}`);
+  }
+
+  /** For get_my_day: reminders whose day came, and now and then one older idea to mention in passing. */
+  private async laterForDay() {
+    try {
+      const ideas = new Ideas(this.crm.db, () => this.crm.today());
+      const due = await ideas.due();
+      const nudge = due.length ? null : await ideas.nudge();
+      return {
+        ...(due.length ? { later_list_due: { hint: 'Z listy „Na później” — dziś jest ich dzień przypomnienia. Powiedz o nich i zapytaj: działamy, przypomnieć później czy odpuścić?', items: due.map(Ideas.brief) } } : {}),
+        ...(nudge ? { later_list_reminder: { hint: 'Przy okazji wspomnij jednym zdaniem, że to czeka na liście „Na później” (bez naciskania).', item: Ideas.brief(nudge) } } : {}),
+      };
+    } catch { return {}; }
   }
 
   /* ---------------------------------------------------------- proposals */

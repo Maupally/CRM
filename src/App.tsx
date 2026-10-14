@@ -5,7 +5,7 @@ import {
   Users,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
-  Target, Workflow, FileText,
+  Target, Workflow, FileText, Lightbulb,
 } from 'lucide-react';
 import { api } from './api';
 import { searchKey } from '../shared/domain';
@@ -24,6 +24,7 @@ import { PeoplePage } from './pages/People';
 import { B2cPage } from './pages/B2c';
 import { ProcessesPage } from './pages/Processes';
 import { TemplatesPage } from './pages/Templates';
+import { LaterPage } from './pages/Later';
 
 export function App() {
   const qc = useQueryClient();
@@ -102,6 +103,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
     { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
     { to: '/zespol', label: 'Zespół', icon: Users },
     { to: '/procesy', label: 'Procesy', icon: Workflow },
+    { to: '/na-pozniej', label: 'Na później', icon: Lightbulb },
   ] },
   { group: 'Analiza', items: [
     { to: '/raporty', label: 'Raporty', icon: BarChart3 },
@@ -177,6 +179,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/b2c" element={<B2cPage />} />
             <Route path="/szablony" element={<TemplatesPage />} />
             <Route path="/procesy" element={<ProcessesPage />} />
+            <Route path="/na-pozniej" element={<LaterPage />} />
             <Route path="/raporty" element={<ReportsPage />} />
             <Route path="/ustawienia" element={<SettingsPage />} />
             <Route path="*" element={<div className="empty">Nie ma takiej strony.</div>} />
@@ -201,6 +204,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
             { to: '/zespol', label: 'Zespół', icon: Users },
             { to: '/procesy', label: 'Procesy', icon: Workflow },
+            { to: '/na-pozniej', label: 'Na później', icon: Lightbulb },
             { to: '/raporty', label: 'Raporty', icon: BarChart3 },
             { to: '/ustawienia', label: 'Ustawienia i dane', icon: Settings },
           ].map(({ to, label, icon: I }) => (

@@ -469,3 +469,29 @@ export interface ProcessRun {
   current: number;
   stuck: string[];
 }
+
+/* -------------------------------------------------------------- Na później */
+
+export const IDEA_STATUS = ['open', 'used', 'dropped'] as const;
+export type IdeaStatus = (typeof IDEA_STATUS)[number];
+export const IDEA_STATUS_LABEL: Record<IdeaStatus, string> = { open: 'Czeka', used: 'Wykorzystane', dropped: 'Odpuszczone' };
+/** Something to come back to later — a company, an offer, an idea — not tied to any company, event or task yet. */
+export interface Idea {
+  id: number;
+  title: string;
+  /** what it is about, e.g. "zajęcia dodatkowe" */
+  topic: string;
+  note: string;
+  url: string;
+  contact: string;
+  /** whose topic it is (when it is not the user's) */
+  owner: string;
+  /** when it becomes useful, in words: "przy ustalaniu zajęć dodatkowych na 2027/28" */
+  whenRelevant: string;
+  /** yyyy-MM-dd — bring it up on this day */
+  remindOn: string;
+  status: IdeaStatus;
+  lastShown: string;
+  createdAt: string;
+  updatedAt: string;
+}
