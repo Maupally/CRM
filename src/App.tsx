@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, Suspense, lazy } from 'react';
 import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -13,18 +13,21 @@ import { Avatar, Loading, Modal, StagePill, ThemeToggle } from './components/ui'
 import { AssistantButton } from './components/Assistant';
 import { DashboardPage } from './pages/Dashboard';
 import { TasksPage } from './pages/Tasks';
-import { PipelinePage } from './pages/Pipeline';
-import { CompaniesPage } from './pages/Companies';
-import { CompanyPage } from './pages/Company';
-import { CalendarPage } from './pages/Calendar';
-import { EventsPage } from './pages/Events';
-import { ReportsPage } from './pages/Reports';
-import { SettingsPage } from './pages/Settings';
-import { PeoplePage, PersonFilePage } from './pages/People';
-import { B2cPage } from './pages/B2c';
-import { ProcessesPage } from './pages/Processes';
-import { TemplatesPage } from './pages/Templates';
-import { LaterPage } from './pages/Later';
+
+// heavier pages load on first visit, so opening Opal5 does not download every view at once
+const PipelinePage = lazy(() => import('./pages/Pipeline').then((m) => ({ default: m.PipelinePage })));
+const CompaniesPage = lazy(() => import('./pages/Companies').then((m) => ({ default: m.CompaniesPage })));
+const CompanyPage = lazy(() => import('./pages/Company').then((m) => ({ default: m.CompanyPage })));
+const CalendarPage = lazy(() => import('./pages/Calendar').then((m) => ({ default: m.CalendarPage })));
+const EventsPage = lazy(() => import('./pages/Events').then((m) => ({ default: m.EventsPage })));
+const ReportsPage = lazy(() => import('./pages/Reports').then((m) => ({ default: m.ReportsPage })));
+const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
+const B2cPage = lazy(() => import('./pages/B2c').then((m) => ({ default: m.B2cPage })));
+const ProcessesPage = lazy(() => import('./pages/Processes').then((m) => ({ default: m.ProcessesPage })));
+const TemplatesPage = lazy(() => import('./pages/Templates').then((m) => ({ default: m.TemplatesPage })));
+const LaterPage = lazy(() => import('./pages/Later').then((m) => ({ default: m.LaterPage })));
+const PeoplePage = lazy(() => import('./pages/People').then((m) => ({ default: m.PeoplePage })));
+const PersonFilePage = lazy(() => import('./pages/People').then((m) => ({ default: m.PersonFilePage })));
 
 export function App() {
   const qc = useQueryClient();
@@ -166,7 +169,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
         </header>
 
         <main className="content">
-          <Routes>
+          <Suspense fallback={<Loading />}><Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/zadania" element={<TasksPage />} />
             <Route path="/lejek" element={<PipelinePage />} />
@@ -184,7 +187,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/raporty" element={<ReportsPage />} />
             <Route path="/ustawienia" element={<SettingsPage />} />
             <Route path="*" element={<div className="empty">Nie ma takiej strony.</div>} />
-          </Routes>
+          </Routes></Suspense>
         </main>
       </div>
 

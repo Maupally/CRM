@@ -85,8 +85,10 @@ export class BoardStore {
           ORDER BY n.day DESC, n.id DESC`, [about.kind, about.id])
       : await this.db.all('SELECT * FROM crm.notes ORDER BY day DESC, id DESC');
     if (!rows.length) return [];
-    const links = await this.db.all(`SELECT * FROM crm.note_links WHERE note_id IN (${rows.map(() => '?').join(',')})`, rows.map((r) => r.id));
-    const names = await this.names();
+    const [links, names] = await Promise.all([
+      this.db.all(`SELECT * FROM crm.note_links WHERE note_id IN (${rows.map(() => '?').join(',')})`, rows.map((r) => r.id)),
+      this.names(),
+    ]);
     return rows.map((r) => ({
       id: Number(r.id), day: r.day, text: r.text, ref: r.ref, source: r.source,
       links: links.filter((l) => Number(l.note_id) === Number(r.id))
@@ -106,13 +108,18 @@ export class BoardStore {
     return { ok: true };
   }
 
+  /** Display names for note links — light queries, not the full people/event lists. */
   private async names(): Promise<Map<string, string>> {
     const m = new Map<string, string>();
-    for (const p of await this.crm.listPeople()) m.set(`person:${p.id}`, p.name);
-    for (const e of await this.crm.listEvents()) m.set(`event:${e.id}`, e.title);
-    for (const l of await this.db.all(`SELECT id, company FROM crm.leads WHERE id IN (
+    const [people, events, leads] = await Promise.all([
+      this.db.all('SELECT id, name FROM crm.people'), this.db.all('SELECT id, title FROM crm.events'),
+      this.db.all(`SELECT id, company FROM crm.leads WHERE id IN (
         SELECT ref_id FROM crm.note_links WHERE kind = 'company' UNION SELECT a_id FROM crm.links WHERE a_kind = 'company'
-        UNION SELECT b_id FROM crm.links WHERE b_kind = 'company')`)) m.set(`company:${l.id}`, l.company);
+        UNION SELECT b_id FROM crm.links WHERE b_kind = 'company')`),
+    ]);
+    for (const p of people) m.set(`person:${p.id}`, p.name);
+    for (const e of events) m.set(`event:${e.id}`, e.title);
+    for (const l of leads) m.set(`company:${l.id}`, l.company);
     return m;
   }
 

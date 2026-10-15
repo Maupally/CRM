@@ -8,6 +8,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 export type Row = Record<string, any>;
 
@@ -395,7 +396,14 @@ export async function openDb(target = databaseUrl() || process.env.PGLITE_DIR ||
       'albo dodaj zmienną DATABASE_URL. Potem Redeploy.');
   }
   const db = /^postgres(ql)?:\/\//.test(target) ? await openRemote(target) : await openEmbedded(target);
-  await db.exec(SCHEMA);
+  // Running the whole schema takes a lock on every table (ALTER TABLE … IF NOT EXISTS too), so every cold
+  // start of a serverless function made other requests wait. Run it only when the schema has changed.
+  const hash = createHash('sha256').update(SCHEMA).digest('hex').slice(0, 16);
+  const current = await db.get("SELECT value FROM crm.settings WHERE key = 'schema.hash'").then((r) => r?.value, () => '');
+  if (current !== hash) {
+    await db.exec(SCHEMA);
+    await db.run(`INSERT INTO crm.settings (key, value) VALUES ('schema.hash', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [hash]);
+  }
   return db;
 }
 
