@@ -15,6 +15,7 @@ import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
 import { feesText } from './fees.js';
 import { Ideas } from './ideas.js';
+import { BoardStore } from './board.js';
 import { buildDefaults, buildFormScript, type Question } from './forms.js';
 import { mailEnabled, sendCampaign } from './mail.js';
 import { qrPng, stampQr, type Corner } from './studio.js';
@@ -169,6 +170,45 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'save_person_note',
+    description: 'Teczka osoby: zapisz fakt / wydarzenie / ustalenie dotyczące ludzi (z rozmowy, spotkania, czatu). Notatka trafia do teczki KAŻDEJ wymienionej osoby ' +
+      'i rysuje nitki na tablicy powiązań między wszystkim, co w niej podasz (osoby, wydarzenia, firmy, miejsca). Jedna notatka = jeden fakt, z datą, kiedy się wydarzył. ' +
+      'ref = numer/kod źródła, np. K-005 z czatu „kwity”.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string' }, day: { type: 'string', description: 'yyyy-MM-dd — kiedy to było (domyślnie dziś)' },
+        people: { type: 'array', items: { type: ['integer', 'string'] }, description: 'id z get_people (albo imię, gdy jednoznaczne)' },
+        event_ids: { type: 'array', items: { type: 'string' } }, company_ids: { type: 'array', items: { type: 'string' }, description: 'id firm (L…)' },
+        places: { type: 'array', items: { type: 'string' }, description: 'miejsca słowami, np. Gliwice, Park Kościuszki' },
+        ref: { type: 'string' }, source: { type: 'string', description: 'skąd: np. czat kwity, spotkanie, telefon' },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'link_nodes',
+    description: 'Tablica powiązań: trwała relacja między dwoma elementami (kind: person | event | company | place). Np. Klaudia → poleciła → Magdę, ' +
+      'Patryk → przełożony → Dawid, Marcin → dostawca sprzętu → Event 360. label = co ich łączy. Dla zdarzeń jednorazowych lepsza save_person_note.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        a_kind: { type: 'string', enum: ['person', 'event', 'company', 'place'] }, a_id: { type: ['integer', 'string'] },
+        b_kind: { type: 'string', enum: ['person', 'event', 'company', 'place'] }, b_id: { type: ['integer', 'string'] },
+        label: { type: 'string' },
+      },
+      required: ['a_kind', 'a_id', 'b_kind', 'b_id', 'label'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_person_file',
+    description: 'Teczka osoby: notatki o niej (od najnowszych) i wszystko, z czym jest powiązana — ludzie, wydarzenia, firmy, miejsca — z powodem powiązania. ' +
+      'Sprawdź, zanim powiesz coś o kimś, i gdy pytanie brzmi „co łączy X z Y”, „kogo zna X”, „co wiemy o X”.',
+    input_schema: { type: 'object', properties: { person: { type: ['integer', 'string'], description: 'id albo imię' } }, required: ['person'], additionalProperties: false },
+  },
+  {
     name: 'save_idea',
     description: 'Lista „Na później” — luźne tematy niepowiązane z niczym: firma z ofertą, która dziś nie jest potrzebna albo nie jest tematem użytkownika, ' +
       'pomysł na przyszły rok, kontakt „może się przyda”. Zapisz, gdy użytkownik mówi „zapamiętaj”, „na później”, „może kiedyś”, „to nie mój temat, ale…”. ' +
@@ -285,8 +325,9 @@ const GATEWAY = [
 ];
 
 const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
+const BOARD_ACTIONS = new Set(['save_person_note', 'link_nodes', 'get_person_file']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
-const CONNECTOR_WRITES = new Set(['save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
+const CONNECTOR_WRITES = new Set(['save_person_note', 'link_nodes', 'save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -611,6 +652,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         lead_id: { type: 'string', description: 'id tej firmy w CRM, jeśli jest (find_companies)' },
         services: { type: 'string', description: 'umiejętności — co robi / zapewnia, po przecinku: „grafika, social media”, „ławy, stoły, namioty”. Przy zmianie podaj pełną listę.' },
         scope: { type: 'string', description: 'zakres obowiązków — za co odpowiada, np. „kampanie płatne, raporty z reklam”' },
+        photo_url: { type: 'string', description: 'link do zdjęcia osoby (na tablicę powiązań)' },
         email: { type: 'string' }, phone: { type: 'string' },
         aliases: { type: 'string', description: 'jak użytkownik ją nazywa, np. „dyrektor, Patryk”' },
         notes: { type: 'string' },
@@ -1448,7 +1490,7 @@ export class Assistant {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
     // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
     const kb = KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks');
-    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name));
+    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name) || BOARD_ACTIONS.has(t.name));
     return [...READ_TOOLS, ...kb, ...own, ...writes].map((t) => ({
       name: t.name,
       description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
@@ -1593,6 +1635,28 @@ export class Assistant {
       }
       const r = await b2c.save(input);
       return `Zapisano pozycję B2C „${r.title}” (id ${r.id}).`;
+    }
+    if (BOARD_ACTIONS.has(name)) {
+      const board = new BoardStore(this.crm);
+      if (name === 'save_person_note') {
+        const n = await board.addNote({ text: input.text, day: input.day, ref: input.ref, source: input.source,
+          people: input.people, events: input.event_ids, companies: input.company_ids, places: input.places });
+        return `Zapisano notatkę ${n.id} (${n.day}) w teczkach: ${n.links.map((l) => l.label).join(', ')}.`;
+      }
+      if (name === 'link_nodes') {
+        const ref = async (kind: string, id: unknown) => (kind === 'person' ? String((await board.person(id as string)).id) : txt(id));
+        const a = { kind: input.a_kind, id: await ref(input.a_kind, input.a_id) };
+        const b = { kind: input.b_kind, id: await ref(input.b_kind, input.b_id) };
+        const r = await board.link(a, b, input.label);
+        return `Powiązano na tablicy (id ${r.id}): ${a.kind} ${a.id} — ${txt(input.label)} — ${b.kind} ${b.id}.`;
+      }
+      const p = await board.person(input.person);
+      const f = await board.personFile(p.id);
+      return JSON.stringify({
+        person: f.person,
+        notes: f.notes.slice(0, 40).map((n) => ({ id: n.id, day: n.day, text: n.text, ref: n.ref || undefined, also: n.links.filter((l) => !(l.kind === 'person' && l.id === String(p.id))).map((l) => l.label) })),
+        connections: f.connections.map((c) => ({ kind: c.node.kind, id: c.node.id, name: c.node.label, why: c.why.slice(0, 5) })),
+      });
     }
     if (IDEA_ACTIONS.has(name)) {
       const ideas = new Ideas(this.crm.db, () => this.crm.today());
@@ -2350,7 +2414,7 @@ export class Assistant {
           case 'save_person': {
             const p = await crm.savePerson({ id: Number(input.id) || undefined, name: input.name, role: input.role, email: input.email,
               phone: input.phone, aliases: input.aliases, notes: input.notes, kind: input.kind, company: input.company,
-              services: input.services, leadId: input.lead_id, scope: input.scope });
+              services: input.services, leadId: input.lead_id, scope: input.scope, photo: input.photo_url });
             if (input.ref) ids.set(input.ref, String(p.id));
             if (txt(input.event_id)) await crm.linkPersonEvent(this.eventRef(input.event_id, ids), p.id, txt(input.event_role));
             leadId = undefined; message = `Zespół: ${p.name} (id osoby ${p.id})`;

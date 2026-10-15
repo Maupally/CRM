@@ -698,7 +698,7 @@ export class Crm {
       id: Number(r.id), name: r.name, role: r.role, email: r.email, phone: r.phone, aliases: r.aliases,
       notes: r.notes, contacts: Number(r.contacts) || 0, lastContact: r.last_contact,
       kind: r.kind === 'external' ? 'external' : 'team', company: r.company || '', leadId: r.lead_id || '', services: r.services || '',
-      scope: r.scope || '', doneCount: Number(r.done_count) || 0,
+      scope: r.scope || '', photo: r.photo || '', doneCount: Number(r.done_count) || 0,
       events, partner: r.lead_stage === 'active',
     };
   }
@@ -826,17 +826,18 @@ export class Crm {
       phone: txt(d.phone ?? cur?.phone), aliases: txt(d.aliases ?? cur?.aliases), notes: longTxt(d.notes ?? cur?.notes),
       kind: (d.kind ?? cur?.kind) === 'external' ? 'external' : 'team', company: txt(d.company ?? cur?.company),
       services: txt(d.services ?? cur?.services), leadId: txt(d.leadId ?? cur?.leadId), scope: longTxt(d.scope ?? cur?.scope),
+      photo: txt(d.photo ?? cur?.photo),
     };
     if (!v.name) throw bad('Podaj imię i nazwisko.');
     if (v.leadId && !(await this.q.get('SELECT id FROM crm.leads WHERE id = ?', [v.leadId]))) throw bad(`Nie ma firmy ${v.leadId}.`);
-    const cols = [v.name, v.role, v.email, v.phone, v.aliases, v.notes, v.kind, v.company, v.services, v.leadId, v.scope];
+    const cols = [v.name, v.role, v.email, v.phone, v.aliases, v.notes, v.kind, v.company, v.services, v.leadId, v.scope, v.photo];
     if (cur) {
-      await this.q.run('UPDATE crm.people SET name=?, role=?, email=?, phone=?, aliases=?, notes=?, kind=?, company=?, services=?, lead_id=?, scope=? WHERE id = ?',
+      await this.q.run('UPDATE crm.people SET name=?, role=?, email=?, phone=?, aliases=?, notes=?, kind=?, company=?, services=?, lead_id=?, scope=?, photo=? WHERE id = ?',
         [...cols, id]);
       return this.getPerson(id);
     }
-    const r = await this.q.get(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, kind, company, services, lead_id, scope, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, [...cols, nowIso()]);
+    const r = await this.q.get(`INSERT INTO crm.people (name, role, email, phone, aliases, notes, kind, company, services, lead_id, scope, photo, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, [...cols, nowIso()]);
     return this.getPerson(Number(r!.id));
   }
 
@@ -844,6 +845,8 @@ export class Crm {
     if (!(await this.q.run('DELETE FROM crm.people WHERE id = ?', [id]))) throw notFound(`Nie ma osoby ${id}.`);
     await this.q.run('UPDATE crm.tasks SET person_id = 0 WHERE person_id = ?', [id]);
     await this.q.run('DELETE FROM crm.event_people WHERE person_id = ?', [id]);
+    await this.q.run("DELETE FROM crm.note_links WHERE kind = 'person' AND ref_id = ?", [String(id)]);
+    await this.q.run("DELETE FROM crm.links WHERE (a_kind = 'person' AND a_id = ?) OR (b_kind = 'person' AND b_id = ?)", [String(id), String(id)]);
     return { ok: true };
   }
 

@@ -20,7 +20,7 @@ import { CalendarPage } from './pages/Calendar';
 import { EventsPage } from './pages/Events';
 import { ReportsPage } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
-import { PeoplePage } from './pages/People';
+import { PeoplePage, PersonFilePage } from './pages/People';
 import { B2cPage } from './pages/B2c';
 import { ProcessesPage } from './pages/Processes';
 import { TemplatesPage } from './pages/Templates';
@@ -176,6 +176,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/wydarzenia" element={<EventsPage />} />
             <Route path="/wydarzenia/:id" element={<EventsPage />} />
             <Route path="/zespol" element={<PeoplePage />} />
+            <Route path="/zespol/:id" element={<PersonFilePage />} />
             <Route path="/b2c" element={<B2cPage />} />
             <Route path="/szablony" element={<TemplatesPage />} />
             <Route path="/procesy" element={<ProcessesPage />} />

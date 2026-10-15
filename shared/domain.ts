@@ -245,6 +245,8 @@ export interface Person {
   services: string;
   /** what they are responsible for (zakres obowiązków) */
   scope: string;
+  /** link to a photo (optional) */
+  photo?: string;
   /** tasks they finished (all time) */
   doneCount: number;
   /** events they helped with, newest first */
@@ -510,3 +512,20 @@ export interface MsgStats {
   /** last 30 days, one entry per day */
   daily: (MsgCount & { date: string })[];
 }
+
+/* -------------------------------------------------------------- person files and the board */
+
+/** What can sit on the board: a person, an event, a company (lead) or a place (by name). */
+export const NODE_KINDS = ['person', 'event', 'company', 'place'] as const;
+export type NodeKind = (typeof NODE_KINDS)[number];
+export interface NodeRef { kind: NodeKind; id: string }
+export interface BoardNote { id: number; day: string; text: string; ref: string; source: string; links: (NodeRef & { label: string })[] }
+export interface BoardNode { key: string; kind: NodeKind; id: string; label: string; sub: string; photo?: string; team?: boolean; weight: number }
+export interface BoardEdge { a: string; b: string; labels: string[]; kinds: ('link' | 'note' | 'event' | 'company' | 'task' | 'place')[]; linkIds: number[] }
+export interface Board { nodes: BoardNode[]; edges: BoardEdge[] }
+export interface PersonFile {
+  person: { id: number; name: string; role: string; company: string; photo: string };
+  notes: BoardNote[];
+  connections: { node: BoardNode; why: string[]; linkIds: number[] }[];
+}
+export const nodeKey = (r: NodeRef) => `${r.kind}:${r.id}`;
