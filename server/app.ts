@@ -3,7 +3,6 @@ import { getSignedCookie, setSignedCookie, deleteCookie } from 'hono/cookie';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Crm, HttpError } from './crm.js';
 import { dbClock, openDb } from './db.js';
-import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
 import { TOOLS_VERSION, handleMcp, handleStaleMcp, lastMcp, mcpToken } from './mcp.js';
 import { Designs } from './designs.js';
@@ -412,6 +411,7 @@ export function createApp(o: AppOptions) {
   /* ---- data */
   api.get('/export.xlsx', async (c) => {
     const k = await crm();
+    const { exportWorkbook } = await import('./spreadsheet.js');   // xlsx loads only when needed (cold starts stay light)
     const buf = await exportWorkbook(k);
     return c.body(new Uint8Array(buf), 200, {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -425,6 +425,7 @@ export function createApp(o: AppOptions) {
     if (form.get('confirm') !== 'REPLACE') throw new HttpError(400, 'Import zastępuje wszystkie dane — potwierdź.');
     const k = await crm();
     try {
+      const { importWorkbook } = await import('./spreadsheet.js');
       return c.json(await importWorkbook(k.db, new Uint8Array(await f.arrayBuffer()), k.today(), k.owner));
     } catch (e) {
       throw new HttpError(400, e instanceof Error ? e.message : String(e));

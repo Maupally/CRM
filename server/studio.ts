@@ -3,10 +3,10 @@
  * PDF or a poster image. Done here rather than in the model's sandbox, because the
  * sandbox has no QR library and a QR code has to be exactly right to scan.
  */
-import QRCode from 'qrcode';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import type { PDFDocument } from 'pdf-lib';
 
 export async function qrPng(text: string, px = 1024): Promise<Uint8Array> {
+  const { default: QRCode } = await import('qrcode');   // loaded on first use, not on every server start
   return new Uint8Array(await QRCode.toBuffer(text, { type: 'png', width: px, margin: 2, errorCorrectionLevel: 'M' }));
 }
 
@@ -27,6 +27,7 @@ const MM = 72 / 25.4;
 
 /** Returns a PDF: the original PDF, or the image placed on a page of its own size, with the QR code on it. */
 export async function stampQr(input: Uint8Array, mime: string, o: StampOptions): Promise<Uint8Array> {
+  const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
   let doc: PDFDocument;
   if (mime === 'application/pdf') {
     doc = await PDFDocument.load(input, { ignoreEncryption: true });
