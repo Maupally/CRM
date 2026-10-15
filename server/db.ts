@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 export type Row = Record<string, any>;
 
@@ -390,12 +391,23 @@ export function databaseUrl(): string {
 }
 
 /** Opens the database and makes sure the tables exist. */
+/** Per-request database time and query count — sent back as Server-Timing so slow views can be traced. */
+export const dbClock = new AsyncLocalStorage<{ ms: number; n: number }>();
+
+function timed(db: DB): DB {
+  const wrap = <F extends (...a: any[]) => Promise<any>>(f: F) => (async (...a: any[]) => {
+    const t = performance.now();
+    try { return await f(...a); } finally { const s = dbClock.getStore(); if (s) { s.ms += performance.now() - t; s.n++; } }
+  }) as F;
+  return { ...db, all: wrap(db.all), get: wrap(db.get), run: wrap(db.run), exec: wrap(db.exec) };
+}
+
 export async function openDb(target = databaseUrl() || process.env.PGLITE_DIR || path.resolve('data/pglite')): Promise<DB> {
   if (process.env.VERCEL && !/^postgres/.test(target)) {
     throw new Error('Baza danych nie jest podłączona. W Vercel: Storage → Create Database (Neon albo Supabase) → Connect, ' +
       'albo dodaj zmienną DATABASE_URL. Potem Redeploy.');
   }
-  const db = /^postgres(ql)?:\/\//.test(target) ? await openRemote(target) : await openEmbedded(target);
+  const db = timed(/^postgres(ql)?:\/\//.test(target) ? await openRemote(target) : await openEmbedded(target));
   // Running the whole schema takes a lock on every table (ALTER TABLE … IF NOT EXISTS too), so every cold
   // start of a serverless function made other requests wait. Run it only when the schema has changed.
   const hash = createHash('sha256').update(SCHEMA).digest('hex').slice(0, 16);

@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Upload, Plus, Trash2, Sparkles, Copy } from 'lucide-react';
-import { api } from '../api';
+import { api, timings, type Timing } from '../api';
 import { useFileDrop } from '../components/Files';
 import { Empty, ErrorBox, Loading, Modal, Seg, StagePill, copyText, useAction, useConfig, useToast } from '../components/ui';
 import type { Segment, Style, Template } from '../../shared/domain';
 
-type Tab = 'playbook' | 'szablony' | 'dane' | 'styl' | 'claude';
+type Tab = 'playbook' | 'szablony' | 'dane' | 'styl' | 'claude' | 'szybkosc';
 
 export function SettingsPage() {
   const [sp, setSp] = useSearchParams();
@@ -17,10 +17,10 @@ export function SettingsPage() {
       <div className="page-head">
         <div><h1>Ustawienia</h1><div className="sub">Segmenty i pitch, szablony maili, import i kopia zapasowa.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['claude', 'playbook', 'szablony', 'dane'] as const} onChange={(t) => setSp(t === 'claude' ? {} : { tab: t }, { replace: true })}
-          labels={{ claude: 'Claude', playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane' }} />
+        <Seg value={tab} options={['claude', 'playbook', 'szablony', 'dane', 'szybkosc'] as const} onChange={(t) => setSp(t === 'claude' ? {} : { tab: t }, { replace: true })}
+          labels={{ claude: 'Claude', playbook: 'Playbook', szablony: 'Szablony', dane: 'Dane', szybkosc: 'Szybkość' }} />
       </div>
-      {tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : tab === 'styl' ? <StyleSettings /> : tab === 'claude' ? <Connector /> : <Data />}
+      {tab === 'szybkosc' ? <Speed /> : tab === 'playbook' ? <Segments /> : tab === 'szablony' ? <Templates /> : tab === 'styl' ? <StyleSettings /> : tab === 'claude' ? <Connector /> : <Data />}
     </>
   );
 }
@@ -385,5 +385,48 @@ function Connector() {
             : 'Teraz są wyłączone (brak ANTHROPIC_API_KEY) — Opal5 nic nie kosztuje.'}</div>
       </section>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------ speed */
+
+/** Where the time goes: for each kind of request, the browser's wait vs the server's work vs the database. */
+function Speed() {
+  const toast = useToast();
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 2000); return () => clearInterval(t); }, []);
+  const all = timings.slice();
+  const key = (u: string) => u.replace(/\/(\d+|[A-Z]{1,3}-?\d+|L\d+)(?=\/|$)/g, '/:id');
+  const groups = [...all.reduce((m, t) => m.set(`${t.method} ${key(t.url)}`, [...(m.get(`${t.method} ${key(t.url)}`) || []), t]), new Map<string, Timing[]>())]
+    .map(([k, l]) => {
+      const avg = (f: (t: Timing) => number) => Math.round(l.reduce((n, t) => n + f(t), 0) / l.length);
+      return { k, n: l.length, total: avg((t) => t.total), max: Math.round(Math.max(...l.map((t) => t.total))), app: avg((t) => t.app), db: avg((t) => t.db), q: avg((t) => t.queries), cold: l.filter((t) => t.cold).length };
+    }).sort((a, b) => b.total - a.total);
+  const net = (g: { total: number; app: number }) => Math.max(0, g.total - g.app);
+  const text = ['Opal5 — szybkość (ms): zapytanie · ile razy · średnio w przeglądarce / serwer / baza (zapytań) · max · zimne starty',
+    ...groups.map((g) => `${g.k} · ${g.n}× · ${g.total} / ${g.app} / ${g.db} (${g.q}) · max ${g.max}${g.cold ? ` · zimne ${g.cold}` : ''}`)].join('\n');
+  return (
+    <section className="card" style={{ maxWidth: 980 }}>
+      <div className="card-head"><h2>Szybkość</h2>
+        <button className="btn sm" disabled={!groups.length} onClick={() => { copyText(text); toast('Skopiowano — wklej mi to w czacie'); }}><Copy size={14} /> Kopiuj raport</button></div>
+      <div className="hint" style={{ padding: '0 20px 12px' }}>Pochodź chwilę po Opal5 (Pulpit, Firmy, Zespół, Szablony…), a potem wróć tutaj. Tabela pokazuje, gdzie ucieka czas:
+        <b> sieć</b> = droga do serwera i z powrotem, <b>serwer</b> = praca Opal5, <b>baza</b> = czas zapytań do bazy. „Zimny start” = serwer się dopiero uruchamiał.</div>
+      {!groups.length ? <div className="empty">Jeszcze nic nie zmierzone w tej karcie przeglądarki.</div> : (
+        <div className="table-wrap">
+          <table className="tbl">
+            <thead><tr><th>Zapytanie</th><th className="num">Ile</th><th className="num">Razem</th><th className="num">Sieć</th><th className="num">Serwer</th><th className="num" title="Suma czasu wszystkich zapytań (część idzie równolegle)">Baza (suma)</th><th className="num">Zapytań</th><th className="num">Max</th><th className="num">Zimne</th></tr></thead>
+            <tbody>
+              {groups.map((g) => (
+                <tr key={g.k} style={{ cursor: 'default' }}>
+                  <td className="mono small">{g.k}</td><td className="num">{g.n}</td>
+                  <td className="num" style={{ color: g.total > 1500 ? 'var(--bad)' : g.total > 600 ? 'var(--warn)' : undefined, fontWeight: 600 }}>{g.total}</td>
+                  <td className="num">{net(g)}</td><td className="num">{g.app}</td><td className="num">{g.db}</td><td className="num">{g.q}</td><td className="num">{g.max}</td><td className="num">{g.cold || ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

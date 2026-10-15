@@ -5,6 +5,16 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+/** Recent request timings (browser total vs server and database time) — shown in Ustawienia → Szybkość. */
+export interface Timing { at: number; method: string; url: string; total: number; app: number; db: number; queries: number; cold: boolean }
+export const timings: Timing[] = [];
+function recordTiming(method: string, url: string, total: number, header: string) {
+  const dur = (name: string) => Number(header.match(new RegExp(`${name};dur=([\\d.]+)`))?.[1] || 0);
+  timings.push({ at: Date.now(), method, url: url.split('?')[0], total, app: dur('app'), db: dur('db'),
+    queries: Number(header.match(/"(\d+) queries"/)?.[1] || 0), cold: /cold;/.test(header) });
+  if (timings.length > 200) timings.splice(0, timings.length - 200);
+}
+
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: 'same-origin', headers: {} };
   if (body instanceof FormData) init.body = body;
@@ -12,7 +22,9 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
     init.body = JSON.stringify(body);
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
   }
+  const t0 = performance.now();
   const res = await fetch('/api' + url, init);
+  recordTiming(method, url, performance.now() - t0, res.headers.get('server-timing') || '');
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
   if (!res.ok) {
     if (res.status === 401 && url !== '/login') window.dispatchEvent(new Event('crm:signed-out'));

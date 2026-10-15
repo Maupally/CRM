@@ -5,6 +5,7 @@ import { Avatar } from './ui';
 import type { Board, BoardEdge, BoardNode } from '../../shared/domain';
 
 type P = { x: number; y: number };
+const LAYOUTS = new Map<string, Map<string, P>>();
 
 /** A simple force layout, deterministic, run once per board: pushes nodes apart, pulls threads tight. */
 function layout(nodes: BoardNode[], edges: BoardEdge[]): Map<string, P> {
@@ -72,7 +73,16 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
     for (const e of board.edges) { if (e.a === focus) near.add(e.b); if (e.b === focus) near.add(e.a); }
     return { nodes: board.nodes.filter((n) => near.has(n.key)), edges: board.edges.filter((e) => near.has(e.a) && near.has(e.b)) };
   }, [board, focus]);
-  const pos = useMemo(() => layout(nodes, edges), [nodes, edges]);
+  // the layout is the slow part: keep it for as long as the same tiles and lines are on the board (refetches, revisits)
+  const sig = useMemo(() => `${nodes.map((n) => n.key).join(',')}#${edges.map((e) => `${e.a}|${e.b}`).join(',')}`, [nodes, edges]);
+  const pos = useMemo(() => {
+    const hit = LAYOUTS.get(sig);
+    if (hit) return hit;
+    const p = layout(nodes, edges);
+    if (LAYOUTS.size > 20) LAYOUTS.clear();
+    LAYOUTS.set(sig, p);
+    return p;
+  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   const [moved, setMoved] = useState<Map<string, P>>(new Map());
   const at = (k: string) => moved.get(k) || pos.get(k) || { x: 0, y: 0 };
   const [sel, setSel] = useState<string | null>(null);
@@ -88,7 +98,7 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
     const k = Math.min(1.2, Math.max(0.3, Math.min(el.clientWidth / w, el.clientHeight / h)));
     setView({ k, x: el.clientWidth / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * k, y: el.clientHeight / 2 - ((Math.max(...ys) + Math.min(...ys)) / 2) * k });
   };
-  useEffect(() => { setMoved(new Map()); setSel(null); setEdgeSel(null); }, [nodes, focus]);
+  useEffect(() => { setMoved(new Map()); setSel(null); setEdgeSel(null); }, [sig, focus]);
   useEffect(() => { fit(); }, [pos]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = box.current;

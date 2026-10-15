@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { getSignedCookie, setSignedCookie, deleteCookie } from 'hono/cookie';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Crm, HttpError } from './crm.js';
-import { openDb } from './db.js';
+import { dbClock, openDb } from './db.js';
 import { importWorkbook, exportWorkbook } from './spreadsheet.js';
 import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
 import { TOOLS_VERSION, handleMcp, handleStaleMcp, lastMcp, mcpToken } from './mcp.js';
@@ -66,6 +66,20 @@ export function createApp(o: AppOptions) {
       return c.json({ error: 'Brak połączenia z bazą danych. Sprawdź DATABASE_URL w ustawieniach Vercel.' }, 500);
     }
     return c.json({ error: msg || 'Błąd serwera' }, 500);
+  });
+
+  /* ---- timing: how long each request took, how much of it was the database, and whether the server had just started */
+  const bootAt = Date.now();
+  let served = 0;
+  api.use('*', async (c, next) => {
+    const t = performance.now();
+    const clock = { ms: 0, n: 0 };
+    const cold = served++ === 0;
+    await dbClock.run(clock, next);
+    const total = performance.now() - t;
+    c.header('Server-Timing', `app;dur=${total.toFixed(0)}, db;dur=${clock.ms.toFixed(0)};desc="${clock.n} queries"${cold ? ', cold;dur=0' : ''}`);
+    c.header('Timing-Allow-Origin', '*');
+    if (total > 1000) console.log(`slow ${c.req.method} ${c.req.path} ${total.toFixed(0)}ms db=${clock.ms.toFixed(0)}ms/${clock.n}q${cold ? ` cold (up ${Date.now() - bootAt}ms)` : ''}`);
   });
 
   /* ---- auth */
