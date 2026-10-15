@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Building2, CalendarDays, MapPin, Mail, Pencil, Phone, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, FolderOpen, MapPin, Mail, Pencil, Phone, Trash2, Users, X } from 'lucide-react';
 import { BoardView } from '../components/BoardView';
 import { api } from '../api';
 import { Avatar, Empty, ErrorBox, Loading, Modal, Seg, relDay, telHref, useAction, useToday } from '../components/ui';
@@ -19,7 +19,8 @@ export function PeoplePage() {
   const [kind, setKind] = useState<PersonKind | 'partner' | ''>('');
   const [find, setFind] = useState('');
   const nav = useNavigate();
-  const view = sp.get('widok') === 'tablica' ? 'tablica' : 'lista';
+  const view = sp.get('widok') === 'lista' ? 'lista' : 'tablica';
+  const [pick, setPick] = useState<{ key: string; n: number } | undefined>();
   const want = Number(sp.get('osoba')) || 0;
   useEffect(() => {
     const p = want && q.data?.find((x) => x.id === want);
@@ -36,12 +37,39 @@ export function PeoplePage() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Zespół i kontakty</h1><div className="sub">Kto jest kim, co robi i przy jakich wydarzeniach pomagał. Claude w claude.ai dopisuje tu nowe osoby na bieżąco i podpowiada z tej listy, kto co załatwi.</div></div>
+        <div><h1>Zespół i kontakty</h1><div className="sub">Kto jest kim i co kogo łączy. Kliknij osobę z listy, żeby zobaczyć ją na tablicy, albo kafelek, żeby zobaczyć jej powiązania.</div></div>
         <span className="spacer" />
         <Seg value={view} options={['lista', 'tablica'] as const} labels={{ lista: 'Lista', tablica: 'Tablica powiązań' }}
-          onChange={(v) => setSp(v === 'lista' ? {} : { widok: v }, { replace: true })} />
+          onChange={(v) => setSp(v === 'tablica' ? {} : { widok: v }, { replace: true })} />
       </div>
-      {view === 'tablica' ? <WholeBoard /> : <section className="card">
+      {view === 'tablica' ? (
+        <div className="team-layout">
+          <section className="card team-side">
+            <div className="pad col" style={{ gap: 10, paddingBottom: 8 }}>
+              <input type="search" placeholder="Szukaj: imię, firma, „druk”…" value={find} onChange={(e) => setFind(e.target.value)} />
+              <div className="chips">
+                <button className={`chip ${!kind ? 'on' : ''}`} onClick={() => setKind('')}>Wszyscy</button>
+                {PERSON_KINDS.map((k) => <button key={k} className={`chip ${kind === k ? 'on' : ''}`} onClick={() => setKind(k)}>{PERSON_KIND_LABEL[k]} · {count(k)}</button>)}
+                <button className={`chip ${kind === 'partner' ? 'on' : ''}`} onClick={() => setKind('partner')}>Partnerzy</button>
+              </div>
+            </div>
+            <ul className="list">
+              {rows.map((p) => (
+                <li key={p.id} className={`li ${pick?.key === `person:${p.id}` ? 'sel' : ''}`} style={{ cursor: 'pointer', padding: '8px 14px' }} onClick={() => setPick({ key: `person:${p.id}`, n: (pick?.n || 0) + 1 })}>
+                  {p.photo ? <img src={p.photo} alt="" style={{ width: 30, height: 30, borderRadius: 10, objectFit: 'cover' }} /> : <Avatar name={p.name} size="sm" />}
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div className="trunc" style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
+                    <div className="trunc small soft">{p.role || p.company || (p.kind === 'external' ? 'z zewnątrz' : 'zespół')}</div>
+                  </div>
+                  <Link to={`/zespol/${p.id}`} className="btn sm ghost icon" onClick={(e) => e.stopPropagation()} aria-label="Teczka" title="Otwórz teczkę"><FolderOpen size={14} /></Link>
+                </li>
+              ))}
+              {!rows.length && <div className="empty small">Nikt nie pasuje.</div>}
+            </ul>
+          </section>
+          <WholeBoard pick={pick} />
+        </div>
+      ) : <section className="card">
         <div className="toolbar">
           <input type="search" placeholder="Szukaj: imię, firma, „animacje”, „druk”…" value={find} onChange={(e) => setFind(e.target.value)} />
           <div className="chips">
@@ -167,17 +195,11 @@ function PersonRecord({ id }: { id: number }) {
   );
 }
 
-function WholeBoard() {
+function WholeBoard({ pick }: { pick?: { key: string; n: number } }) {
   const q = useQuery({ queryKey: ['board'], queryFn: api.board });
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
-  return (
-    <>
-      <div className="hint" style={{ marginBottom: 10 }}>Zdjęcia to ludzie, żółte karteczki to wydarzenia, niebieskie to firmy, zielone to miejsca. Kliknij, żeby zobaczyć, co łączy; przeciągnij, żeby przesunąć; kółko myszy przybliża.
-        Nitki rysują się same z notatek, wydarzeń, zadań i powiązań, które Claude zapisuje z rozmów.</div>
-      <BoardView board={q.data!} height={Math.max(520, window.innerHeight - 230)} />
-    </>
-  );
+  return <BoardView board={q.data!} pick={pick} height={Math.max(520, window.innerHeight - 190)} />;
 }
 
 const KIND_ICON: Record<NodeKind, typeof Users> = { person: Users, event: CalendarDays, company: Building2, place: MapPin };

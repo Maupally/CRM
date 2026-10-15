@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Minus, Plus, Maximize2, MapPin, CalendarDays, Building2, FolderOpen } from 'lucide-react';
+import { Minus, Plus, Maximize2, MapPin, CalendarDays, Building2, FolderOpen, type LucideIcon } from 'lucide-react';
+import { Avatar } from './ui';
 import type { Board, BoardEdge, BoardNode } from '../../shared/domain';
 
 type P = { x: number; y: number };
-const SIZE: Record<BoardNode['kind'], [number, number]> = { person: [84, 104], event: [130, 62], company: [124, 50], place: [110, 40] };
 
 /** A simple force layout, deterministic, run once per board: pushes nodes apart, pulls threads tight. */
 function layout(nodes: BoardNode[], edges: BoardEdge[]): Map<string, P> {
@@ -27,7 +27,7 @@ function layout(nodes: BoardNode[], edges: BoardEdge[]): Map<string, P> {
         let dx = a.x - b.x, dy = a.y - b.y;
         let d2 = dx * dx + dy * dy;
         if (d2 < 1) { dx = (i - j) * 0.5; dy = 1; d2 = dx * dx + dy * dy; }
-        const f = 26000 / d2;
+        const f = 42000 / d2;
         const d = Math.sqrt(d2);
         const fx = (dx / d) * f, fy = (dy / d) * f;
         const va = vel.get(nodes[i].key)!, vb = vel.get(nodes[j].key)!;
@@ -39,7 +39,7 @@ function layout(nodes: BoardNode[], edges: BoardEdge[]): Map<string, P> {
       if (!a || !b) continue;
       const dx = b.x - a.x, dy = b.y - a.y;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      const f = (d - 170) * 0.04;
+      const f = (d - 200) * 0.04;
       const va = vel.get(e.a)!, vb = vel.get(e.b)!;
       va.x += (dx / d) * f; va.y += (dy / d) * f; vb.x -= (dx / d) * f; vb.y -= (dy / d) * f;
     }
@@ -56,21 +56,16 @@ function layout(nodes: BoardNode[], edges: BoardEdge[]): Map<string, P> {
   return pos;
 }
 
-const initials = (s: string) => s.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('');
-const wrap = (s: string, n: number, lines = 2) => {
-  const words = s.split(/\s+/); const out: string[] = []; let cur = '';
-  for (const w of words) { if ((cur + ' ' + w).trim().length > n) { if (cur) out.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); }
-  if (cur) out.push(cur);
-  if (out.length > lines) { out.length = lines; out[lines - 1] = out[lines - 1].slice(0, n - 1) + '…'; }
-  return out;
-};
+const KIND_ICON: Record<BoardNode['kind'], LucideIcon> = { person: FolderOpen, event: CalendarDays, company: Building2, place: MapPin };
+const KIND_NAME: Record<BoardNode['kind'], string> = { person: 'Osoba', event: 'Wydarzenie', company: 'Firma', place: 'Miejsce' };
 const href = (n: BoardNode) => (n.kind === 'person' ? `/zespol/${n.id}` : n.kind === 'event' ? `/wydarzenia/${n.id}` : n.kind === 'company' ? `/firmy/${n.id}` : '');
 
 /**
- * The detective wall: people as pinned photos, events and companies as cards, places as map pins, and red
- * threads between whatever is connected. Drag to move around, scroll or +/− to zoom, click to follow the threads.
+ * The connections board: people, events, companies and places as tiles, lines between whatever is connected.
+ * Drag to move around, scroll or +/− to zoom, click a tile to see what ties it to the rest.
+ * `pick` selects and centres a tile from outside (the search next to the board).
  */
-export function BoardView({ board, focus, height = 640 }: { board: Board; focus?: string; height?: number }) {
+export function BoardView({ board, focus, height = 640, pick }: { board: Board; focus?: string; height?: number; pick?: { key: string; n: number } }) {
   const { nodes, edges } = useMemo(() => {
     if (!focus) return board;
     const near = new Set([focus]);
@@ -80,22 +75,28 @@ export function BoardView({ board, focus, height = 640 }: { board: Board; focus?
   const pos = useMemo(() => layout(nodes, edges), [nodes, edges]);
   const [moved, setMoved] = useState<Map<string, P>>(new Map());
   const at = (k: string) => moved.get(k) || pos.get(k) || { x: 0, y: 0 };
-  const [sel, setSel] = useState<string | null>(focus || null);
+  const [sel, setSel] = useState<string | null>(null);
   const [edgeSel, setEdgeSel] = useState<BoardEdge | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ kind: 'pan' | 'node'; key?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
 
-  // fit everything in view when the board changes
   const fit = () => {
     const el = box.current; if (!el || !nodes.length) return;
     const xs = nodes.map((n) => at(n.key).x), ys = nodes.map((n) => at(n.key).y);
-    const w = Math.max(...xs) - Math.min(...xs) + 220, h = Math.max(...ys) - Math.min(...ys) + 220;
-    const k = Math.min(1.4, Math.max(0.25, Math.min(el.clientWidth / w, el.clientHeight / h)));
+    const w = Math.max(...xs) - Math.min(...xs) + 260, h = Math.max(...ys) - Math.min(...ys) + 160;
+    const k = Math.min(1.2, Math.max(0.3, Math.min(el.clientWidth / w, el.clientHeight / h)));
     setView({ k, x: el.clientWidth / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * k, y: el.clientHeight / 2 - ((Math.max(...ys) + Math.min(...ys)) / 2) * k });
   };
-  useEffect(() => { setMoved(new Map()); setSel(focus || null); setEdgeSel(null); }, [nodes, focus]);
+  useEffect(() => { setMoved(new Map()); setSel(null); setEdgeSel(null); }, [nodes, focus]);
   useEffect(() => { fit(); }, [pos]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const el = box.current;
+    if (!pick || !el || !pos.has(pick.key)) return;
+    const p = at(pick.key);
+    setSel(pick.key); setEdgeSel(null);
+    setView((v) => { const k = Math.max(v.k, 0.9); return { k, x: el.clientWidth / 2 - p.x * k, y: el.clientHeight / 2 - p.y * k }; });
+  }, [pick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const near = useMemo(() => {
     if (!sel) return null;
@@ -106,7 +107,7 @@ export function BoardView({ board, focus, height = 640 }: { board: Board; focus?
 
   const zoom = (f: number, cx?: number, cy?: number) => setView((v) => {
     const el = box.current!; const px = cx ?? el.clientWidth / 2, py = cy ?? el.clientHeight / 2;
-    const k = Math.min(2.5, Math.max(0.2, v.k * f));
+    const k = Math.min(2.2, Math.max(0.2, v.k * f));
     return { k, x: px - ((px - v.x) / v.k) * k, y: py - ((py - v.y) / v.k) * k };
   });
   useEffect(() => {
@@ -118,7 +119,7 @@ export function BoardView({ board, focus, height = 640 }: { board: Board; focus?
 
   const down = (e: RPointerEvent, key?: string) => {
     e.stopPropagation();
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    box.current?.setPointerCapture?.(e.pointerId);
     const p = key ? at(key) : { x: view.x, y: view.y };
     drag.current = { kind: key ? 'node' : 'pan', key, sx: e.clientX, sy: e.clientY, ox: p.x, oy: p.y, moved: false };
   };
@@ -131,76 +132,61 @@ export function BoardView({ board, focus, height = 640 }: { board: Board; focus?
   };
   const up = () => {
     const d = drag.current; drag.current = null;
-    if (d && !d.moved) { if (d.kind === 'node') { setSel(d.key === sel ? null : d.key!); setEdgeSel(null); } else { setSel(focus || null); setEdgeSel(null); } }
+    if (d && !d.moved) { if (d.kind === 'node') { setSel(d.key === sel ? null : d.key!); setEdgeSel(null); } else { setSel(null); setEdgeSel(null); } }
   };
 
   const selected = sel ? nodes.find((n) => n.key === sel) : null;
   const selEdges = sel ? edges.filter((e) => e.a === sel || e.b === sel) : [];
   const byKey = new Map(nodes.map((n) => [n.key, n]));
 
-  if (!nodes.length) return <div className="empty">Na tablicy jeszcze nic nie ma. Claude dopina tu ludzi, wydarzenia i miejsca z notatek.</div>;
+  if (!nodes.length) return <div className="empty">Jeszcze nic nie jest powiązane. Claude dopina tu ludzi, wydarzenia i miejsca z notatek.</div>;
 
   return (
     <div className="board-wrap">
       <div className="board" ref={box} style={{ height }} onPointerDown={(e) => down(e)} onPointerMove={move} onPointerUp={up}>
-        <svg width="100%" height="100%">
-          <defs>
-            <filter id="bshadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="3" stdDeviation="3" floodOpacity=".35" /></filter>
-            <clipPath id="photoclip"><rect x={-34} y={-44} width={68} height={62} /></clipPath>
-          </defs>
-          <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
+        <div className="board-canvas" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
+          <svg className="board-lines" width="1" height="1">
             {edges.map((e) => {
               const a = at(e.a), b = at(e.b);
-              const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 + Math.min(40, Math.hypot(b.x - a.x, b.y - a.y) * 0.12);
-              const dim = near && !(near.has(e.a) && near.has(e.b) && (e.a === sel || e.b === sel));
-              const hot = edgeSel === e;
+              const dx = (b.x - a.x) * 0.5;
+              const on = !!sel && (e.a === sel || e.b === sel);
+              const dim = !!near && !on;
               return (
-                <g key={`${e.a}|${e.b}`} className="thread" opacity={dim ? 0.12 : 1}
-                  onPointerDown={(ev) => { ev.stopPropagation(); }} onPointerUp={(ev) => { ev.stopPropagation(); setEdgeSel(e); setSel(null); }}>
-                  <path d={`M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}`} className="hit" />
-                  <path d={`M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}`} className={`line ${e.kinds.includes('link') || e.kinds.includes('note') ? 'strong' : ''} ${hot ? 'hot' : ''}`}
-                    strokeWidth={Math.min(5, 1.4 + e.labels.length * 0.6)} />
+                <g key={`${e.a}|${e.b}`} className={`bl ${on || edgeSel === e ? 'on' : ''} ${dim ? 'dim' : ''} ${e.kinds.includes('link') || e.kinds.includes('note') ? 'strong' : ''}`}
+                  onPointerDown={(ev) => ev.stopPropagation()} onPointerUp={(ev) => { ev.stopPropagation(); setEdgeSel(e); setSel(null); }}>
+                  <path d={`M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`} className="hit" />
+                  <path d={`M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`} className="ln" />
                   <title>{e.labels.join('\n')}</title>
                 </g>
               );
             })}
-            {nodes.map((n) => {
-              const p = at(n.key);
-              const dim = near && !near.has(n.key);
-              const [w, h] = SIZE[n.kind];
-              const tilt = ((n.key.charCodeAt(n.key.length - 1) % 7) - 3) * 0.9;
-              return (
-                <g key={n.key} transform={`translate(${p.x},${p.y}) rotate(${tilt})`} opacity={dim ? 0.25 : 1}
-                  className={`bnode k-${n.kind} ${sel === n.key ? 'on' : ''}`} onPointerDown={(e) => down(e, n.key)}>
-                  {n.kind === 'person' ? (
-                    <>
-                      <rect x={-w / 2} y={-h / 2} width={w} height={h} className="card-bg" filter="url(#bshadow)" />
-                      {n.photo ? <image href={n.photo} x={-34} y={-44} width={68} height={62} preserveAspectRatio="xMidYMid slice" clipPath="url(#photoclip)" />
-                        : <><rect x={-34} y={-44} width={68} height={62} className={`photo ${n.team ? 'team' : ''}`} /><text y={-6} className="ini">{initials(n.label)}</text></>}
-                      {wrap(n.label, 13, 2).map((l, i) => <text key={i} y={30 + i * 11} className="name">{l}</text>)}
-                    </>
-                  ) : n.kind === 'place' ? (
-                    <>
-                      <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={4} className="card-bg" filter="url(#bshadow)" />
-                      {wrap(`📍 ${n.label}`, 18, 2).map((l, i, all) => <text key={i} y={4 + (i - (all.length - 1) / 2) * 12} className="name">{l}</text>)}
-                    </>
-                  ) : (
-                    <>
-                      <rect x={-w / 2} y={-h / 2} width={w} height={h} className="card-bg" filter="url(#bshadow)" />
-                      {wrap(n.label, n.kind === 'event' ? 22 : 20, n.kind === 'event' ? 3 : 2).map((l, i) => <text key={i} y={-h / 2 + 18 + i * 12} className="name">{l}</text>)}
-                      {n.sub && <text y={h / 2 - 7} className="sub">{n.sub}</text>}
-                    </>
-                  )}
-                  <circle cy={-h / 2 + 4} r={5} className="pin" />
-                </g>
-              );
-            })}
-          </g>
-        </svg>
+          </svg>
+          {nodes.map((n) => {
+            const p = at(n.key);
+            const I = KIND_ICON[n.kind];
+            const dim = near && !near.has(n.key);
+            return (
+              <div key={n.key} className={`btile k-${n.kind} ${sel === n.key ? 'on' : ''} ${dim ? 'dim' : ''} ${n.team ? 'team' : ''}`}
+                style={{ left: p.x, top: p.y }} onPointerDown={(e) => down(e, n.key)}>
+                {n.kind === 'person'
+                  ? (n.photo ? <img src={n.photo} alt="" className="bphoto" draggable={false} /> : <Avatar name={n.label} size="sm" />)
+                  : <span className="bic"><I size={15} /></span>}
+                <span className="btxt">
+                  <b>{n.label}</b>
+                  <small>{n.kind === 'person' ? (n.sub || (n.team ? 'Zespół' : 'z zewnątrz')) : [KIND_NAME[n.kind], n.sub].filter(Boolean).join(' · ')}</small>
+                </span>
+              </div>
+            );
+          })}
+        </div>
         <div className="board-tools" onPointerDown={(e) => e.stopPropagation()}>
           <button className="btn sm icon" onClick={() => zoom(1.25)} aria-label="Przybliż"><Plus size={14} /></button>
           <button className="btn sm icon" onClick={() => zoom(0.8)} aria-label="Oddal"><Minus size={14} /></button>
           <button className="btn sm icon" onClick={() => { setMoved(new Map()); setTimeout(fit); }} aria-label="Całość"><Maximize2 size={14} /></button>
+        </div>
+        <div className="board-legend">
+          <span><i className="k-person" />Zespół</span><span><i className="k-ext" />Z zewnątrz</span><span><i className="k-event" />Wydarzenia</span>
+          <span><i className="k-company" />Firmy</span><span><i className="k-place" />Miejsca</span>
         </div>
       </div>
 
@@ -208,14 +194,13 @@ export function BoardView({ board, focus, height = 640 }: { board: Board; focus?
         <aside className="board-side card pad col" style={{ gap: 10 }}>
           {selected ? (
             <>
-              <div className="row" style={{ gap: 8 }}>
-                {selected.kind === 'event' ? <CalendarDays size={16} /> : selected.kind === 'company' ? <Building2 size={16} /> : selected.kind === 'place' ? <MapPin size={16} /> : null}
-                <b className="grow">{selected.label}</b>
+              <div className="row" style={{ gap: 10 }}>
+                {selected.kind === 'person' ? <Avatar name={selected.label} size="sm" /> : <span className={`bic k-${selected.kind}`}>{(() => { const I = KIND_ICON[selected.kind]; return <I size={15} />; })()}</span>}
+                <div className="grow col" style={{ gap: 0, minWidth: 0 }}><b className="trunc">{selected.label}</b>{selected.sub && <span className="small soft trunc">{selected.sub}</span>}</div>
               </div>
-              {selected.sub && <div className="small soft">{selected.sub}</div>}
-              {href(selected) && <Link className="btn sm" to={href(selected)}><FolderOpen size={14} /> {selected.kind === 'person' ? 'Otwórz teczkę' : 'Otwórz'}</Link>}
-              <div className="eyebrow">Nitki · {selEdges.length}</div>
-              <div className="col" style={{ gap: 8, overflow: 'auto', maxHeight: height - 160 }}>
+              {href(selected) && <Link className="btn sm primary" to={href(selected)}><FolderOpen size={14} /> {selected.kind === 'person' ? 'Otwórz teczkę' : 'Otwórz'}</Link>}
+              <div className="eyebrow">Powiązania · {selEdges.length}</div>
+              <div className="col" style={{ gap: 6 }}>
                 {selEdges.map((e) => {
                   const other = byKey.get(e.a === sel ? e.b : e.a)!;
                   return (

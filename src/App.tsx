@@ -159,7 +159,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
         <header className="topbar">
           <span className="brand-mark only-sm" style={{ width: 32, height: 32 }}>O5</span>
           <button className="search-btn" onClick={() => setPalette(true)}>
-            <Search size={16} /> <span className="trunc">Szukaj firmy, telefonu, maila…</span> <kbd className="hide-sm">/</kbd>
+            <Search size={16} /> <span className="trunc">Szukaj firmy, osoby, telefonu…</span> <kbd className="hide-sm">/</kbd>
           </button>
           <span className="grow hide-sm" />
           <span className="hide-sm"><ThemeToggle /></span>
@@ -227,6 +227,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
 /** Command palette: jump to any company by name, city, phone or email — or to a page. */
 function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const leads = useQuery({ queryKey: ['leads'], queryFn: api.leads, enabled: open });
+  const people = useQuery({ queryKey: ['people'], queryFn: api.people, enabled: open });
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const nav = useNavigate();
@@ -249,13 +250,19 @@ function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
       .slice(0, 10)
       .map((l) => ({ key: l.id, label: l.company, sub: [l.city, l.segment, l.phone].filter(Boolean).join(' · '), stage: l.stage,
         avatar: l.company, go: () => nav(`/firmy/${l.id}`) }));
-    return [...hits, ...pages.filter((p) => searchKey(p.label).includes(k))];
-  }, [q, leads.data, nav]);
+    const team = (people.data || []).filter((p) =>
+      searchKey(`${p.name} ${p.aliases} ${p.role} ${p.company} ${p.services}`).includes(k) || (p.email && p.email.includes(k)) ||
+      (digits.length >= 3 && p.phone.replace(/\D/g, '').includes(digits)),
+    ).sort((a, b) => Number(searchKey(b.name).startsWith(k)) - Number(searchKey(a.name).startsWith(k)))
+      .slice(0, 6)
+      .map((p) => ({ key: `p${p.id}`, label: p.name, sub: ['Zespół', p.role, p.company, p.phone].filter(Boolean).join(' · '), avatar: p.name, go: () => nav(`/zespol/${p.id}`) }));
+    return [...team, ...hits, ...pages.filter((p) => searchKey(p.label).includes(k))];
+  }, [q, leads.data, people.data, nav]);
 
   const run = (i: Item) => { onClose(); i.go(); };
   return (
     <Modal open={open} onClose={onClose} title="Szukaj">
-      <input ref={input} type="search" placeholder="Nazwa firmy, miasto, telefon, e-mail…" value={q}
+      <input ref={input} type="search" placeholder="Firma, osoba z Zespołu, miasto, telefon, e-mail…" value={q}
         onChange={(e) => { setQ(e.target.value); setSel(0); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, items.length - 1)); }

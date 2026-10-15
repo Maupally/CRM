@@ -152,7 +152,8 @@ export class BoardStore {
     }
     for (const p of people) {
       for (const e of p.events) edge(`person:${p.id}`, `event:${e.eventId}`, 'event', e.role || 'przy wydarzeniu');
-      if (p.leadId) edge(`person:${p.id}`, node({ kind: 'company', id: p.leadId }), 'company', p.role || 'z firmy');
+      // a partner added as a "person" named after its company is the company itself — no second tile for it
+      if (p.leadId && searchKey(p.name) !== searchKey(p.company)) edge(`person:${p.id}`, node({ kind: 'company', id: p.leadId }), 'company', p.role || 'z firmy');
     }
     for (const t of tasks) {
       const n = Number(t.n);
