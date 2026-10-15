@@ -741,3 +741,13 @@ a.qa { text-decoration: none; color: inherit; }
 @media (max-width: 800px) { .board-side { position: static; width: 100%; margin-top: 12px; box-shadow: none; } }
 @media (max-width: 800px) { .team-layout { grid-template-columns: 1fr; } .team-side { position: static; max-height: 320px; } }
 .team-side .li.sel { background: var(--tint); }
+
+.board-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.board-bar.sub { margin-bottom: 10px; }
+.board-bar .chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 3px; margin-right: 2px; background: var(--line-strong); }
+.board-bar .chip:not(.on) { opacity: .55; }
+.board-bar .chip .dot.k-team { background: var(--accent); } .board-bar .chip .dot.k-event { background: var(--warn); }
+.board-bar .chip .dot.k-company { background: var(--violet); } .board-bar .chip .dot.k-place { background: var(--ok); }
+.tag-x { border: 0; background: none; padding: 0 0 0 2px; color: inherit; cursor: pointer; display: inline-grid; place-items: center; }
+.btile.center { border: 2px solid var(--accent); box-shadow: 0 0 0 5px var(--tint), 0 10px 26px rgb(14 23 38 / .14); transform: translate(-50%, -50%) scale(1.12); z-index: 1; }
+.board-ring { position: absolute; border: 1.5px dashed var(--line); border-radius: 50%; pointer-events: none; }

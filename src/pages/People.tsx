@@ -32,6 +32,12 @@ export function PeoplePage() {
     return (q.data || []).filter((p) => (!kind || (kind === 'partner' ? p.partner : p.kind === kind)) &&
       (!k || searchKey([p.name, p.role, p.company, p.services, p.aliases, p.notes, ...p.events.map((e) => `${e.title} ${e.role}`)].join(' ')).includes(k)));
   }, [q.data, kind, find]);
+  // the user themselves ("ja" among the aliases, else the owner's name) sits in the middle of the board by default
+  const me = useMemo(() => {
+    const all = q.data || [];
+    const p = all.find((x) => x.aliases.split(',').some((a) => searchKey(a).trim() === 'ja')) || all.find((x) => searchKey(x.name).startsWith('martin'));
+    return p ? `person:${p.id}` : undefined;
+  }, [q.data]);
   const count = (k: PersonKind) => (q.data || []).filter((p) => p.kind === k).length;
 
   return (
@@ -67,7 +73,7 @@ export function PeoplePage() {
               {!rows.length && <div className="empty small">Nikt nie pasuje.</div>}
             </ul>
           </section>
-          <WholeBoard pick={pick} />
+          <WholeBoard pick={pick} me={me} />
         </div>
       ) : <section className="card">
         <div className="toolbar">
@@ -195,11 +201,11 @@ function PersonRecord({ id }: { id: number }) {
   );
 }
 
-function WholeBoard({ pick }: { pick?: { key: string; n: number } }) {
+function WholeBoard({ pick, me }: { pick?: { key: string; n: number }; me?: string }) {
   const q = useQuery({ queryKey: ['board'], queryFn: api.board });
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
-  return <BoardView board={q.data!} pick={pick} height={Math.max(520, window.innerHeight - 190)} />;
+  return <BoardView board={q.data!} pick={pick} defaultCenter={me} height={Math.max(520, window.innerHeight - 250)} />;
 }
 
 const KIND_ICON: Record<NodeKind, typeof Users> = { person: Users, event: CalendarDays, company: Building2, place: MapPin };
@@ -299,7 +305,7 @@ export function PersonFilePage() {
       {board.data && f.connections.length > 0 && (
         <section className="col" style={{ gap: 8 }}>
           <h2>Na tablicy</h2>
-          <BoardView board={board.data} focus={`person:${id}`} height={520} />
+          <BoardView board={board.data} focus={`person:${id}`} defaultCenter={`person:${id}`} height={520} />
         </section>
       )}
       <PersonForm value={edit} onClose={() => setEdit(null)} />

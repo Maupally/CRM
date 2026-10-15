@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Minus, Plus, Maximize2, MapPin, CalendarDays, Building2, FolderOpen, type LucideIcon } from 'lucide-react';
+import { Minus, Plus, Maximize2, MapPin, CalendarDays, Building2, FolderOpen, Crosshair, X, type LucideIcon } from 'lucide-react';
+import { Seg } from './ui';
 import { Avatar } from './ui';
 import type { Board, BoardEdge, BoardNode } from '../../shared/domain';
 
@@ -57,32 +58,125 @@ function layout(nodes: BoardNode[], edges: BoardEdge[]): Map<string, P> {
   return pos;
 }
 
+/** Columns: one per kind, most connected (or A–Z) on top. */
+function columns(nodes: BoardNode[], sort: 'links' | 'name'): Map<string, P> {
+  const pos = new Map<string, P>();
+  const cols = CATS.map(([c]) => nodes.filter((n) => catOf(n) === c)).filter((l) => l.length);
+  cols.forEach((list, ci) => {
+    list.sort((a, b) => (sort === 'name' ? a.label.localeCompare(b.label, 'pl') : b.weight - a.weight || a.label.localeCompare(b.label, 'pl')));
+    list.forEach((n, i) => pos.set(n.key, { x: (ci - (cols.length - 1) / 2) * 230, y: (i - (list.length - 1) / 2) * 66 }));
+  });
+  return pos;
+}
+
+/** Rings around one tile: its direct connections, then theirs; everything else on the outer ring. */
+function radial(center: string, nodes: BoardNode[], edges: BoardEdge[], depth: number): { pos: Map<string, P>; dist: Map<string, number> } {
+  const adj = new Map<string, string[]>();
+  for (const e of edges) { adj.set(e.a, [...(adj.get(e.a) || []), e.b]); adj.set(e.b, [...(adj.get(e.b) || []), e.a]); }
+  const dist = new Map<string, number>([[center, 0]]);
+  const queue = [center];
+  while (queue.length) { const k = queue.shift()!; for (const x of adj.get(k) || []) if (!dist.has(x)) { dist.set(x, dist.get(k)! + 1); queue.push(x); } }
+  const pos = new Map<string, P>([[center, { x: 0, y: 0 }]]);
+  const angle = new Map<string, number>();
+  const ring = (d: number) => nodes.filter((n) => (d > depth ? !dist.has(n.key) || dist.get(n.key)! > depth : dist.get(n.key) === d) && n.key !== center);
+  let r = 0;
+  for (let d = 1; d <= depth + 1; d++) {
+    const list = ring(d);
+    if (!list.length) continue;
+    // keep children next to their parents: order by the parents' angle, then by kind and name
+    const want = (n: BoardNode) => {
+      const ps = (adj.get(n.key) || []).filter((x) => angle.has(x));
+      return ps.length ? ps.reduce((s, x) => s + angle.get(x)!, 0) / ps.length : 10 + CATS.findIndex(([c]) => c === catOf(n));
+    };
+    list.sort((a, b) => want(a) - want(b) || catOf(a).localeCompare(catOf(b)) || b.weight - a.weight);
+    r = Math.max(r + (d === 1 ? 250 : 230), (list.length * 200) / (2 * Math.PI));
+    list.forEach((n, i) => {
+      const a = (i / list.length) * Math.PI * 2 - Math.PI / 2;
+      angle.set(n.key, a);
+      pos.set(n.key, { x: Math.cos(a) * r * 1.25, y: Math.sin(a) * r });
+    });
+  }
+  return { pos, dist };
+}
+
+const CATS = [['team', 'Zespół'], ['ext', 'Z zewnątrz'], ['event', 'Wydarzenia'], ['company', 'Firmy'], ['place', 'Miejsca']] as const;
+type Cat = (typeof CATS)[number][0];
+const catOf = (n: BoardNode): Cat => (n.kind === 'person' ? (n.team ? 'team' : 'ext') : n.kind);
+type Smart = 'all' | 'linked' | 'upcoming' | 'top' | 'lonely';
+const SMART: [Smart, string, string][] = [
+  ['all', 'Wszystko', ''],
+  ['linked', 'Tylko powiązani', 'bez osób, które nie mają żadnych nitek'],
+  ['upcoming', 'Nadchodzące wydarzenia', 'wydarzenia od dziś i kto przy nich jest'],
+  ['top', 'Najbardziej powiązani', '15 osób i rzeczy z największą liczbą powiązań i to, co je łączy'],
+  ['lonely', 'Bez powiązań', 'kto nie jest jeszcze z niczym powiązany — do uzupełnienia'],
+];
+
 const KIND_ICON: Record<BoardNode['kind'], LucideIcon> = { person: FolderOpen, event: CalendarDays, company: Building2, place: MapPin };
 const KIND_NAME: Record<BoardNode['kind'], string> = { person: 'Osoba', event: 'Wydarzenie', company: 'Firma', place: 'Miejsce' };
 const href = (n: BoardNode) => (n.kind === 'person' ? `/zespol/${n.id}` : n.kind === 'event' ? `/wydarzenia/${n.id}` : n.kind === 'company' ? `/firmy/${n.id}` : '');
+type Mode = 'free' | 'groups' | 'center';
 
 /**
  * The connections board: people, events, companies and places as tiles, lines between whatever is connected.
- * Drag to move around, scroll or +/− to zoom, click a tile to see what ties it to the rest.
- * `pick` selects and centres a tile from outside (the search next to the board).
+ * Three arrangements — free, in columns, or around one tile ("Ustaw w centrum") with everything unrelated greyed out —
+ * plus filters by kind and smart filters. `pick` selects and centres a tile from outside (the search next to the board).
  */
-export function BoardView({ board, focus, height = 640, pick }: { board: Board; focus?: string; height?: number; pick?: { key: string; n: number } }) {
-  const { nodes, edges } = useMemo(() => {
+export function BoardView({ board, focus, height = 640, pick, defaultCenter }: {
+  board: Board; focus?: string; height?: number; pick?: { key: string; n: number }; defaultCenter?: string;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [mode, setMode] = useState<Mode>(defaultCenter ? 'center' : 'free');
+  const [center, setCenter] = useState<string | undefined>(defaultCenter);
+  const [depth, setDepth] = useState<'1' | '2'>('1');
+  const [sort, setSort] = useState<'links' | 'name'>('links');
+  const [hidden, setHidden] = useState<Set<Cat>>(new Set());
+  const [smart, setSmart] = useState<Smart>('all');
+  useEffect(() => { if (defaultCenter && !center) { setCenter(defaultCenter); setMode('center'); } }, [defaultCenter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const scoped = useMemo(() => {
     if (!focus) return board;
     const near = new Set([focus]);
     for (const e of board.edges) { if (e.a === focus) near.add(e.b); if (e.b === focus) near.add(e.a); }
     return { nodes: board.nodes.filter((n) => near.has(n.key)), edges: board.edges.filter((e) => near.has(e.a) && near.has(e.b)) };
   }, [board, focus]);
-  // the layout is the slow part: keep it for as long as the same tiles and lines are on the board (refetches, revisits)
+  const counts = useMemo(() => new Map(CATS.map(([c]) => [c, scoped.nodes.filter((n) => catOf(n) === c).length])), [scoped]);
+
+  // filters: kinds switched off, then the smart filter
+  const { nodes, edges } = useMemo(() => {
+    let ns = scoped.nodes.filter((n) => !hidden.has(catOf(n)) || n.key === center);
+    const keep = (set: Set<string>) => { ns = ns.filter((n) => set.has(n.key)); };
+    const es0 = (list: BoardNode[]) => { const k = new Set(list.map((n) => n.key)); return scoped.edges.filter((e) => k.has(e.a) && k.has(e.b)); };
+    if (smart === 'linked') keep(new Set(es0(ns).flatMap((e) => [e.a, e.b])));
+    if (smart === 'lonely') { const linked = new Set(es0(ns).flatMap((e) => [e.a, e.b])); ns = ns.filter((n) => !linked.has(n.key)); }
+    if (smart === 'upcoming') {
+      const ev = new Set(ns.filter((n) => n.kind === 'event' && n.sub >= today).map((n) => n.key));
+      const s = new Set(ev);
+      for (const e of es0(ns)) { if (ev.has(e.a)) s.add(e.b); if (ev.has(e.b)) s.add(e.a); }
+      keep(s);
+    }
+    if (smart === 'top') {
+      const top = new Set([...ns].sort((a, b) => b.weight - a.weight).slice(0, 15).map((n) => n.key));
+      keep(top);
+    }
+    return { nodes: ns, edges: es0(ns) };
+  }, [scoped, hidden, smart, center, today]);
+
+  const activeCenter = mode === 'center' && center && nodes.some((n) => n.key === center) ? center : undefined;
+  // the free layout is the slow part: keep it for as long as the same tiles and lines are on the board (refetches, revisits)
   const sig = useMemo(() => `${nodes.map((n) => n.key).join(',')}#${edges.map((e) => `${e.a}|${e.b}`).join(',')}`, [nodes, edges]);
-  const pos = useMemo(() => {
+  const arranged = useMemo(() => {
+    if (mode === 'groups') return { pos: columns(nodes, sort), dist: null };
+    if (activeCenter) return radial(activeCenter, nodes, edges, Number(depth));
     const hit = LAYOUTS.get(sig);
-    if (hit) return hit;
+    if (hit) return { pos: hit, dist: null };
     const p = layout(nodes, edges);
     if (LAYOUTS.size > 20) LAYOUTS.clear();
     LAYOUTS.set(sig, p);
-    return p;
-  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { pos: p, dist: null };
+  }, [sig, mode, sort, activeCenter, depth]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pos = arranged.pos;
+  const far = (k: string) => !!arranged.dist && (!arranged.dist.has(k) || arranged.dist.get(k)! > Number(depth));
+
   const [moved, setMoved] = useState<Map<string, P>>(new Map());
   const at = (k: string) => moved.get(k) || pos.get(k) || { x: 0, y: 0 };
   const [sel, setSel] = useState<string | null>(null);
@@ -93,12 +187,15 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
 
   const fit = () => {
     const el = box.current; if (!el || !nodes.length) return;
-    const xs = nodes.map((n) => at(n.key).x), ys = nodes.map((n) => at(n.key).y);
+    // around a centre: fit what is connected, not the grey outer ring
+    const shown = arranged.dist ? nodes.filter((n) => !far(n.key)) : nodes;
+    const list = shown.length ? shown : nodes;
+    const xs = list.map((n) => at(n.key).x), ys = list.map((n) => at(n.key).y);
     const w = Math.max(...xs) - Math.min(...xs) + 260, h = Math.max(...ys) - Math.min(...ys) + 160;
-    const k = Math.min(1.2, Math.max(0.3, Math.min(el.clientWidth / w, el.clientHeight / h)));
+    const k = Math.min(1.2, Math.max(0.25, Math.min(el.clientWidth / w, el.clientHeight / h)));
     setView({ k, x: el.clientWidth / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * k, y: el.clientHeight / 2 - ((Math.max(...ys) + Math.min(...ys)) / 2) * k });
   };
-  useEffect(() => { setMoved(new Map()); setSel(null); setEdgeSel(null); }, [sig, focus]);
+  useEffect(() => { setMoved(new Map()); setEdgeSel(null); }, [sig, focus, mode, activeCenter, depth, sort]);
   useEffect(() => { fit(); }, [pos]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = box.current;
@@ -114,10 +211,11 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
     for (const e of edges) { if (e.a === sel) s.add(e.b); if (e.b === sel) s.add(e.a); }
     return s;
   }, [sel, edges]);
+  const isDim = (k: string) => (near ? !near.has(k) : far(k));
 
   const zoom = (f: number, cx?: number, cy?: number) => setView((v) => {
     const el = box.current!; const px = cx ?? el.clientWidth / 2, py = cy ?? el.clientHeight / 2;
-    const k = Math.min(2.2, Math.max(0.2, v.k * f));
+    const k = Math.min(2.2, Math.max(0.15, v.k * f));
     return { k, x: px - ((px - v.x) / v.k) * k, y: py - ((py - v.y) / v.k) * k };
   });
   useEffect(() => {
@@ -144,23 +242,57 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
     const d = drag.current; drag.current = null;
     if (d && !d.moved) { if (d.kind === 'node') { setSel(d.key === sel ? null : d.key!); setEdgeSel(null); } else { setSel(null); setEdgeSel(null); } }
   };
+  const centerOn = (k: string) => { setCenter(k); setMode('center'); setSel(null); };
 
-  const selected = sel ? nodes.find((n) => n.key === sel) : null;
+  const byKey = new Map(scoped.nodes.map((n) => [n.key, n]));
+  const selected = sel ? byKey.get(sel) : null;
   const selEdges = sel ? edges.filter((e) => e.a === sel || e.b === sel) : [];
-  const byKey = new Map(nodes.map((n) => [n.key, n]));
+  const centerNode = center ? byKey.get(center) : undefined;
 
-  if (!nodes.length) return <div className="empty">Jeszcze nic nie jest powiązane. Claude dopina tu ludzi, wydarzenia i miejsca z notatek.</div>;
+  if (!scoped.nodes.length) return <div className="empty">Jeszcze nic nie jest powiązane. Claude dopina tu ludzi, wydarzenia i miejsca z notatek.</div>;
 
   return (
     <div className="board-wrap">
+      <div className="board-bar">
+        <Seg value={mode} options={['free', 'groups', 'center'] as const} onChange={(m) => { setMode(m); if (m === 'center' && !center) setCenter(sel || defaultCenter || nodes[0]?.key); }}
+          labels={{ free: 'Swobodnie', groups: 'Kolumny', center: 'Od środka' }} />
+        {mode === 'groups' && <Seg value={sort} options={['links', 'name'] as const} labels={{ links: 'Najwięcej powiązań', name: 'A–Z' }} onChange={setSort} />}
+        {mode === 'center' && centerNode && (
+          <>
+            <span className="tag soon"><Crosshair size={12} /> {centerNode.label}
+              {center !== defaultCenter && defaultCenter && <button className="tag-x" onClick={() => setCenter(defaultCenter)} title="Wróć do domyślnego"><X size={11} /></button>}</span>
+            <Seg value={depth} options={['1', '2'] as const} labels={{ '1': 'Bezpośrednie', '2': '+ ich powiązania' }} onChange={setDepth} />
+          </>
+        )}
+        <span className="grow" />
+        <div className="chips">
+          {CATS.filter(([c]) => counts.get(c)).map(([c, label]) => (
+            <button key={c} className={`chip ${hidden.has(c) ? '' : 'on'}`} onClick={() => setHidden((h) => { const n = new Set(h); if (n.has(c)) n.delete(c); else n.add(c); return n; })}>
+              <i className={`dot k-${c}`} />{label} <span className="n">{counts.get(c)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="board-bar sub">
+        <span className="small soft">Pokaż:</span>
+        <div className="chips">
+          {SMART.map(([k, label, hint]) => <button key={k} title={hint} className={`chip ${smart === k ? 'on' : ''}`} onClick={() => setSmart(k)}>{label}</button>)}
+        </div>
+      </div>
+
       <div className="board" ref={box} style={{ height }} onPointerDown={(e) => down(e)} onPointerMove={move} onPointerUp={up}>
+        {!nodes.length && <div className="empty" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>Nic nie pasuje do filtrów.</div>}
         <div className="board-canvas" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
+          {activeCenter && [1, 2].slice(0, Number(depth)).map((d) => {
+            const r = Math.max(...nodes.filter((n) => arranged.dist?.get(n.key) === d).map((n) => Math.hypot(at(n.key).x / 1.25, at(n.key).y)), 0);
+            return r ? <div key={d} className="board-ring" style={{ left: -r * 1.25, top: -r, width: r * 2.5, height: r * 2 }} /> : null;
+          })}
           <svg className="board-lines" width="1" height="1">
             {edges.map((e) => {
               const a = at(e.a), b = at(e.b);
               const dx = (b.x - a.x) * 0.5;
               const on = !!sel && (e.a === sel || e.b === sel);
-              const dim = !!near && !on;
+              const dim = near ? !on : far(e.a) || far(e.b);
               return (
                 <g key={`${e.a}|${e.b}`} className={`bl ${on || edgeSel === e ? 'on' : ''} ${dim ? 'dim' : ''} ${e.kinds.includes('link') || e.kinds.includes('note') ? 'strong' : ''}`}
                   onPointerDown={(ev) => ev.stopPropagation()} onPointerUp={(ev) => { ev.stopPropagation(); setEdgeSel(e); setSel(null); }}>
@@ -174,10 +306,9 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
           {nodes.map((n) => {
             const p = at(n.key);
             const I = KIND_ICON[n.kind];
-            const dim = near && !near.has(n.key);
             return (
-              <div key={n.key} className={`btile k-${n.kind} ${sel === n.key ? 'on' : ''} ${dim ? 'dim' : ''} ${n.team ? 'team' : ''}`}
-                style={{ left: p.x, top: p.y }} onPointerDown={(e) => down(e, n.key)}>
+              <div key={n.key} className={`btile k-${n.kind} ${sel === n.key ? 'on' : ''} ${isDim(n.key) ? 'dim' : ''} ${n.team ? 'team' : ''} ${n.key === activeCenter ? 'center' : ''}`}
+                style={{ left: p.x, top: p.y }} onPointerDown={(e) => down(e, n.key)} onDoubleClick={() => centerOn(n.key)}>
                 {n.kind === 'person'
                   ? (n.photo ? <img src={n.photo} alt="" className="bphoto" draggable={false} /> : <Avatar name={n.label} size="sm" />)
                   : <span className="bic"><I size={15} /></span>}
@@ -192,12 +323,9 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
         <div className="board-tools" onPointerDown={(e) => e.stopPropagation()}>
           <button className="btn sm icon" onClick={() => zoom(1.25)} aria-label="Przybliż"><Plus size={14} /></button>
           <button className="btn sm icon" onClick={() => zoom(0.8)} aria-label="Oddal"><Minus size={14} /></button>
-          <button className="btn sm icon" onClick={() => { setMoved(new Map()); setTimeout(fit); }} aria-label="Całość"><Maximize2 size={14} /></button>
+          <button className="btn sm icon" onClick={() => { setMoved(new Map()); setTimeout(fit); }} aria-label="Całość" title="Pokaż całość"><Maximize2 size={14} /></button>
         </div>
-        <div className="board-legend">
-          <span><i className="k-person" />Zespół</span><span><i className="k-ext" />Z zewnątrz</span><span><i className="k-event" />Wydarzenia</span>
-          <span><i className="k-company" />Firmy</span><span><i className="k-place" />Miejsca</span>
-        </div>
+        <div className="board-legend">Kliknij kafelek, żeby zobaczyć powiązania · dwuklik = ustaw w centrum</div>
       </div>
 
       {(selected || edgeSel) && (
@@ -207,8 +335,12 @@ export function BoardView({ board, focus, height = 640, pick }: { board: Board; 
               <div className="row" style={{ gap: 10 }}>
                 {selected.kind === 'person' ? <Avatar name={selected.label} size="sm" /> : <span className={`bic k-${selected.kind}`}>{(() => { const I = KIND_ICON[selected.kind]; return <I size={15} />; })()}</span>}
                 <div className="grow col" style={{ gap: 0, minWidth: 0 }}><b className="trunc">{selected.label}</b>{selected.sub && <span className="small soft trunc">{selected.sub}</span>}</div>
+                <button className="btn sm ghost icon" onClick={() => setSel(null)} aria-label="Zamknij"><X size={14} /></button>
               </div>
-              {href(selected) && <Link className="btn sm primary" to={href(selected)}><FolderOpen size={14} /> {selected.kind === 'person' ? 'Otwórz teczkę' : 'Otwórz'}</Link>}
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn sm primary grow" onClick={() => centerOn(selected.key)}><Crosshair size={14} /> Ustaw w centrum</button>
+                {href(selected) && <Link className="btn sm" to={href(selected)}><FolderOpen size={14} /> {selected.kind === 'person' ? 'Teczka' : 'Otwórz'}</Link>}
+              </div>
               <div className="eyebrow">Powiązania · {selEdges.length}</div>
               <div className="col" style={{ gap: 6 }}>
                 {selEdges.map((e) => {
