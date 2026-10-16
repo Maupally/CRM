@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, AlarmClock, PhoneCall, Target, Mail, MessageSquare, Building, Copy, Send, Sparkles, Loader2, Download, Settings2, Check } from 'lucide-react';
+import { Activity, AlarmClock, PhoneCall, Target, Mail, MessageSquare, Building, Copy, Send, Sparkles, Loader2, Download, Settings2, Check, X } from 'lucide-react';
 import { api, type Bucket, type CallConfig } from '../api';
 import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, typeLabel, useConfig, useToast, useToday } from '../components/ui';
 import { COUNTED, MSG_CHANNEL_LABEL, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
@@ -12,16 +12,16 @@ const TYPE_COLOR: Record<string, string> = {
 
 export function ReportsPage() {
   const [sp, setSp] = useSearchParams();
-  const tab = (sp.get('tab') || 'przeglad') as 'przeglad' | 'tygodniowy' | 'polaczenia' | 'wiadomosci';
+  const tab = (sp.get('tab') || 'przeglad') as 'przeglad' | 'tygodniowy' | 'zrobione' | 'polaczenia' | 'wiadomosci';
   return (
     <>
       <div className="page-head">
         <div><h1>Raporty</h1><div className="sub">Aktywność, lejek i raport tygodniowy do wysłania.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['przeglad', 'tygodniowy', 'wiadomosci', 'polaczenia'] as const} onChange={(t) => setSp(t === 'przeglad' ? {} : { tab: t }, { replace: true })}
-          labels={{ przeglad: 'Przegląd', tygodniowy: 'Raport tygodniowy', wiadomosci: 'Wiadomości', polaczenia: 'Call report' }} />
+        <Seg value={tab} options={['przeglad', 'tygodniowy', 'zrobione', 'wiadomosci', 'polaczenia'] as const} onChange={(t) => setSp(t === 'przeglad' ? {} : { tab: t }, { replace: true })}
+          labels={{ przeglad: 'Przegląd', tygodniowy: 'Raport tygodniowy', zrobione: 'Zrobione', wiadomosci: 'Wiadomości', polaczenia: 'Call report' }} />
       </div>
-      {tab === 'przeglad' ? <Overview /> : tab === 'polaczenia' ? <CallReport /> : tab === 'wiadomosci' ? <MessagesReport /> : <WeeklyBuilder />}
+      {tab === 'przeglad' ? <Overview /> : tab === 'polaczenia' ? <CallReport /> : tab === 'wiadomosci' ? <MessagesReport /> : tab === 'zrobione' ? <DoneView /> : <WeeklyBuilder />}
     </>
   );
 }
@@ -505,5 +505,69 @@ function WeeklyBuilder() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ DONE THIS WEEK (for yourself) */
+
+const WD_LONG = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela'];
+
+/** What got done in the period, day by day — tasks finished, tasks dropped, calls and e-mails made. Just for you, not for the report. */
+function DoneView() {
+  const today = useToday();
+  const toast = useToast();
+  const [from, setFrom] = useState(() => startOfWeek(today));
+  const [to, setTo] = useState(today);
+  const [show, setShow] = useState<'all' | 'task' | 'contact' | 'skipped'>('all');
+  const q = useQuery({ queryKey: ['report-done', from, to], queryFn: () => api.reportDone(from, to) });
+  const presets: [string, string, string][] = [
+    ['Ten tydzień', startOfWeek(today), today],
+    ['Poprzedni tydzień', addDays(startOfWeek(today), -7), addDays(startOfWeek(today), -1)],
+    ['Ostatnie 7 dni', addDays(today, -6), today],
+    ['30 dni', addDays(today, -29), today],
+  ];
+  const rows = (q.data?.rows || []).filter((r) => show === 'all' || r.kind === show);
+  const n = (k: string) => (q.data?.rows || []).filter((r) => r.kind === k).length;
+  const days = [...new Set(rows.map((r) => r.date))];
+  const text = days.map((d) => [`${WD_LONG[(new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7]} ${shortDate(d)}`,
+    ...rows.filter((r) => r.date === d).map((r) => `${r.kind === 'skipped' ? '✗' : '✓'} ${r.title}${r.where ? ` (${r.where})` : ''}${r.note ? ` — ${r.note}` : ''}`)].join('\n')).join('\n\n');
+  return (
+    <section className="card">
+      <div className="toolbar">
+        <div className="chips">{presets.map(([l, a, b]) => <button key={l} className={`chip ${from === a && to === b ? 'on' : ''}`} onClick={() => { setFrom(a); setTo(b); }}>{l}</button>)}</div>
+        <span className="grow" />
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 160, height: 36 }} />
+        <span className="soft">–</span>
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 160, height: 36 }} />
+      </div>
+      <div className="row wrap" style={{ gap: 8, padding: '0 20px 12px' }}>
+        <Seg value={show} options={['all', 'task', 'contact', 'skipped'] as const} onChange={setShow}
+          labels={{ all: `Wszystko · ${q.data?.rows.length ?? 0}`, task: `Zadania · ${n('task')}`, contact: `Kontakty · ${n('contact')}`, skipped: `Niewykonane · ${n('skipped')}` }} />
+        <span className="grow" />
+        <button className="btn sm" disabled={!rows.length} onClick={() => { copyText(text); toast('Skopiowano listę'); }}><Copy size={14} /> Kopiuj</button>
+      </div>
+      {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : !rows.length ? (
+        <div className="empty">Nic w tym okresie.</div>
+      ) : days.map((d) => (
+        <div key={d}>
+          <div className="group-label" style={{ padding: '10px 20px 4px' }}>{WD_LONG[(new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7]} · {shortDate(d)}</div>
+          <ul className="list">
+            {rows.filter((r) => r.date === d).map((r, i) => (
+              <li key={i} className="li" style={{ alignItems: 'flex-start' }}>
+                <span className={`type-ic ${r.kind === 'contact' ? 'Call' : r.kind === 'task' ? 'Meeting' : ''}`} style={{ width: 26, height: 26 }}>
+                  {r.kind === 'skipped' ? <X size={13} /> : r.kind === 'contact' ? <PhoneCall size={13} /> : <Check size={13} />}</span>
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div style={{ textDecoration: r.kind === 'skipped' ? 'line-through' : undefined }}>
+                    {r.link ? <Link to={r.link} style={{ color: 'inherit' }}>{r.title}</Link> : r.title}
+                    {r.where && <span className="soft small"> · {r.where}</span>}{r.who && <span className="soft small"> · {r.who}</span>}
+                  </div>
+                  {r.note && <div className="small soft">{r.note}</div>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }

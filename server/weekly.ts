@@ -84,3 +84,29 @@ export async function weeklyItems(crm: Crm, from?: string, to?: string): Promise
   items.push(...coming.sort((x, y) => (x.date || '').localeCompare(y.date || '')));
   return { from: a, to: b, owner: crm.owner, items, pipeline };
 }
+
+/** Everything done in the period, for the user's own eyes: finished and skipped tasks, and contacts made. */
+export interface DoneRow { kind: 'task' | 'skipped' | 'contact'; date: string; title: string; where?: string; who?: string; note?: string; link?: string }
+export async function doneList(crm: Crm, from?: string, to?: string): Promise<{ from: string; to: string; rows: DoneRow[] }> {
+  const b = to || crm.today();
+  const a = from || addDays(b, -6);
+  const [tasks, acts] = await Promise.all([
+    crm.listTasks(),
+    crm.db.all(`SELECT a.*, l.company FROM crm.activities a JOIN crm.leads l ON l.id = a.lead_id
+      WHERE a.date BETWEEN ? AND ? AND a.result <> 'planned' ORDER BY a.date DESC, a.id DESC`, [a, b]),
+  ]);
+  const rows: DoneRow[] = [];
+  for (const t of tasks) {
+    if (!t.completed || t.completed < a || t.completed > b || (t.status !== 'done' && t.status !== 'skipped')) continue;
+    rows.push({ kind: t.status === 'done' ? 'task' : 'skipped', date: t.completed.slice(0, 10), title: t.task,
+      where: t.eventTitle || t.company || undefined, who: t.person?.name || undefined, note: t.status === 'skipped' ? t.skipReason || undefined : undefined,
+      link: t.eventId ? `/wydarzenia/${t.eventId}` : t.leadId ? `/firmy/${t.leadId}` : undefined });
+  }
+  for (const x of acts) {
+    if (!(COUNTED as string[]).includes(x.type)) continue;
+    rows.push({ kind: 'contact', date: x.date, title: `${TYPE_LABEL[x.type as ActivityType] || x.type}: ${x.company}`, note: x.note ? short(x.note, 140) : undefined,
+      link: `/firmy/${x.lead_id}` });
+  }
+  rows.sort((x, y) => y.date.localeCompare(x.date));
+  return { from: a, to: b, rows };
+}
