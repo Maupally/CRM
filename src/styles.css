@@ -751,3 +751,12 @@ a.qa { text-decoration: none; color: inherit; }
 .tag-x { border: 0; background: none; padding: 0 0 0 2px; color: inherit; cursor: pointer; display: inline-grid; place-items: center; }
 .btile.center { border: 2px solid var(--accent); box-shadow: 0 0 0 5px var(--tint), 0 10px 26px rgb(14 23 38 / .14); transform: translate(-50%, -50%) scale(1.12); z-index: 1; }
 .board-ring { position: absolute; border: 1.5px dashed var(--line); border-radius: 50%; pointer-events: none; }
+
+.wtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; padding: 0 16px 16px; }
+.wtile { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.wtile:hover { border-color: var(--line-strong); }
+.wtile.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--tint); }
+.wtile.quiet:not(.on) { opacity: .75; }
+.wtile textarea { font-size: 12.5px; min-height: 0; }
+.wcheck { width: 18px; height: 18px; border-radius: 6px; border: 1.5px solid var(--line-strong); display: grid; place-items: center; flex: none; color: #fff; }
+.wtile.on .wcheck { background: var(--accent); border-color: var(--accent); }

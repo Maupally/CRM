@@ -14,6 +14,7 @@ import { Processes } from './processes.js';
 import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
 import { feesText } from './fees.js';
+import { weeklyItems } from './weekly.js';
 import { Ideas } from './ideas.js';
 import { BoardStore } from './board.js';
 import { buildDefaults, buildFormScript, type Question } from './forms.js';
@@ -419,6 +420,13 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
     name: 'get_templates',
     description: 'Szablony maili i skryptów (kod, rodzaj, dla jakich segmentów, temat, treść). Pola [Firma] [Miasto] [Osoba] uzupełniasz sam.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_weekly_items',
+    description: 'Materiał do raportu tygodniowego B2B: tematy w toku wg etapu (negocjacje, wizyty, kontakt) z jednym zdaniem statusu i następnym krokiem, ' +
+      'aktywne partnerstwa, z którymi coś się działo, wydarzenia zrealizowane i to, co jest w przyszłym tygodniu, plus liczby w lejku. ' +
+      'Raport pisz po polsku, krótko, wg tematów (nie listą pojedynczych zadań), w sekcjach: Tematy w toku / Aktywne partnerstwa (+ liczba aktywnych) / Wydarzenia / W przyszłym tygodniu.',
+    input_schema: { type: 'object', properties: { from: { type: 'string', description: 'yyyy-MM-dd' }, to: { type: 'string', description: 'yyyy-MM-dd, domyślnie dziś' } }, additionalProperties: false },
   },
   {
     name: 'get_fees',
@@ -1872,6 +1880,10 @@ export class Assistant {
       });
     }
     if (name === 'get_fees') return feesText(this.crm, input);
+    if (name === 'get_weekly_items') {
+      const r = await weeklyItems(this.crm, input.from, input.to);
+      return JSON.stringify({ from: r.from, to: r.to, pipeline: r.pipeline, items: r.items.map(({ link: _l, ...i }) => i) });
+    }
     if (name === 'get_templates') {
       return JSON.stringify(await this.crm.listTemplates());
     }

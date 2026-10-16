@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, AlarmClock, PhoneCall, Target, Mail, MessageSquare, Building, Copy, Send, Sparkles, Loader2, Download, Settings2 } from 'lucide-react';
+import { Activity, AlarmClock, PhoneCall, Target, Mail, MessageSquare, Building, Copy, Send, Sparkles, Loader2, Download, Settings2, Check } from 'lucide-react';
 import { api, type Bucket, type CallConfig } from '../api';
 import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, typeLabel, useConfig, useToast, useToday } from '../components/ui';
 import { COUNTED, MSG_CHANNEL_LABEL, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
@@ -21,7 +21,7 @@ export function ReportsPage() {
         <Seg value={tab} options={['przeglad', 'tygodniowy', 'wiadomosci', 'polaczenia'] as const} onChange={(t) => setSp(t === 'przeglad' ? {} : { tab: t }, { replace: true })}
           labels={{ przeglad: 'Przegląd', tygodniowy: 'Raport tygodniowy', wiadomosci: 'Wiadomości', polaczenia: 'Call report' }} />
       </div>
-      {tab === 'przeglad' ? <Overview /> : tab === 'polaczenia' ? <CallReport /> : tab === 'wiadomosci' ? <MessagesReport /> : <Weekly />}
+      {tab === 'przeglad' ? <Overview /> : tab === 'polaczenia' ? <CallReport /> : tab === 'wiadomosci' ? <MessagesReport /> : <WeeklyBuilder />}
     </>
   );
 }
@@ -373,6 +373,133 @@ function MessagesReport() {
           </ul>
         ) : <div className="empty">W tym miesiącu nic nie skopiowano z Szablonów. Każde „Kopiuj” w Szablonach liczy się tu jako wysłana wiadomość.</div>}
       </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ WEEKLY REPORT BUILDER (pick the tiles) */
+
+type WSec = 'topics' | 'partners' | 'held' | 'next';
+const WSEC: [WSec, string, string][] = [
+  ['topics', 'Tematy w toku', 'firmy w kontakcie, z umówioną wizytą albo w negocjacjach'],
+  ['partners', 'Aktywne partnerstwa', 'aktywni partnerzy, z którymi coś się działo'],
+  ['held', 'Wydarzenia — zrealizowane', 'wydarzenia z tego okresu'],
+  ['next', 'W przyszłym tygodniu', 'wydarzenia, spotkania i wizyty na 7 dni po raporcie'],
+];
+const lsJson = <T,>(k: string, d: T): T => { try { return JSON.parse(localStorage.getItem(k) || '') as T; } catch { return d; } };
+
+/**
+ * The report as it is really sent: Opal5 proposes tiles (topics by stage, partnerships, events, next week) with a
+ * one-line status; only the tiles you click go into the text, and every line can be rewritten. Kept per period.
+ */
+function WeeklyBuilder() {
+  const today = useToday();
+  const toast = useToast();
+  const [from, setFrom] = useState(() => addDays(today, -6));
+  const [to, setTo] = useState(today);
+  const [full, setFull] = useState(false);
+  const key = `crm-weekly:${from}:${to}`;
+  const q = useQuery({ queryKey: ['report-items', from, to], queryFn: () => api.reportItems(from, to) });
+  const [picked, setPicked] = useState<string[]>([]);
+  const [lines, setLines] = useState<Record<string, string>>({});
+  const [extra, setExtra] = useState('');
+  const [showActive, setShowActive] = useState(true);
+  useEffect(() => {
+    const v = lsJson(key, { picked: [] as string[], lines: {} as Record<string, string>, extra: '', showActive: true });
+    setPicked(v.picked); setLines(v.lines); setExtra(v.extra); setShowActive(v.showActive);
+  }, [key]);
+  const save = (p = picked, l = lines, e = extra, a = showActive) => { try { localStorage.setItem(key, JSON.stringify({ picked: p, lines: l, extra: e, showActive: a })); } catch { /* private mode */ } };
+  const toggle = (id: string) => { const p = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]; setPicked(p); save(p); };
+  const setLine = (id: string, v: string) => { const l = { ...lines, [id]: v }; setLines(l); save(picked, l); };
+  const presets: [string, string, string][] = [
+    ['Ostatnie 7 dni', addDays(today, -6), today],
+    ['Ten tydzień', startOfWeek(today), today],
+    ['Poprzedni tydzień', addDays(startOfWeek(today), -7), addDays(startOfWeek(today), -1)],
+  ];
+
+  const data = q.data;
+  const items = data?.items || [];
+  const lineOf = (id: string) => lines[id] ?? items.find((i) => i.id === id)?.line ?? '';
+  const text = useMemo(() => {
+    if (!data) return '';
+    const chosen = (sec: WSec) => items.filter((i) => i.section === sec && picked.includes(i.id));
+    const row = (i: (typeof items)[number]) => { const l = lineOf(i.id).trim(); return l ? `${i.title} — ${l}` : i.title; };
+    const out = ['B2B Weekly Report — Maple Bear Katowice', `${shortDate(data.from)} – ${shortDate(data.to)} · ${data.owner}`];
+    const topics = chosen('topics'), partners = chosen('partners'), held = chosen('held'), next = chosen('next');
+    if (topics.length) out.push('', 'Tematy w toku', ...topics.map(row));
+    if (partners.length || showActive) {
+      out.push('', 'Aktywne partnerstwa', ...partners.map(row));
+      if (showActive) out.push(`Aktywnych partnerstw: ${data.pipeline.active}`);
+    }
+    if (held.length) out.push('', 'Wydarzenia', ...held.map((i) => `Zrealizowane: ${row(i)}`));
+    if (next.length) out.push('', 'W przyszłym tygodniu', ...next.map(row));
+    if (extra.trim()) out.push('', extra.trim());
+    return out.join('\n');
+  }, [data, items, picked, lines, extra, showActive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (full) return (<><div className="row" style={{ marginBottom: 10 }}><button className="btn sm" onClick={() => setFull(false)}>← Raport z kafelków</button></div><Weekly /></>);
+
+  return (
+    <div className="col" style={{ gap: 14 }}>
+      <section className="card">
+        <div className="toolbar">
+          <div className="chips">{presets.map(([l, a, b]) => <button key={l} className={`chip ${from === a && to === b ? 'on' : ''}`} onClick={() => { setFrom(a); setTo(b); }}>{l}</button>)}</div>
+          <span className="grow" />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 160, height: 36 }} />
+          <span className="soft">–</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 160, height: 36 }} />
+          <button className="btn sm ghost" onClick={() => setFull(true)}>Pełny raport automatyczny</button>
+        </div>
+      </section>
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+        <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 440px)', alignItems: 'start' }}>
+          <div className="col" style={{ gap: 14 }}>
+            <div className="hint">Kliknij kafelki, które mają trafić do raportu — tylko zaznaczone się w nim pojawią. Tekst przy zaznaczonym kafelku możesz przepisać po swojemu.</div>
+            {WSEC.map(([sec, label, hint]) => {
+              const list = items.filter((i) => i.section === sec);
+              const on = list.filter((i) => picked.includes(i.id)).length;
+              return (
+                <section key={sec} className="card">
+                  <div className="card-head"><h2>{label}</h2><span className="count">{on}/{list.length}</span>
+                    {list.length > 0 && <button className="btn sm ghost" onClick={() => { const ids = list.map((i) => i.id); const p = on === list.length ? picked.filter((x) => !ids.includes(x)) : [...new Set([...picked, ...ids])]; setPicked(p); save(p); }}>{on === list.length ? 'Odznacz' : 'Zaznacz'} wszystkie</button>}
+                  </div>
+                  {!list.length ? <div className="small faint" style={{ padding: '0 20px 16px' }}>Nic — {hint}.</div> : (
+                    <div className="wtiles">
+                      {list.map((i) => {
+                        const sel = picked.includes(i.id);
+                        return (
+                          <div key={i.id} className={`wtile ${sel ? 'on' : ''} ${i.touched ? '' : 'quiet'}`} onClick={() => toggle(i.id)}>
+                            <div className="row" style={{ gap: 6 }}>
+                              <span className="wcheck">{sel ? <Check size={13} /> : null}</span>
+                              <b className="grow trunc">{i.title}</b>
+                              {i.stage && i.stage !== 'active' && <span className="tag" style={{ color: STAGE_COLOR[i.stage] }}>{stageLabel(i.stage)}</span>}
+                            </div>
+                            {sel ? (
+                              <textarea rows={2} value={lineOf(i.id)} onClick={(e) => e.stopPropagation()} onChange={(e) => setLine(i.id, e.target.value)}
+                                placeholder="krótko: na jakim etapie, co dalej" />
+                            ) : <div className="small soft clamp2">{i.line || '—'}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+          <section className="card" style={{ position: 'sticky', top: 12 }}>
+            <div className="card-head"><h2>Raport</h2>
+              <button className="btn sm" disabled={!text} onClick={() => { copyText(text); toast('Skopiowano raport'); }}><Copy size={14} /> Kopiuj</button>
+              <a className="btn sm" href={`mailto:?subject=${encodeURIComponent(`B2B Weekly Report ${shortDate(from)}–${shortDate(to)}`)}&body=${encodeURIComponent(text)}`}><Send size={14} /> Wyślij</a>
+            </div>
+            <div className="col" style={{ gap: 8, padding: '0 20px 12px' }}>
+              <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={showActive} onChange={(e) => { setShowActive(e.target.checked); save(picked, lines, extra, e.target.checked); }} /> Liczba aktywnych partnerstw ({data?.pipeline.active})</label>
+              <label className="field">Na koniec (opcjonalnie)<textarea rows={2} value={extra} onChange={(e) => { setExtra(e.target.value); save(picked, lines, e.target.value); }} placeholder="np. refleksje, prośby, ryzyka" /></label>
+            </div>
+            <pre className="report" style={{ margin: 0 }}>{text}</pre>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { suggestProcesses } from './suggest.js';
 import { personProfile } from './profile.js';
 import { callReport, callReportHtml, callReportReady, getCallConfig, parseScriptConfig, saveCallConfig, sendCallReport } from './callreport.js';
 import { getFees, resetFeeYear, saveFeeYear } from './fees.js';
+import { weeklyItems } from './weekly.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -159,6 +160,7 @@ export function createApp(o: AppOptions) {
   })));
   api.get('/agenda', async (c) => c.json(await (await crm()).agenda(c.req.query('from') || '', c.req.query('to') || '')));
   api.get('/stats', async (c) => c.json(await (await crm()).stats()));
+  api.get('/report/items', async (c) => c.json(await weeklyItems(await crm(), c.req.query('from'), c.req.query('to'))));
   api.get('/report', async (c) => c.json(await (await crm()).report(c.req.query('from'), c.req.query('to'))));
   api.get('/events', async (c) => c.json(await (await crm()).listEvents()));
   api.get('/tasks', async (c) => c.json(await (await crm()).listTasks()));

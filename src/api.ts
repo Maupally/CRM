@@ -1,5 +1,6 @@
 import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea, MsgChannel, MsgStats, Board, PersonFile } from '../shared/domain';
 import type { FeeYear, FeesView } from '../shared/fees';
+import type { WeeklyItems } from '../server/weekly';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -178,6 +179,7 @@ export const api = {
   agenda: (from: string, to: string) =>
     get<{ activities: Activity[]; events: CrmEvent[]; tasks: Task[] }>(`/agenda?from=${from}&to=${to}`),
   stats: () => get<Stats>('/stats'),
+  reportItems: (from: string, to: string) => get<WeeklyItems>(`/report/items?from=${from}&to=${to}`),
   report: (from: string, to: string) => get<{ from: string; to: string; text: string }>(`/report?from=${from}&to=${to}`),
   reportSummary: (from: string, to: string, notes: string) =>
     post<{ from: string; to: string; text: string; summary: string }>('/report/summary', { from, to, notes }),
