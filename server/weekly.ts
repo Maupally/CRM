@@ -4,7 +4,7 @@
  * which go in and edits the lines — only picked tiles end up in the text.
  */
 import type { Crm } from './crm.js';
-import { COUNTED, addDays, weekday, STAGES, TYPE_LABEL, shortDate, type ActivityType, type Stage } from '../shared/domain.js';
+import { COUNTED, addDays, STAGES, TYPE_LABEL, shortDate, type ActivityType, type Stage } from '../shared/domain.js';
 
 export type WeeklySection = 'topics' | 'partners' | 'held' | 'next';
 export interface WeeklyItem {
@@ -22,8 +22,6 @@ export interface WeeklyItem {
 export interface WeeklyItems { from: string; to: string; owner: string; items: WeeklyItem[]; pipeline: Record<Stage, number> }
 
 const short = (s: string, n = 120) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
-const WD = ['pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.', 'niedz.'];
-const when = (d: string, time?: string) => `${WD[weekday(d)]} ${shortDate(d)}${time ? `, ${time}` : ''}`;
 const ORDER: Partial<Record<Stage, number>> = { negotiation: 0, 'scheduled visit': 1, contacting: 2 };
 
 export async function weeklyItems(crm: Crm, from?: string, to?: string): Promise<WeeklyItems> {
@@ -60,11 +58,10 @@ export async function weeklyItems(crm: Crm, from?: string, to?: string): Promise
     if (l.stage === 'new' || l.stage === 'disqualified') continue;
     // the status line: what happened last, then the next step — short, like a person would write it
     const last = mine.find((x) => x.note && (COUNTED as string[]).includes(x.type))?.note || mine.find((x) => x.note)?.note || ts.find((t) => t.status === 'done')?.task || '';
-    const step = nx ? `dalej: ${(TYPE_LABEL[nx.type as ActivityType] || nx.type).toLowerCase()} ${shortDate(nx.date)}${nx.note ? ` — ${short(nx.note, 60)}` : ''}`
-      : ts.find((t) => t.status !== 'done') ? `do zrobienia: ${short(ts.find((t) => t.status !== 'done').task, 60)}` : '';
+    const step = nx ? `dalej: ${(TYPE_LABEL[nx.type as ActivityType] || nx.type).toLowerCase()}${nx.note ? ` — ${short(nx.note, 50)}` : ''}` : '';
     items.push({
       id: `lead:${l.id}`, section: l.stage === 'active' ? 'partners' : 'topics', title: l.company, stage: l.stage,
-      line: [short(last, 80), step].filter(Boolean).join('; '), date: nx?.date, touched, link: `/firmy/${l.id}`,
+      line: short(last, 70) || step, date: nx?.date, touched, link: `/firmy/${l.id}`,
     });
   }
   items.sort((x, y) => Number(y.touched) - Number(x.touched) || (ORDER[x.stage!] ?? 9) - (ORDER[y.stage!] ?? 9) || x.title.localeCompare(y.title, 'pl'));
@@ -77,12 +74,12 @@ export async function weeklyItems(crm: Crm, from?: string, to?: string): Promise
   const coming: WeeklyItem[] = [];
   for (const e of events.filter((e) => e.date > b && e.date <= next && e.status !== 'cancelled')) {
     coming.push({ id: `event:${e.id}`, section: 'next', title: e.title,
-      line: when(e.date, e.time), date: e.date, touched: false, link: `/wydarzenia/${e.id}` });
+      line: '', date: e.date, touched: false, link: `/wydarzenia/${e.id}` });
   }
   const names = new Map(leads.map((l) => [l.id, l.company]));
   for (const x of planned.filter((x) => x.date <= next && (x.type === 'Meeting' || x.type === 'Visit'))) {
     coming.push({ id: `act:${x.id}`, section: 'next', title: `${TYPE_LABEL[x.type as ActivityType] || x.type}: ${names.get(x.lead_id) || x.lead_id}`,
-      line: [when(x.date), short(x.note || '', 60)].filter(Boolean).join(', '), date: x.date, touched: false, link: `/firmy/${x.lead_id}` });
+      line: '', date: x.date, touched: false, link: `/firmy/${x.lead_id}` });
   }
   items.push(...coming.sort((x, y) => (x.date || '').localeCompare(y.date || '')));
   return { from: a, to: b, owner: crm.owner, items, pipeline };

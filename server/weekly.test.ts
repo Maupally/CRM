@@ -22,7 +22,7 @@ describe('weekly report tiles', () => {
     const r = await weeklyItems(crm, '2026-10-10', '2026-10-16');
     const sec = (s: string) => r.items.filter((i) => i.section === s).map((i) => i.title);
     expect(sec('topics')).toContain('Benefit Systems');
-    expect(r.items.find((i) => i.title === 'Benefit Systems')!.line).toMatch(/Grzegorza.*dalej: telefon 19\.10|Grzegorza.*19\.10/);
+    expect(r.items.find((i) => i.title === 'Benefit Systems')!.line).toMatch(/^[^0-9]*Grzegorza[^0-9]*$/);
     expect(sec('partners')).toEqual(['Klub Jeździecki Profit']);
     expect(sec('partners')).not.toContain(quiet.company);
     expect(sec('held')).toEqual(["Bieg Terry'ego Foxa"]);

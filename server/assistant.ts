@@ -425,7 +425,8 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
     name: 'get_weekly_items',
     description: 'Materiał do raportu tygodniowego B2B: tematy w toku wg etapu (negocjacje, wizyty, kontakt) z jednym zdaniem statusu i następnym krokiem, ' +
       'aktywne partnerstwa, z którymi coś się działo, wydarzenia zrealizowane i to, co jest w przyszłym tygodniu, plus liczby w lejku. ' +
-      'Raport pisz po polsku, krótko, wg tematów (nie listą pojedynczych zadań), w sekcjach: Tematy w toku / Aktywne partnerstwa (+ liczba aktywnych) / Wydarzenia / W przyszłym tygodniu.',
+      'Raport pisz po polsku, bardzo krótko, BEZ DAT, wg tematów (nie listą zadań): „Tematy w toku” i „Aktywne partnerstwa:” jako „Nazwa - jedno zdanie”, ' +
+      '„Wydarzenia” jako „Zrealizowane: nazwa”, „W przyszłym tygodniu” jako lista „* nazwa”, na końcu uwagi użytkownika i „Best regards”.',
     input_schema: { type: 'object', properties: { from: { type: 'string', description: 'yyyy-MM-dd' }, to: { type: 'string', description: 'yyyy-MM-dd, domyślnie dziś' } }, additionalProperties: false },
   },
   {

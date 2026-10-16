@@ -403,9 +403,12 @@ function WeeklyBuilder() {
   const [picked, setPicked] = useState<string[]>([]);
   const [lines, setLines] = useState<Record<string, string>>({});
   const [extra, setExtra] = useState('');
-  const [showActive, setShowActive] = useState(true);
+  const [showActive, setShowActive] = useState(false);
+  const [header, setHeader] = useState(() => lsJson('crm-weekly:header', false));
+  const [sign, setSign] = useState(() => lsJson('crm-weekly:sign', 'Best regards'));
+  const keep = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
   useEffect(() => {
-    const v = lsJson(key, { picked: [] as string[], lines: {} as Record<string, string>, extra: '', showActive: true });
+    const v = lsJson(key, { picked: [] as string[], lines: {} as Record<string, string>, extra: '', showActive: false });
     setPicked(v.picked); setLines(v.lines); setExtra(v.extra); setShowActive(v.showActive);
   }, [key]);
   const save = (p = picked, l = lines, e = extra, a = showActive) => { try { localStorage.setItem(key, JSON.stringify({ picked: p, lines: l, extra: e, showActive: a })); } catch { /* private mode */ } };
@@ -423,19 +426,18 @@ function WeeklyBuilder() {
   const text = useMemo(() => {
     if (!data) return '';
     const chosen = (sec: WSec) => items.filter((i) => i.section === sec && picked.includes(i.id));
-    const row = (i: (typeof items)[number]) => { const l = lineOf(i.id).trim(); return l ? `${i.title} — ${l}` : i.title; };
-    const out = ['B2B Weekly Report — Maple Bear Katowice', `${shortDate(data.from)} – ${shortDate(data.to)} · ${data.owner}`];
-    const topics = chosen('topics'), partners = chosen('partners'), held = chosen('held'), next = chosen('next');
-    if (topics.length) out.push('', 'Tematy w toku', ...topics.map(row));
-    if (partners.length || showActive) {
-      out.push('', 'Aktywne partnerstwa', ...partners.map(row));
-      if (showActive) out.push(`Aktywnych partnerstw: ${data.pipeline.active}`);
-    }
-    if (held.length) out.push('', 'Wydarzenia', ...held.map((i) => `Zrealizowane: ${row(i)}`));
-    if (next.length) out.push('', 'W przyszłym tygodniu', ...next.map(row));
+    const row = (i: (typeof items)[number]) => { const l = lineOf(i.id).trim(); return l ? `${i.title} - ${l}` : i.title; };
+    const out: string[] = [];
+    const block = (title: string, rows: string[]) => { if (rows.length) out.push(...(out.length ? [''] : []), title, ...rows); };
+    if (header) out.push('B2B Weekly Report — Maple Bear Katowice', `${shortDate(data.from)} – ${shortDate(data.to)} · ${data.owner}`);
+    block('Tematy w toku', chosen('topics').map(row));
+    block('Aktywne partnerstwa:', [...chosen('partners').map(row), ...(showActive ? [`Aktywnych partnerstw: ${data.pipeline.active}`] : [])]);
+    block('Wydarzenia', chosen('held').map((i) => `Zrealizowane: ${row(i)}`));
+    block('W przyszłym tygodniu', chosen('next').map((i) => `* ${row(i)}`));
     if (extra.trim()) out.push('', extra.trim());
+    if (sign.trim()) out.push(...(extra.trim() ? [] : ['']), sign.trim());
     return out.join('\n');
-  }, [data, items, picked, lines, extra, showActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, items, picked, lines, extra, showActive, header, sign]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (full) return (<><div className="row" style={{ marginBottom: 10 }}><button className="btn sm" onClick={() => setFull(false)}>← Raport z kafelków</button></div><Weekly /></>);
 
@@ -476,7 +478,7 @@ function WeeklyBuilder() {
                             </div>
                             {sel ? (
                               <textarea rows={2} value={lineOf(i.id)} onClick={(e) => e.stopPropagation()} onChange={(e) => setLine(i.id, e.target.value)}
-                                placeholder="krótko: na jakim etapie, co dalej" />
+                                placeholder="krótko, bez dat: na jakim etapie, na co czekamy" />
                             ) : <div className="small soft clamp2">{i.line || '—'}</div>}
                           </div>
                         );
@@ -494,7 +496,9 @@ function WeeklyBuilder() {
             </div>
             <div className="col" style={{ gap: 8, padding: '0 20px 12px' }}>
               <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={showActive} onChange={(e) => { setShowActive(e.target.checked); save(picked, lines, extra, e.target.checked); }} /> Liczba aktywnych partnerstw ({data?.pipeline.active})</label>
-              <label className="field">Na koniec (opcjonalnie)<textarea rows={2} value={extra} onChange={(e) => { setExtra(e.target.value); save(picked, lines, e.target.value); }} placeholder="np. refleksje, prośby, ryzyka" /></label>
+              <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={header} onChange={(e) => { setHeader(e.target.checked); keep('crm-weekly:header', e.target.checked); }} /> Nagłówek z okresem</label>
+              <label className="field">Na koniec (opcjonalnie)<textarea rows={2} value={extra} onChange={(e) => { setExtra(e.target.value); save(picked, lines, e.target.value); }} placeholder="np. Nowy kontrakt wystartował we wtorek" /></label>
+              <label className="field">Podpis<input type="text" value={sign} onChange={(e) => { setSign(e.target.value); keep('crm-weekly:sign', e.target.value); }} /></label>
             </div>
             <pre className="report" style={{ margin: 0 }}>{text}</pre>
           </section>
