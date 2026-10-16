@@ -53,7 +53,9 @@ export const EVENT_STATUS = ['planned', 'confirmed', 'done', 'cancelled'] as con
 export const EVENT_STATUS_LABEL: Record<string, string> = {
   planned: 'planowane', confirmed: 'potwierdzone', done: 'odbyło się', cancelled: 'odwołane',
 };
-export const TASK_STATUS = ['todo', 'doing', 'done'] as const;
+export const TASK_STATUS = ['todo', 'doing', 'done', 'skipped'] as const;
+/** done or not done (skipped) — either way off the to-do list, but kept in the history */
+export const isClosed = (status: string) => status === 'done' || status === 'skipped';
 
 export const DEFAULT_SEGMENT = 'NIEZNANA';
 
@@ -158,8 +160,118 @@ export interface Task {
   status: string;
   notes: string;
   completed: string;
+  leadId: string;
+  materials: Material[];
+  attachments: number[];
+  /** who the task is for (0 = nobody in particular) */
+  personId: number;
+  person?: { name: string; role: string; email: string; phone: string };
   eventTitle?: string;
   eventDate?: string;
+  company?: string;
+  /** when the task is a step of a running procedure */
+  runId: number;
+  step: number;
+  /** why it cannot move on, if it is stuck */
+  blocked: string;
+  /** when this step became the current one */
+  started: string;
+  /** when the task was written down */
+  created: string;
+  /** why it was not done (status skipped) */
+  skipReason: string;
+  run?: { title: string; process: string; steps: number };
+}
+
+/** A ready-to-use piece of text prepared for a task (post, SMS, email, text for teachers…). */
+export interface Material {
+  title: string;
+  body: string;
+  /** set for an email: the subject goes in its own field, never inside the body */
+  subject?: string;
+  /** email address, when the material is an email to someone outside the task's person */
+  to?: string;
+}
+
+export const THREAD_MODES = ['b2b', 'casual', 'other'] as const;
+export type ThreadMode = (typeof THREAD_MODES)[number];
+export const THREAD_MODE_LABEL: Record<ThreadMode, string> = { b2b: 'B2B — firmy', casual: 'Swobodny — rodzice, zespół', other: 'Ogólny' };
+export interface ThreadMessage { role: 'user' | 'assistant'; text: string; at: string; via?: 'mikrofon' | 'czat' | 'claude' }
+export interface Thread { id: number; title: string; mode: ThreadMode; source: 'claude' | 'opal'; messages: ThreadMessage[]; updatedAt: string }
+export interface ThreadSummary { id: number; title: string; mode: ThreadMode; source: string; count: number; last: string; updatedAt: string }
+
+export const DESIGN_KINDS = ['www', 'deck', 'email', 'doc', 'form', 'brief'] as const;
+export type DesignKind = (typeof DESIGN_KINDS)[number];
+export const DESIGN_KIND_LABEL: Record<DesignKind, string> = {
+  www: 'Strona WWW', deck: 'Prezentacja', email: 'Mail / szablon', doc: 'Dokument', form: 'Formularz Google (skrypt)', brief: 'Zlecenie / brief',
+};
+
+export interface DesignVersion { html: string; note: string; at: string }
+export interface DesignMessage { role: 'user' | 'assistant'; text: string; files?: KnowledgeItem[]; at: string }
+export interface Design {
+  id: number;
+  title: string;
+  kind: DesignKind;
+  versions: DesignVersion[];
+  chat: DesignMessage[];
+  updatedAt: string;
+  /** the event it was made for, if any */
+  eventId: string;
+}
+export interface DesignSummary { id: number; title: string; kind: DesignKind; versions: number; updatedAt: string; eventId: string; eventTitle?: string; note?: string }
+
+/** Writing guidance moved over from the Claude project: general rules, B2B emails, relaxed messages. */
+export interface Style { project: string; b2b: string; casual: string }
+
+/** Someone the user works with — the director, a colleague, a teacher. */
+export interface Person {
+  id: number;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+  /** other ways the user calls them: "dyrektor, Patryk, szef" */
+  aliases: string;
+  notes: string;
+  /** how many times tasks/emails went to them, and when last */
+  contacts: number;
+  lastContact: string;
+  /** team = people at the school; external = suppliers, animators, partners' people */
+  kind: PersonKind;
+  /** their firm, e.g. "Event 360" (and its card in Firmy, when it is there) */
+  company: string;
+  leadId: string;
+  /** skills — what they can do or provide: "ławy, stoły, namioty", "grafika, social media" */
+  services: string;
+  /** what they are responsible for (zakres obowiązków) */
+  scope: string;
+  /** link to a photo (optional) */
+  photo?: string;
+  /** tasks they finished (all time) */
+  doneCount: number;
+  /** events they helped with, newest first */
+  events: PersonEvent[];
+  /** their firm is an active partner right now */
+  partner: boolean;
+}
+
+export const PERSON_KINDS = ['team', 'external'] as const;
+export type PersonKind = (typeof PERSON_KINDS)[number];
+export const PERSON_KIND_LABEL: Record<PersonKind, string> = { team: 'Zespół szkoły', external: 'Kontakty zewnętrzne' };
+export interface PersonEvent { eventId: string; title: string; date: string; role: string }
+export interface EventPerson { personId: number; name: string; role: string; company: string; phone: string; email: string }
+
+export interface KnowledgeItem {
+  id: number;
+  title: string;
+  filename: string;
+  mime: string;
+  size: number;
+  description: string;
+  tags: string;
+  createdAt: string;
+  hasFile: boolean;
+  textLength: number;
 }
 
 /* ------------------------------------------------------ normalisation */
@@ -328,3 +440,92 @@ export function fillTemplate(s: string, lead: Pick<Lead, 'company' | 'city' | 'p
 export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/* ------------------------------------------------------------------ B2C progress */
+
+/** One B2C goal: e.g. "Telefony do rodziców z dni otwartych", 40 of 120 done. */
+export interface B2cItem {
+  id: number; title: string; category: string; target: number; done: number; unit: string; due: string; notes: string;
+  updatedAt: string;
+  /** Done in the last 7 days (from the log). */
+  week: number;
+}
+export interface B2cLog { id: number; itemId: number; delta: number; note: string; day: string; at: string }
+
+/* ------------------------------------------------------------------ procedures */
+
+/** One step of a procedure: what, who does it, how many days it may take, when it counts as done. */
+export interface ProcessStep { title: string; personId: number; days: number; doneWhen: string }
+export interface Process { id: number; name: string; description: string; steps: ProcessStep[]; updatedAt: string; activeRuns: number }
+
+export interface RunStep {
+  taskId: string; step: number; title: string; status: string; due: string; completed: string; blocked: string; started: string;
+  personId: number; person: string; doneWhen: string;
+}
+/** A running procedure with where it stands and — if so — why it is stuck. */
+export interface ProcessRun {
+  id: number; processId: number; process: string; title: string; leadId: string; company: string; eventId: string; eventTitle: string;
+  status: 'active' | 'done' | 'cancelled'; started: string; finished: string;
+  steps: RunStep[];
+  /** 1-based number of the step it is on now (0 when finished) */
+  current: number;
+  stuck: string[];
+}
+
+/* -------------------------------------------------------------- Na później */
+
+export const IDEA_STATUS = ['open', 'used', 'dropped'] as const;
+export type IdeaStatus = (typeof IDEA_STATUS)[number];
+export const IDEA_STATUS_LABEL: Record<IdeaStatus, string> = { open: 'Czeka', used: 'Wykorzystane', dropped: 'Odpuszczone' };
+/** Something to come back to later — a company, an offer, an idea — not tied to any company, event or task yet. */
+export interface Idea {
+  id: number;
+  title: string;
+  /** what it is about, e.g. "zajęcia dodatkowe" */
+  topic: string;
+  note: string;
+  url: string;
+  contact: string;
+  /** whose topic it is (when it is not the user's) */
+  owner: string;
+  /** when it becomes useful, in words: "przy ustalaniu zajęć dodatkowych na 2027/28" */
+  whenRelevant: string;
+  /** yyyy-MM-dd — bring it up on this day */
+  remindOn: string;
+  status: IdeaStatus;
+  lastShown: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* -------------------------------------------------------------- messages sent (copied from templates) */
+
+export const MSG_CHANNELS = ['email', 'sms', 'internal'] as const;
+export type MsgChannel = (typeof MSG_CHANNELS)[number];
+export const MSG_CHANNEL_LABEL: Record<MsgChannel, string> = { email: 'E-maile', sms: 'SMS', internal: 'Wewnętrzne' };
+export interface MsgCount { email: number; sms: number; internal: number; total: number }
+export interface MsgStats {
+  /** last 12 months, oldest first: yyyy-MM */
+  months: (MsgCount & { month: string })[];
+  /** the requested period */
+  period: MsgCount & { from: string; to: string; top: { template: string; channel: MsgChannel; n: number }[] };
+  /** last 30 days, one entry per day */
+  daily: (MsgCount & { date: string })[];
+}
+
+/* -------------------------------------------------------------- person files and the board */
+
+/** What can sit on the board: a person, an event, a company (lead) or a place (by name). */
+export const NODE_KINDS = ['person', 'event', 'company', 'place'] as const;
+export type NodeKind = (typeof NODE_KINDS)[number];
+export interface NodeRef { kind: NodeKind; id: string }
+export interface BoardNote { id: number; day: string; text: string; ref: string; source: string; links: (NodeRef & { label: string })[] }
+export interface BoardNode { key: string; kind: NodeKind; id: string; label: string; sub: string; photo?: string; team?: boolean; weight: number }
+export interface BoardEdge { a: string; b: string; labels: string[]; kinds: ('link' | 'note' | 'event' | 'company' | 'task' | 'place')[]; linkIds: number[] }
+export interface Board { nodes: BoardNode[]; edges: BoardEdge[] }
+export interface PersonFile {
+  person: { id: number; name: string; role: string; company: string; photo: string };
+  notes: BoardNote[];
+  connections: { node: BoardNode; why: string[]; linkIds: number[] }[];
+}
+export const nodeKey = (r: NodeRef) => `${r.kind}:${r.id}`;
