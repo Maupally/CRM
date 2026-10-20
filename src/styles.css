@@ -760,3 +760,9 @@ a.qa { text-decoration: none; color: inherit; }
 .wtile textarea { font-size: 12.5px; min-height: 0; }
 .wcheck { width: 18px; height: 18px; border-radius: 6px; border: 1.5px solid var(--line-strong); display: grid; place-items: center; flex: none; color: #fff; }
 .wtile.on .wcheck { background: var(--accent); border-color: var(--accent); }
+
+.topic-head { width: 100%; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.topic-head:hover { background: var(--hover); }
+.topic .chev { transition: transform .15s; }
+.topic.open .chev { transform: rotate(90deg); }
+.topic + .topic { border-top: 1px solid var(--line); }

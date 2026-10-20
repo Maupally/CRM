@@ -1817,6 +1817,8 @@ export class Assistant {
           .map((a) => ({ activity_id: a.id, date: a.date, type: a.type, note: a.note })),
         history: card.activities.filter((a) => a.result !== 'planned').slice(0, 6)
           .map((a) => ({ date: a.date, type: a.type, result: a.result, note: a.note, stage_to: a.stageTo || undefined })),
+        tasks: (await this.crm.listTasks()).filter((t) => t.leadId === l.id && !isClosed(t.status))
+          .map((t) => ({ task_id: t.id, task: t.task, due: t.due || undefined, status: t.status, person: t.person?.name, materials: t.materials.map((m) => m.title) })),
       });
     }
     if (name === 'get_pitch') {

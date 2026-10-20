@@ -61,7 +61,7 @@ SELECT l.*,
      AND a.result IN ('reached', 'done') AND a.type <> 'Note') AS last_logged
 FROM crm.leads l`;
 
-const TASK_SQL = `SELECT t.*, e.title AS event_title, e.date AS event_date, l.company AS company,
+const TASK_SQL = `SELECT t.*, e.title AS event_title, e.date AS event_date, l.company AS company, l.segment AS company_segment,
   p.name AS person_name, p.role AS person_role, p.email AS person_email, p.phone AS person_phone,
   r.title AS run_title, pr.name AS run_process,
   (SELECT COUNT(*) FROM crm.tasks s WHERE s.run_id = t.run_id AND t.run_id <> 0) AS run_steps FROM crm.tasks t
@@ -867,6 +867,7 @@ export class Crm {
       ...(r.person_name ? { person: { name: r.person_name, role: r.person_role || '', email: r.person_email || '', phone: r.person_phone || '' } } : {}),
       ...(r.event_title !== undefined ? { eventTitle: r.event_title || '', eventDate: r.event_date || '' } : {}),
       ...(r.company ? { company: r.company } : {}),
+      ...(r.company_segment ? { companySegment: r.company_segment } : {}),
       runId: Number(r.run_id) || 0, step: Number(r.step) || 0, blocked: r.blocked || '', started: r.started || '', created: r.created || '',
       skipReason: r.skip_reason || '',
       ...(r.run_title ? { run: { title: r.run_title, process: r.run_process || '', steps: Number(r.run_steps) || 0 } } : {}),

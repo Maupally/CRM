@@ -13,13 +13,16 @@ import {
   Avatar, DueTag, Empty, ErrorBox, Loading, Modal, Prio, ResultTag, StagePill, TypeIcon, copyText, relDay,
   stageLabel, telHref, typeLabel, useAction, useConfig, useToast, useToday, weekdayName,
 } from '../components/ui';
-import { STAGES, STAGE_INFO, TYPES, normPhone, shortDate, type Activity, type Lead, type Segment } from '../../shared/domain';
+import { STAGES, STAGE_INFO, TYPES, isClosed, normPhone, shortDate, type Activity, type Lead, type Segment, type Task } from '../../shared/domain';
+import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
 
 type Sheet = null | { mail: true } | { edit: true };
 
 export function CompanyPage() {
   const { id = '' } = useParams();
   const q = useQuery({ queryKey: ['lead', id], queryFn: () => api.lead(id) });
+  const tasksQ = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
+  const [taskOpen, setTaskOpen] = useState<Task | null>(null);
   const today = useToday();
   const [completing, setCompleting] = useState<Activity | null>(null);
   const [dq, setDq] = useState(false);
@@ -109,7 +112,7 @@ export function CompanyPage() {
               </ul>
             ) : (
               <div className="pad" style={{ paddingTop: 0 }}>
-                {closed ? <span className="soft small">Nic nie zaplanowano.</span> : (
+                {closed || (tasksQ.data || []).some((t) => t.leadId === lead.id && !isClosed(t.status)) ? <span className="soft small">Nic nie zaplanowano w kalendarzu — zadania są niżej.</span> : (
                   <div className="row wrap" style={{ gap: 10 }}>
                     <span className="small row" style={{ color: 'var(--bad)' }}><AlertTriangle size={14} /> Brak następnego kroku — powiedz Claude'owi, co dalej.</span>
                   </div>
@@ -117,6 +120,8 @@ export function CompanyPage() {
               </div>
             )}
           </section>
+
+          <CompanyTasks tasks={(tasksQ.data || []).filter((t) => t.leadId === lead.id)} today={today} onOpen={setTaskOpen} />
 
           <History activities={activities} lead={lead} today={today} />
         </div>
@@ -133,7 +138,30 @@ export function CompanyPage() {
       <EditSheet lead={lead} open={!!sheet && 'edit' in sheet} onClose={() => setSheet(null)} />
       <CompleteDialog activity={completing} stage={lead.stage} company={lead.company} onClose={() => setCompleting(null)} />
       <DisqualifyDialog lead={dq ? lead : null} onClose={() => setDq(false)} />
+      <TaskDetail task={taskOpen} onClose={() => setTaskOpen(null)} />
     </>
+  );
+}
+
+/* ------------------------------------------------------------ tasks for this company */
+
+/** Tasks tied to this company (mails to send, things to arrange), open first; finished ones folded away. */
+function CompanyTasks({ tasks, today, onOpen }: { tasks: Task[]; today: string; onOpen: (t: Task) => void }) {
+  const [showDone, setShowDone] = useState(false);
+  const open = tasks.filter((t) => !isClosed(t.status));
+  const done = tasks.filter((t) => isClosed(t.status));
+  if (!tasks.length) return null;
+  return (
+    <section className="card">
+      <div className="card-head"><h2>Zadania</h2><span className="count">{open.length}</span>
+        {done.length > 0 && <button className="btn sm ghost" onClick={() => setShowDone(!showDone)}>{showDone ? 'Ukryj zrobione' : `Zrobione · ${done.length}`}</button>}
+      </div>
+      <ul className="list">
+        {open.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} sub={t.eventTitle} />)}
+        {showDone && done.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} />)}
+      </ul>
+      {!open.length && !showDone && <div className="small soft" style={{ padding: '0 20px 14px' }}>Wszystko zrobione.</div>}
+    </section>
   );
 }
 

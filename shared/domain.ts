@@ -169,6 +169,8 @@ export interface Task {
   eventTitle?: string;
   eventDate?: string;
   company?: string;
+  /** the company's segment, e.g. „Związki wyznaniowe” — groups tasks by topic */
+  companySegment?: string;
   /** when the task is a step of a running procedure */
   runId: number;
   step: number;

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FolderKanban, Sparkles } from 'lucide-react';
+import { Building2, CalendarDays, ChevronRight, FolderKanban, Layers, Sparkles, Workflow } from 'lucide-react';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
 import { openAssistant } from '../components/Assistant';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
 import { Empty, ErrorBox, Loading, ResultTag, TYPE_ICON, TypeIcon, relDay, typeLabel, useToday, weekdayName } from '../components/ui';
-import { addDays, isClosed, shortDate, TYPES, type Stage, type Task } from '../../shared/domain';
+import { addDays, isClosed, searchKey, shortDate, TYPES, type Stage, type Task } from '../../shared/domain';
 
 const VIEWS = [
   { id: 'dzis', label: 'Dziś i zaległe' },
@@ -17,7 +17,7 @@ const VIEWS = [
   { id: 'nadchodzace', label: 'Nadchodzące' },
   { id: 'wszystkie', label: 'Wszystkie otwarte' },
   { id: 'zrobione', label: 'Zrobione (14 dni)' },
-  { id: 'projekty', label: 'Projekty' },
+  { id: 'projekty', label: 'Wg tematu' },
 ] as const;
 type View = (typeof VIEWS)[number]['id'];
 
@@ -135,24 +135,44 @@ export function TasksPage() {
   );
 }
 
-/** Tasks grouped by project (event); tasks without an event sit under their company or "Inne". */
+/**
+ * Tasks by topic, as an accordion: a procedure, an event, or the kind of companies they are for
+ * (e.g. „Związki wyznaniowe” — every parish mail in one place). A loose task that names the topic
+ * (e.g. „wysłać do kościołów i związków wyznaniowych…”) sits at the top of that topic.
+ */
 function Projects({ today }: { today: string }) {
   const tasks = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
   const [showDone, setShowDone] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem('tasks.topics.open') || '[]')); } catch { return new Set(); } });
+  const toggle = (k: string) => setOpenKeys((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); try { localStorage.setItem('tasks.topics.open', JSON.stringify([...n])); } catch { /* private */ } return n; });
 
   const groups = useMemo(() => {
-    const g = new Map<string, { title: string; date?: string; eventId?: string; items: Task[] }>();
-    for (const t of tasks.data || []) {
-      if (!showDone && isClosed(t.status)) continue;
-      const key = t.run ? `R:${t.runId}` : t.eventId || (t.leadId ? `L:${t.leadId}` : 'other');
-      if (!g.has(key)) g.set(key, { title: t.run ? (t.run.title.toLowerCase().startsWith(t.run.process.toLowerCase()) ? t.run.title : `${t.run.process}: ${t.run.title}`) : t.eventTitle || t.company || 'Inne',
-        date: t.run ? undefined : t.eventDate, eventId: t.run ? undefined : t.eventId || undefined, items: [] });
-      g.get(key)!.items.push(t);
+    type G = { key: string; title: string; kind: 'run' | 'event' | 'topic' | 'company' | 'other'; date?: string; eventId?: string; leadId?: string; items: Task[] };
+    const g = new Map<string, G>();
+    const list = (tasks.data || []).filter((t) => showDone || !isClosed(t.status));
+    const add = (key: string, mk: () => Omit<G, 'items' | 'key'>, t: Task) => { if (!g.has(key)) g.set(key, { key, ...mk(), items: [] }); g.get(key)!.items.push(t); };
+    // topics from company segments, so loose tasks that name them can join
+    const stems = (s: string) => searchKey(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 5).map((w) => w.slice(0, 5));
+    const segs = [...new Set(list.map((t) => t.companySegment).filter(Boolean) as string[])];
+    for (const t of list) {
+      if (t.run) add(`R:${t.runId}`, () => ({ kind: 'run', title: t.run!.title.toLowerCase().startsWith(t.run!.process.toLowerCase()) ? t.run!.title : `${t.run!.process}: ${t.run!.title}` }), t);
+      else if (t.eventId) add(`E:${t.eventId}`, () => ({ kind: 'event', title: t.eventTitle || t.eventId, date: t.eventDate, eventId: t.eventId }), t);
+      else if (t.leadId && t.companySegment) add(`S:${t.companySegment}`, () => ({ kind: 'topic', title: t.companySegment! }), t);
+      else if (t.leadId) add(`L:${t.leadId}`, () => ({ kind: 'company', title: t.company || t.leadId, leadId: t.leadId }), t);
+      else {
+        const k = searchKey(t.task);
+        const seg = segs.find((s) => { const st = stems(s); return st.length > 0 && st.every((w) => k.includes(w)); });
+        if (seg) add(`S:${seg}`, () => ({ kind: 'topic', title: seg }), t);
+        else add('other', () => ({ kind: 'other', title: 'Bez tematu' }), t);
+      }
     }
     for (const x of g.values()) x.items.sort((a, b) => (a.runId && a.runId === b.runId ? a.step - b.step
-      : Number(isClosed(a.status)) - Number(isClosed(b.status)) || (a.due || '9').localeCompare(b.due || '9')));
-    return [...g.values()].sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
+      : Number(!!a.leadId) - Number(!!b.leadId) || Number(isClosed(a.status)) - Number(isClosed(b.status)) || (a.due || '9').localeCompare(b.due || '9')));
+    const out = [...g.values()];
+    // most urgent first: the earliest open due date; topics with nothing scheduled at the end
+    const first = (x: G) => x.items.filter((t) => !isClosed(t.status) && t.due).map((t) => t.due).sort()[0] || '9999';
+    return out.sort((a, b) => first(a).localeCompare(first(b)) || Number(a.kind === 'other') - Number(b.kind === 'other') || b.items.length - a.items.length);
   }, [tasks.data, showDone]);
 
   if (tasks.isLoading) return <Loading />;
@@ -163,6 +183,8 @@ function Projects({ today }: { today: string }) {
       <div className="toolbar">
         <div className="chips">
           <button className={`chip ${showDone ? 'on' : ''}`} onClick={() => setShowDone(!showDone)}>Pokaż zrobione</button>
+          <button className="chip" onClick={() => setOpenKeys(new Set(groups.map((x) => x.key)))}>Rozwiń wszystkie</button>
+          <button className="chip" onClick={() => setOpenKeys(new Set())}>Zwiń</button>
         </div>
         <span className="grow" />
         <button className="btn sm ghost" onClick={() => openAssistant('Co mi zostało do zrobienia w projektach? Ułóż kolejność na ten tydzień.')}>
@@ -170,18 +192,30 @@ function Projects({ today }: { today: string }) {
         </button>
       </div>
       <div className="divider" />
-      {groups.map((g) => (
-        <div key={g.title + (g.eventId || '')}>
-          <div className="project-head">
-            <FolderKanban size={16} className="faint" />
-            {g.eventId ? <Link to={`/wydarzenia/${g.eventId}`} className="title grow trunc">{g.title}</Link> : <span className="title grow trunc">{g.title}</span>}
-            {g.date && <span className="soft small">{shortDate(g.date)}</span>}
-            <span className="faint small mono">{g.items.filter((t) => t.status !== 'done').length}</span>
+      {groups.map((g) => {
+        const open = g.items.filter((t) => !isClosed(t.status));
+        const late = open.filter((t) => t.due && t.due < today).length;
+        const next = open.map((t) => t.due).filter(Boolean).sort()[0];
+        const isOpen = openKeys.has(g.key);
+        const Icon = g.kind === 'event' ? CalendarDays : g.kind === 'topic' ? Layers : g.kind === 'company' ? Building2 : g.kind === 'run' ? Workflow : FolderKanban;
+        return (
+          <div key={g.key} className={`topic ${isOpen ? 'open' : ''}`}>
+            <button className="project-head topic-head" onClick={() => toggle(g.key)}>
+              <ChevronRight size={16} className="faint chev" />
+              <Icon size={16} className="faint" />
+              <span className="title grow trunc" style={{ textAlign: 'left' }}>{g.title}</span>
+              {late > 0 && <span className="tag overdue">{late} zaległe</span>}
+              {next && !late && <span className="soft small hide-sm">najbliższe {shortDate(next)}</span>}
+              {g.date && <span className="soft small hide-sm">{shortDate(g.date)}</span>}
+              <span className="tag">{open.length}{showDone && g.items.length !== open.length ? `/${g.items.length}` : ''}</span>
+              {g.eventId && <Link className="btn sm ghost" to={`/wydarzenia/${g.eventId}`} onClick={(e) => e.stopPropagation()}>Wydarzenie →</Link>}
+              {g.leadId && <Link className="btn sm ghost" to={`/firmy/${g.leadId}`} onClick={(e) => e.stopPropagation()}>Karta firmy →</Link>}
+            </button>
+            {isOpen && <ul className="list">{g.items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} link={g.kind === 'topic' || g.kind === 'other' || g.kind === 'run'} />)}</ul>}
           </div>
-          <ul className="list">{g.items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} />)}</ul>
-        </div>
-      ))}
-      {!groups.length && <Empty icon={FolderKanban}>Brak zadań w projektach. Powiedz asystentowi: „wrzuć mi na dziś przygotowanie tekstów na bieg”.</Empty>}
+        );
+      })}
+      {!groups.length && <Empty icon={FolderKanban}>Brak zadań. Powiedz asystentowi: „wrzuć mi na dziś przygotowanie tekstów na bieg”.</Empty>}
       <TaskDetail task={detail} onClose={() => setDetail(null)} />
     </>
   );

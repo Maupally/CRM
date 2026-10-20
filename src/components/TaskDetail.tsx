@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Copy, Share2, Mail, Trash2, Pencil, ChevronDown, FileText, Paperclip, X, Phone, UserRound } from 'lucide-react';
+import { Check, Copy, Share2, Mail, Trash2, Pencil, ChevronDown, FileText, Paperclip, X, Phone, UserRound, CalendarDays, Building2 } from 'lucide-react';
 import { api } from '../api';
 import { FileCard } from './Files';
 import { DueTag, Modal, copyText, telHref, useAction, useToast, useToday } from './ui';
@@ -200,7 +200,7 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
 }
 
 /** One project task in a list: tick it off, or tap to open its materials. */
-export function ProjectTaskRow({ t, today, onOpen, sub }: { t: Task; today: string; onOpen: (t: Task) => void; sub?: string }) {
+export function ProjectTaskRow({ t, today, onOpen, sub, link }: { t: Task; today: string; onOpen: (t: Task) => void; sub?: string; link?: boolean }) {
   const toggle = useAction((id: string) => api.toggleTask(id));
   const done = t.status === 'done' || t.status === 'skipped';
   const meta = [sub, t.run && `krok ${t.step}/${t.run.steps}`, t.person && `do: ${t.person.name}`].filter(Boolean).join(' · ');
@@ -217,6 +217,11 @@ export function ProjectTaskRow({ t, today, onOpen, sub }: { t: Task; today: stri
           </div>
         )}
       </button>
+      {link && (t.leadId || t.eventId) && (
+        <Link className="btn sm ghost" to={t.eventId ? `/wydarzenia/${t.eventId}` : `/firmy/${t.leadId}`} title={t.eventId ? 'Otwórz wydarzenie' : 'Otwórz kartę firmy'}>
+          {t.eventId ? <CalendarDays size={13} /> : <Building2 size={13} />}<span className="hide-sm trunc" style={{ maxWidth: 220 }}>{t.eventId ? t.eventTitle : t.company}</span>
+        </Link>
+      )}
       {t.status === 'skipped' && <span className="tag" title={t.skipReason}>niewykonane</span>}
       {!done && t.blocked && <span className="tag overdue" title={t.blocked}>stoi</span>}
       {!done && t.due && <DueTag date={t.due} today={today} />}
