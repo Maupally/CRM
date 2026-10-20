@@ -21,6 +21,71 @@ const VIEWS = [
 ] as const;
 type View = (typeof VIEWS)[number]['id'];
 
+type TopicKind = 'run' | 'event' | 'topic' | 'company' | 'other';
+interface Topic { key: string; title: string; kind: TopicKind; date?: string; eventId?: string; leadId?: string }
+const stems = (s: string) => searchKey(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 5).map((w) => w.slice(0, 5));
+
+/** What a task belongs to: a procedure, an event, a kind of companies (segment) — or a loose task that names one. */
+function topicOf(t: Task, segs: string[]): Topic {
+  // an event gathers everything for it, procedure steps included
+  if (t.eventId) return { key: `E:${t.eventId}`, kind: 'event', title: t.eventTitle || t.eventId, date: t.eventDate, eventId: t.eventId };
+  if (t.run) return { key: `R:${t.runId}`, kind: 'run', title: t.run.title.toLowerCase().startsWith(t.run.process.toLowerCase()) ? t.run.title : `${t.run.process}: ${t.run.title}` };
+  if (t.leadId && t.companySegment) return { key: `S:${t.companySegment}`, kind: 'topic', title: t.companySegment };
+  if (t.leadId) return { key: `L:${t.leadId}`, kind: 'company', title: t.company || t.leadId, leadId: t.leadId };
+  const k = searchKey(t.task);
+  const seg = segs.find((x) => { const st = stems(x); return st.length > 0 && st.every((w) => k.includes(w)); });
+  return seg ? { key: `S:${seg}`, kind: 'topic', title: seg } : { key: 'other', kind: 'other', title: 'Bez tematu' };
+}
+const segmentsOf = (tasks: Task[]) => [...new Set(tasks.map((t) => t.companySegment).filter(Boolean) as string[])];
+const TOPIC_ICON = { event: CalendarDays, topic: Layers, company: Building2, run: Workflow, other: FolderKanban } as const;
+
+function useOpenTopics(storage: string) {
+  const [keys, setKeys] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(storage) || '[]')); } catch { return new Set(); } });
+  const save = (n: Set<string>) => { try { localStorage.setItem(storage, JSON.stringify([...n])); } catch { /* private */ } return n; };
+  return {
+    keys,
+    toggle: (k: string) => setKeys((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return save(n); }),
+    set: (ks: string[]) => setKeys(save(new Set(ks))),
+  };
+}
+
+/** A list of tasks where two or more from the same topic fold into one row you click open. */
+function FoldedTasks({ tasks, segs, today, onOpen, open, toggle, scope }: {
+  tasks: Task[]; segs: string[]; today: string; onOpen: (t: Task) => void; open: Set<string>; toggle: (k: string) => void; scope: string;
+}) {
+  const groups: { topic: Topic; items: Task[] }[] = [];
+  for (const t of tasks) {
+    const tp = topicOf(t, segs);
+    const g = tp.kind !== 'other' && groups.find((x) => x.topic.key === tp.key);
+    if (g) g.items.push(t); else groups.push({ topic: tp, items: [t] });
+  }
+  return (
+    <>
+      {groups.map(({ topic, items }) => {
+        if (items.length < 2 || topic.kind === 'other') {
+          return items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} sub={t.eventTitle || t.company} />);
+        }
+        const k = `${scope}|${topic.key}`;
+        const isOpen = open.has(k);
+        const I = TOPIC_ICON[topic.kind];
+        const late = items.filter((t) => t.due && t.due < today).length;
+        return (
+          <li key={k} className={`fold ${isOpen ? 'open' : ''}`}>
+            <button className="fold-head" onClick={() => toggle(k)}>
+              <ChevronRight size={15} className="faint chev" />
+              <I size={15} className="faint" />
+              <b className="grow trunc" style={{ textAlign: 'left' }}>{topic.title}{topic.date && <span className="soft" style={{ fontWeight: 400 }}> · {shortDate(topic.date)}</span>}</b>
+              {late > 0 && <span className="tag overdue">{late} po terminie</span>}
+              <span className="tag">{items.length}</span>
+            </button>
+            {isOpen && <ul className="list fold-body">{items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} link={topic.kind === 'topic' || topic.kind === 'run'} />)}</ul>}
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
 export function TasksPage() {
   const today = useToday();
   const [sp, setSp] = useSearchParams();
@@ -35,6 +100,8 @@ export function TasksPage() {
 
   const tasksQ = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
   const [detail, setDetail] = useState<Task | null>(null);
+  const folds = useOpenTopics('tasks.folds.open');
+  const segs = useMemo(() => segmentsOf(tasksQ.data || []), [tasksQ.data]);
 
   const all = openQ.data || [];
   // project tasks (Bieg, Dzień otwarty…) sit in the same day groups as calls and meetings
@@ -110,7 +177,7 @@ export function TasksPage() {
               <div key={k}>
                 <div className={`group-label ${k === 'late' ? 'red' : ''}`}>{label(k)} · {items.length + tasks.length}</div>
                 <ul className="list">
-                  {tasks.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} sub={t.eventTitle || t.company} />)}
+                  <FoldedTasks tasks={tasks} segs={segs} today={today} onOpen={setDetail} open={folds.keys} toggle={folds.toggle} scope={`${view}:${k}`} />
                   {items.map((a) => view === 'zrobione' ? (
                     <li key={a.id} className="li">
                       <TypeIcon type={a.type} />
@@ -144,28 +211,20 @@ function Projects({ today }: { today: string }) {
   const tasks = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
   const [showDone, setShowDone] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
-  const [openKeys, setOpenKeys] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem('tasks.topics.open') || '[]')); } catch { return new Set(); } });
-  const toggle = (k: string) => setOpenKeys((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); try { localStorage.setItem('tasks.topics.open', JSON.stringify([...n])); } catch { /* private */ } return n; });
+  const folds = useOpenTopics('tasks.topics.open');
+  const openKeys = folds.keys;
+  const toggle = folds.toggle;
+  const setOpenKeys = (s: Set<string>) => folds.set([...s]);
 
   const groups = useMemo(() => {
-    type G = { key: string; title: string; kind: 'run' | 'event' | 'topic' | 'company' | 'other'; date?: string; eventId?: string; leadId?: string; items: Task[] };
+    type G = Topic & { items: Task[] };
     const g = new Map<string, G>();
     const list = (tasks.data || []).filter((t) => showDone || !isClosed(t.status));
-    const add = (key: string, mk: () => Omit<G, 'items' | 'key'>, t: Task) => { if (!g.has(key)) g.set(key, { key, ...mk(), items: [] }); g.get(key)!.items.push(t); };
-    // topics from company segments, so loose tasks that name them can join
-    const stems = (s: string) => searchKey(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 5).map((w) => w.slice(0, 5));
-    const segs = [...new Set(list.map((t) => t.companySegment).filter(Boolean) as string[])];
+    const segs = segmentsOf(list);
     for (const t of list) {
-      if (t.run) add(`R:${t.runId}`, () => ({ kind: 'run', title: t.run!.title.toLowerCase().startsWith(t.run!.process.toLowerCase()) ? t.run!.title : `${t.run!.process}: ${t.run!.title}` }), t);
-      else if (t.eventId) add(`E:${t.eventId}`, () => ({ kind: 'event', title: t.eventTitle || t.eventId, date: t.eventDate, eventId: t.eventId }), t);
-      else if (t.leadId && t.companySegment) add(`S:${t.companySegment}`, () => ({ kind: 'topic', title: t.companySegment! }), t);
-      else if (t.leadId) add(`L:${t.leadId}`, () => ({ kind: 'company', title: t.company || t.leadId, leadId: t.leadId }), t);
-      else {
-        const k = searchKey(t.task);
-        const seg = segs.find((s) => { const st = stems(s); return st.length > 0 && st.every((w) => k.includes(w)); });
-        if (seg) add(`S:${seg}`, () => ({ kind: 'topic', title: seg }), t);
-        else add('other', () => ({ kind: 'other', title: 'Bez tematu' }), t);
-      }
+      const tp = topicOf(t, segs);
+      if (!g.has(tp.key)) g.set(tp.key, { ...tp, items: [] });
+      g.get(tp.key)!.items.push(t);
     }
     for (const x of g.values()) x.items.sort((a, b) => (a.runId && a.runId === b.runId ? a.step - b.step
       : Number(!!a.leadId) - Number(!!b.leadId) || Number(isClosed(a.status)) - Number(isClosed(b.status)) || (a.due || '9').localeCompare(b.due || '9')));
@@ -197,7 +256,7 @@ function Projects({ today }: { today: string }) {
         const late = open.filter((t) => t.due && t.due < today).length;
         const next = open.map((t) => t.due).filter(Boolean).sort()[0];
         const isOpen = openKeys.has(g.key);
-        const Icon = g.kind === 'event' ? CalendarDays : g.kind === 'topic' ? Layers : g.kind === 'company' ? Building2 : g.kind === 'run' ? Workflow : FolderKanban;
+        const Icon = TOPIC_ICON[g.kind];
         return (
           <div key={g.key} className={`topic ${isOpen ? 'open' : ''}`}>
             <button className="project-head topic-head" onClick={() => toggle(g.key)}>

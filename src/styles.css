@@ -766,3 +766,10 @@ a.qa { text-decoration: none; color: inherit; }
 .topic .chev { transition: transform .15s; }
 .topic.open .chev { transform: rotate(90deg); }
 .topic + .topic { border-top: 1px solid var(--line); }
+
+.fold { list-style: none; border-bottom: 1px solid var(--line); }
+.fold-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 11px 20px; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.fold-head:hover { background: var(--hover); }
+.fold .chev { transition: transform .15s; }
+.fold.open .chev { transform: rotate(90deg); }
+.fold-body { background: var(--panel); padding-left: 18px; }
