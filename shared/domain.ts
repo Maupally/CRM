@@ -168,6 +168,10 @@ export interface Task {
   person?: { name: string; role: string; email: string; phone: string };
   eventTitle?: string;
   eventDate?: string;
+  /** effort in story points (Fibonacci); estimated from the wording when nobody set it */
+  points: number;
+  /** true when `points` is Opal5's guess, not set by the user or Claude */
+  pointsAuto: boolean;
   company?: string;
   /** the company's segment, e.g. „Związki wyznaniowe” — groups tasks by topic */
   companySegment?: string;
@@ -531,3 +535,31 @@ export interface PersonFile {
   connections: { node: BoardNode; why: string[]; linkIds: number[] }[];
 }
 export const nodeKey = (r: NodeRef) => `${r.kind}:${r.id}`;
+
+/* -------------------------------------------------------------- effort (story points) */
+
+/** Fibonacci story points: complexity, uncertainty and effort together — not hours. 13 and 21 mean "break it down". */
+export const POINTS = [1, 2, 3, 5, 8, 13, 21] as const;
+export const POINTS_HINT: Record<number, string> = {
+  1: 'drobiazg, zero niejasności (telefon, potwierdzenie)', 2: 'prosta rzecz (mail, krótki post)', 3: 'jasne, kilka kroków (umówić spotkanie, zamówienie)',
+  5: 'kilka kroków i ludzi (regulamin, newsletter, prezentacja)', 8: 'złożone, testy, zależności (strona z formularzem, kampania)',
+  13: 'duże i niepewne — rozbij na mniejsze', 21: 'za duże — trzeba rozbić',
+};
+const P_RULES: [RegExp, number][] = [
+  [/rozbic|zorganizowa|kampani|konferencj|wdrozeni|strategi/, 8],
+  [/stron|landing|formularz|newsletter|regulamin|prezentacj|ofert|propozycj|wizualizacj|umow[ay]/, 5],
+  [/umowic|spotkani|wizyt|zamowi|wydruk|grafik|baner|plakat|obsad|zaproszeni|rozeznani|znalezc/, 3],
+  [/mail|wyslac|napisac|post |wiadomos|odpowiedziec|poprosic/, 2],
+  [/zadzwoni|telefon|sms|przypomni|potwierdzi|sprawdzi/, 1],
+];
+/** A first guess from the task's wording, used until someone sets the points. */
+export function estimatePoints(task: string): number {
+  const k = searchKey(task);
+  for (const [re, p] of P_RULES) if (re.test(k)) return p;
+  return 2;
+}
+export const snapPoints = (n: unknown): number => {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return POINTS.reduce((best, p) => (Math.abs(p - v) < Math.abs(best - v) ? p : best), 1 as number);
+};

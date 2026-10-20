@@ -773,3 +773,16 @@ a.qa { text-decoration: none; color: inherit; }
 .fold .chev { transition: transform .15s; }
 .fold.open .chev { transform: rotate(90deg); }
 .fold-body { background: var(--panel); padding-left: 18px; }
+
+.pts { min-width: 24px; height: 22px; padding: 0 6px; border-radius: 7px; display: inline-grid; place-items: center; font: 600 11.5px var(--mono); background: var(--tint); color: var(--chip-ink); flex: none; }
+.pts.auto { background: var(--panel); color: var(--faint); }
+.pts.big { background: var(--bad-bg); color: var(--bad); }
+.pbar { width: 90px; height: 6px; border-radius: 99px; background: var(--panel); overflow: hidden; flex: none; }
+.pbar > i { display: block; height: 100%; background: var(--ok); border-radius: 99px; }
+.pct { font: 600 11px var(--mono); color: var(--soft); width: 34px; text-align: right; flex: none; }
+.cap-week { display: grid; grid-template-columns: 150px 1fr 120px; gap: 12px; align-items: center; padding: 10px 20px; }
+.cap-track { position: relative; height: 18px; background: var(--panel); border-radius: 8px; overflow: hidden; }
+.cap-track > .done { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); opacity: .85; }
+.cap-track > .plan { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .55; }
+.cap-track > .over { position: absolute; top: 0; bottom: 0; background: var(--bad); opacity: .6; }
+.cap-line { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .6; }

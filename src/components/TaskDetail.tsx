@@ -6,7 +6,7 @@ import { api } from '../api';
 import { FileCard } from './Files';
 import { DueTag, Modal, copyText, telHref, useAction, useToast, useToday } from './ui';
 import { PersonForm } from '../pages/People';
-import type { Material, Person, Task } from '../../shared/domain';
+import { POINTS, POINTS_HINT, type Material, type Person, type Task } from '../../shared/domain';
 
 /** Share a ready-made text: the phone's share sheet (WhatsApp, Messenger, mail…) or the clipboard. */
 export async function shareText(title: string, text: string, toast: (m: string) => void) {
@@ -163,6 +163,7 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
         {task.company && <Link className="tag" to={`/firmy/${task.leadId}`} onClick={onClose}>{task.company}</Link>}
       </div>
       <PersonPicker personId={personId} onChange={setPersonId} />
+      <PointsPicker task={task} />
       <div className="fields">
         <label className="field wide">Zadanie<input type="text" value={text} onChange={(e) => setText(e.target.value)} /></label>
         <label className="field">Termin<input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
@@ -222,9 +223,27 @@ export function ProjectTaskRow({ t, today, onOpen, sub, link }: { t: Task; today
           {t.eventId ? <CalendarDays size={13} /> : <Building2 size={13} />}<span className="hide-sm trunc" style={{ maxWidth: 220 }}>{t.eventId ? t.eventTitle : t.company}</span>
         </Link>
       )}
+      <span className={`pts ${t.pointsAuto ? 'auto' : ''} ${t.points >= 13 ? 'big' : ''}`} title={`${t.points} pkt wysiłku${t.pointsAuto ? ' (oszacowane z treści — ustaw w zadaniu)' : ''}`}>{t.points}</span>
       {t.status === 'skipped' && <span className="tag" title={t.skipReason}>niewykonane</span>}
       {!done && t.blocked && <span className="tag overdue" title={t.blocked}>stoi</span>}
       {!done && t.due && <DueTag date={t.due} today={today} />}
     </li>
+  );
+}
+
+/** Effort in Fibonacci story points — one click; 13 and 21 say "break this down". */
+function PointsPicker({ task }: { task: Task }) {
+  const set = useAction((p: number) => api.saveTask({ id: task.id, points: p }), { ok: (t) => `${t.points} pkt` });
+  return (
+    <div className="row wrap" style={{ gap: 6 }}>
+      <span className="small soft">Wysiłek</span>
+      <div className="seg">
+        {POINTS.map((p) => (
+          <button key={p} type="button" className={task.points === p ? 'on' : ''} title={POINTS_HINT[p]} onClick={() => set.mutate(p)}>{p}</button>
+        ))}
+      </div>
+      <span className="small faint">{task.pointsAuto ? 'oszacowane z treści' : POINTS_HINT[task.points] || ''}</span>
+      {task.points >= 13 && <span className="tag overdue">za duże — rozbij na mniejsze zadania</span>}
+    </div>
   );
 }

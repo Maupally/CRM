@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Building2, CalendarDays, ChevronRight, FolderKanban, Layers, Sparkles, Workflow } from 'lucide-react';
+import { Building2, CalendarDays, ChevronRight, FolderKanban, Layers, PhoneCall, Sparkles, Workflow } from 'lucide-react';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
 import { openAssistant } from '../components/Assistant';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -9,6 +9,7 @@ import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
 import { Empty, ErrorBox, Loading, ResultTag, TYPE_ICON, TypeIcon, relDay, typeLabel, useToday, weekdayName } from '../components/ui';
+import { capacity } from '../../shared/capacity';
 import { addDays, isClosed, searchKey, shortDate, TYPES, type Stage, type Task } from '../../shared/domain';
 
 const VIEWS = [
@@ -18,10 +19,11 @@ const VIEWS = [
   { id: 'wszystkie', label: 'Wszystkie otwarte' },
   { id: 'zrobione', label: 'Zrobione (14 dni)' },
   { id: 'projekty', label: 'Wg tematu' },
+  { id: 'obciazenie', label: 'Obciążenie' },
 ] as const;
 type View = (typeof VIEWS)[number]['id'];
 
-type TopicKind = 'run' | 'event' | 'topic' | 'company' | 'other';
+type TopicKind = 'run' | 'event' | 'topic' | 'company' | 'other' | 'cold';
 interface Topic { key: string; title: string; kind: TopicKind; date?: string; eventId?: string; leadId?: string }
 const stems = (s: string) => searchKey(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 5).map((w) => w.slice(0, 5));
 
@@ -29,15 +31,26 @@ const stems = (s: string) => searchKey(s).split(/[^a-z0-9]+/).filter((w) => w.le
 function topicOf(t: Task, segs: string[]): Topic {
   // an event gathers everything for it, procedure steps included
   if (t.eventId) return { key: `E:${t.eventId}`, kind: 'event', title: t.eventTitle || t.eventId, date: t.eventDate, eventId: t.eventId };
-  if (t.run) return { key: `R:${t.runId}`, kind: 'run', title: t.run.title.toLowerCase().startsWith(t.run.process.toLowerCase()) ? t.run.title : `${t.run.process}: ${t.run.title}` };
+  // all runs of one procedure together (e.g. „Nowy partner” for Arabka and Padel Up); each step shows its company
+  if (t.run) return { key: `P:${t.run.process}`, kind: 'run', title: t.run.process };
   if (t.leadId && t.companySegment) return { key: `S:${t.companySegment}`, kind: 'topic', title: t.companySegment };
   if (t.leadId) return { key: `L:${t.leadId}`, kind: 'company', title: t.company || t.leadId, leadId: t.leadId };
   const k = searchKey(t.task);
   const seg = segs.find((x) => { const st = stems(x); return st.length > 0 && st.every((w) => k.includes(w)); });
   return seg ? { key: `S:${seg}`, kind: 'topic', title: seg } : { key: 'other', kind: 'other', title: 'Bez tematu' };
 }
+/** % of the topic's effort (story points) already done, out of everything not dropped. */
+function completion(all: Task[], key: string, segs: string[]) {
+  const mine = all.filter((t) => t.status !== 'skipped' && topicOf(t, segs).key === key);
+  const total = mine.reduce((n, t) => n + t.points, 0);
+  const done = mine.filter((t) => t.status === 'done').reduce((n, t) => n + t.points, 0);
+  return { pct: total ? Math.round((done / total) * 100) : 0, done, total };
+}
+function Progress({ c }: { c: { pct: number; done: number; total: number } }) {
+  return <><span className="pbar hide-sm" title={`${c.done} z ${c.total} pkt zrobione`}><i style={{ width: `${c.pct}%` }} /></span><span className="pct">{c.pct}%</span></>;
+}
 const segmentsOf = (tasks: Task[]) => [...new Set(tasks.map((t) => t.companySegment).filter(Boolean) as string[])];
-const TOPIC_ICON = { event: CalendarDays, topic: Layers, company: Building2, run: Workflow, other: FolderKanban } as const;
+const TOPIC_ICON = { event: CalendarDays, topic: Layers, company: Building2, run: Workflow, other: FolderKanban, cold: PhoneCall } as const;
 
 function useOpenTopics(storage: string) {
   const [keys, setKeys] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(storage) || '[]')); } catch { return new Set(); } });
@@ -50,25 +63,36 @@ function useOpenTopics(storage: string) {
 }
 
 /** A list of tasks where two or more from the same topic fold into one row you click open. */
-function FoldedTasks({ tasks, segs, today, onOpen, open, toggle, scope }: {
-  tasks: Task[]; segs: string[]; today: string; onOpen: (t: Task) => void; open: Set<string>; toggle: (k: string) => void; scope: string;
+function FoldedTasks({ tasks, acts = [], all = [], segs, today, onOpen, onComplete, open, toggle, scope, showDate }: {
+  tasks: Task[]; all?: Task[]; acts?: OpenItem[]; segs: string[]; today: string; onOpen: (t: Task) => void; onComplete?: (a: OpenItem) => void;
+  open: Set<string>; toggle: (k: string) => void; scope: string; showDate?: boolean;
 }) {
-  const groups: { topic: Topic; items: Task[] }[] = [];
-  for (const t of tasks) {
-    const tp = topicOf(t, segs);
-    const g = tp.kind !== 'other' && groups.find((x) => x.topic.key === tp.key);
-    if (g) g.items.push(t); else groups.push({ topic: tp, items: [t] });
+  const groups: { topic: Topic; items: Task[]; acts: OpenItem[] }[] = [];
+  const at = (tp: Topic) => { let g = groups.find((x) => x.topic.key === tp.key && tp.kind !== 'other'); if (!g) { g = { topic: tp, items: [], acts: [] }; groups.push(g); } return g; };
+  for (const t of tasks) at(topicOf(t, segs)).items.push(t);
+  // calendar items: with the company's tasks when it has some here; calls and mails to companies → "Cold calling"; meetings stay on their own
+  const byLead = new Map<string, Topic>();
+  for (const t of tasks) if (t.leadId) byLead.set(t.leadId, topicOf(t, segs));
+  const leadCount = new Map<string, number>();
+  for (const a of acts) leadCount.set(a.leadId, (leadCount.get(a.leadId) || 0) + 1);
+  for (const a of acts) {
+    const own = byLead.get(a.leadId);
+    if (own) at(own).acts.push(a);
+    else if ((leadCount.get(a.leadId) || 0) > 1) at({ key: `L:${a.leadId}`, kind: 'company', title: a.company || a.leadId, leadId: a.leadId }).acts.push(a);
+    else if (a.type === 'Meeting' || a.type === 'Visit') at({ key: `A:${a.id}`, kind: 'other', title: '' }).acts.push(a);
+    else at({ key: 'cold', kind: 'cold', title: 'Cold calling' }).acts.push(a);
   }
   return (
     <>
-      {groups.map(({ topic, items }) => {
-        if (items.length < 2 || topic.kind === 'other') {
-          return items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} sub={t.eventTitle || t.company} />);
+      {groups.map(({ topic, items, acts: ga }) => {
+        if (items.length + ga.length < 2 || topic.kind === 'other') {
+          return [...items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} sub={t.eventTitle || t.company} />),
+            ...ga.map((a) => <TaskRow key={`a${a.id}`} a={a} today={today} onComplete={onComplete!} showDate={showDate} />)];
         }
         const k = `${scope}|${topic.key}`;
         const isOpen = open.has(k);
         const I = TOPIC_ICON[topic.kind];
-        const late = items.filter((t) => t.due && t.due < today).length;
+        const late = items.filter((t) => t.due && t.due < today).length + ga.filter((a) => a.date < today).length;
         return (
           <li key={k} className={`fold ${isOpen ? 'open' : ''}`}>
             <button className="fold-head" onClick={() => toggle(k)}>
@@ -76,9 +100,13 @@ function FoldedTasks({ tasks, segs, today, onOpen, open, toggle, scope }: {
               <I size={15} className="faint" />
               <b className="grow trunc" style={{ textAlign: 'left' }}>{topic.title}{topic.date && <span className="soft" style={{ fontWeight: 400 }}> · {shortDate(topic.date)}</span>}</b>
               {late > 0 && <span className="tag overdue">{late} po terminie</span>}
-              <span className="tag">{items.length}</span>
+              {topic.kind !== 'cold' && topic.kind !== 'company' && <Progress c={completion(all, topic.key, segs)} />}
+              <span className="tag">{items.length + ga.length}</span>
             </button>
-            {isOpen && <ul className="list fold-body">{items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} link={topic.kind === 'topic' || topic.kind === 'run'} />)}</ul>}
+            {isOpen && <ul className="list fold-body">
+              {items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} link={topic.kind === 'topic' || topic.kind === 'run'} />)}
+              {[...ga].sort((x, y) => (x.segment || '').localeCompare(y.segment || '') || x.date.localeCompare(y.date)).map((a) => <TaskRow key={`a${a.id}`} a={a} today={today} onComplete={onComplete!} showDate={showDate} />)}
+            </ul>}
           </li>
         );
       })}
@@ -118,6 +146,7 @@ export function TasksPage() {
     wszystkie: all.length + tasksIn('wszystkie').length,
     zrobione: 0,
     projekty: 0,
+    obciazenie: 0,
   };
 
   const rows = useMemo(() => {
@@ -129,7 +158,7 @@ export function TasksPage() {
     return r;
   }, [all, doneQ.data, view, type, today]);
 
-  const taskRows = view === 'projekty' ? [] : tasksIn(view);
+  const taskRows = view === 'projekty' || view === 'obciazenie' ? [] : tasksIn(view);
 
   // group by day: "Zaległe" collapses everything before today into one bucket
   const groups = useMemo(() => {
@@ -156,11 +185,11 @@ export function TasksPage() {
         <div className="views">
           {VIEWS.map((v) => (
             <button key={v.id} className={view === v.id ? 'on' : ''} onClick={() => setSp(v.id === 'dzis' ? {} : { widok: v.id }, { replace: true })}>
-              {v.label}{v.id !== 'zrobione' && v.id !== 'projekty' && <span className="n">{counts[v.id]}</span>}
+              {v.label}{v.id !== 'zrobione' && v.id !== 'projekty' && v.id !== 'obciazenie' && <span className="n">{counts[v.id]}</span>}
             </button>
           ))}
         </div>
-        {view === 'projekty' ? <Projects today={today} /> : <>
+        {view === 'obciazenie' ? <CapacityView today={today} onOpen={setDetail} /> : view === 'projekty' ? <Projects today={today} /> : <>
         <div className="toolbar">
           <div className="chips">
             <button className={`chip ${!type ? 'on' : ''}`} onClick={() => setType('')}>Wszystkie typy</button>
@@ -177,8 +206,9 @@ export function TasksPage() {
               <div key={k}>
                 <div className={`group-label ${k === 'late' ? 'red' : ''}`}>{label(k)} · {items.length + tasks.length}</div>
                 <ul className="list">
-                  <FoldedTasks tasks={tasks} segs={segs} today={today} onOpen={setDetail} open={folds.keys} toggle={folds.toggle} scope={`${view}:${k}`} />
-                  {items.map((a) => view === 'zrobione' ? (
+                  <FoldedTasks tasks={tasks} acts={view === 'zrobione' ? [] : items} all={tasksQ.data || []} segs={segs} today={today} onOpen={setDetail} onComplete={setOpen}
+                    open={folds.keys} toggle={folds.toggle} scope={`${view}:${k}`} showDate={k === 'late'} />
+                  {view === 'zrobione' && items.map((a) => (
                     <li key={a.id} className="li">
                       <TypeIcon type={a.type} />
                       <div className="grow">
@@ -187,7 +217,7 @@ export function TasksPage() {
                       </div>
                       <span className="soft small hide-sm">{relDay(a.date, today)}</span>
                     </li>
-                  ) : <TaskRow key={a.id} a={a} today={today} onComplete={setOpen} showDate={k === 'late'} />)}
+                  ))}
                 </ul>
               </div>
             ))}
@@ -266,6 +296,7 @@ function Projects({ today }: { today: string }) {
               {late > 0 && <span className="tag overdue">{late} zaległe</span>}
               {next && !late && <span className="soft small hide-sm">najbliższe {shortDate(next)}</span>}
               {g.date && <span className="soft small hide-sm">{shortDate(g.date)}</span>}
+              <Progress c={completion(tasks.data || [], g.key, segmentsOf(tasks.data || []))} />
               <span className="tag">{open.length}{showDone && g.items.length !== open.length ? `/${g.items.length}` : ''}</span>
               {g.eventId && <Link className="btn sm ghost" to={`/wydarzenia/${g.eventId}`} onClick={(e) => e.stopPropagation()}>Wydarzenie →</Link>}
               {g.leadId && <Link className="btn sm ghost" to={`/firmy/${g.leadId}`} onClick={(e) => e.stopPropagation()}>Karta firmy →</Link>}
@@ -277,5 +308,69 @@ function Projects({ today }: { today: string }) {
       {!groups.length && <Empty icon={FolderKanban}>Brak zadań. Powiedz asystentowi: „wrzuć mi na dziś przygotowanie tekstów na bieg”.</Empty>}
       <TaskDetail task={detail} onClose={() => setDetail(null)} />
     </>
+  );
+}
+
+/**
+ * Capacity in story points: how much is planned for each week against your usual pace (velocity = average done per week
+ * over the last four), who carries what this week, and what is too big to do in one go.
+ */
+function CapacityView({ today, onOpen }: { today: string; onOpen: (t: Task) => void }) {
+  const q = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <div className="pad"><ErrorBox error={q.error} /></div>;
+  const all = q.data || [];
+  const c = capacity(all, today);
+  const weeks = [...c.past, c.thisWeek, ...c.ahead];
+  const max = Math.max(1, c.velocity * 1.5, ...weeks.map((w) => Math.max(w.planned + (w.start === c.thisWeek.start ? w.done : 0), w.done)));
+  const pct = (n: number) => `${Math.min(100, (n / max) * 100)}%`;
+  const label = (w: { start: string; end: string }) => w.start === c.thisWeek.start ? 'Ten tydzień' : `${shortDate(w.start)}–${shortDate(w.end)}`;
+  const over = c.velocity && c.thisWeek.planned + c.thisWeek.done > c.velocity * 1.2;
+  const big = all.filter((t) => c.tooBig.some((b) => b.id === t.id));
+  return (
+    <div className="col" style={{ gap: 0 }}>
+      <div className="grid kpis" style={{ padding: 20 }}>
+        <div className="stat"><div className="top"><span>Zaplanowane na ten tydzień</span></div><div className="val">{c.thisWeek.planned} <span className="soft small">pkt</span></div><div className="hint">{c.thisWeek.tasks} zadań (z zaległymi)</div></div>
+        <div className="stat"><div className="top"><span>Zrobione w tym tygodniu</span></div><div className="val">{c.thisWeek.done} <span className="soft small">pkt</span></div></div>
+        <div className="stat"><div className="top"><span>Twoje tempo (velocity)</span></div><div className="val">{c.velocity} <span className="soft small">pkt / tydz.</span></div><div className="hint">średnia z 4 ostatnich tygodni</div></div>
+        <div className="stat"><div className="top"><span>Bez terminu</span></div><div className="val">{c.unscheduled} <span className="soft small">pkt</span></div><div className="hint">czeka na zaplanowanie</div></div>
+      </div>
+      {over ? <div className="error-box" style={{ margin: '0 20px 12px' }}>Ten tydzień ma więcej, niż zwykle robisz ({c.thisWeek.planned + c.thisWeek.done} pkt przy tempie {c.velocity}). Przesuń część zadań albo przekaż komuś — Claude podpowie co.</div> : null}
+      <div className="group-label" style={{ padding: '6px 20px' }}>Tygodnie — <span style={{ color: 'var(--ok)' }}>zrobione</span>, <span style={{ color: 'var(--accent)' }}>zaplanowane</span>, kreska = Twoje tempo</div>
+      {weeks.map((w) => {
+        const isThis = w.start === c.thisWeek.start;
+        const future = w.start > c.thisWeek.start;
+        const planned = isThis || future ? w.planned : 0;
+        const fill = w.done + planned;
+        return (
+          <div key={w.start} className="cap-week" style={isThis ? { background: 'var(--tint)' } : undefined}>
+            <span className={isThis ? '' : 'soft'} style={{ fontWeight: isThis ? 700 : 400 }}>{label(w)}</span>
+            <div className="cap-track">
+              <div className="done" style={{ width: pct(w.done) }} />
+              <div className="plan" style={{ left: pct(w.done), width: pct(planned) }} />
+              {c.velocity > 0 && fill > c.velocity && <div className="over" style={{ left: pct(c.velocity), width: `calc(${pct(fill)} - ${pct(c.velocity)})` }} />}
+              {c.velocity > 0 && <div className="cap-line" style={{ left: pct(c.velocity) }} />}
+            </div>
+            <span className="small" style={{ textAlign: 'right' }}>{w.done ? `${w.done} zrobione` : ''}{w.done && planned ? ' · ' : ''}{planned ? `${planned} plan` : ''}{!w.done && !planned ? '—' : ''}</span>
+          </div>
+        );
+      })}
+      {c.people.length > 0 && <>
+        <div className="group-label" style={{ padding: '14px 20px 6px' }}>Kto ile ma w tym tygodniu</div>
+        {c.people.map((p) => (
+          <div key={p.name || '-'} className="cap-week">
+            <span>{p.name || 'nieprzypisane'}</span>
+            <div className="cap-track"><div className="done" style={{ width: pct(p.done) }} /><div className="plan" style={{ left: pct(p.done), width: pct(p.planned) }} /></div>
+            <span className="small" style={{ textAlign: 'right' }}>{p.planned} plan{p.done ? ` · ${p.done} zrobione` : ''}</span>
+          </div>
+        ))}
+      </>}
+      {big.length > 0 && <>
+        <div className="group-label red" style={{ padding: '14px 20px 6px' }}>Za duże — rozbij na mniejsze (13–21 pkt)</div>
+        <ul className="list">{big.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={onOpen} sub={t.eventTitle || t.company} />)}</ul>
+      </>}
+      <div className="hint" style={{ padding: '14px 20px 18px' }}>Punkty (Fibonacci) mierzą wysiłek, złożoność i niepewność, nie godziny: 1 telefon, 2 mail, 3 umówienie, 5 regulamin/newsletter, 8 strona z formularzem; 13 i 21 = rozbij.
+        Szare liczby przy zadaniach to szacunek Opal5 z treści — kliknij zadanie i ustaw właściwe. Claude ustawia punkty sam przy tworzeniu zadań.</div>
+    </div>
   );
 }

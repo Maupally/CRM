@@ -15,6 +15,7 @@ import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
 import { feesText } from './fees.js';
 import { weeklyItems } from './weekly.js';
+import { capacity } from '../shared/capacity.js';
 import { Ideas } from './ideas.js';
 import { BoardStore } from './board.js';
 import { buildDefaults, buildFormScript, type Question } from './forms.js';
@@ -355,6 +356,10 @@ const FOLLOW_UP = {
   additionalProperties: false,
 };
 
+const POINTS_DESC = 'Wysiłek w punktach Fibonacciego (złożoność + niepewność + praca, nie godziny): 1 drobiazg (telefon, potwierdzenie), 2 prosty mail/post, ' +
+  '3 jasna rzecz w kilku krokach (umówić spotkanie, zamówienie), 5 kilka kroków i ludzi (regulamin, newsletter), 8 złożone (strona z formularzem, kampania), ' +
+  '13/21 za duże — zamiast tego rozbij na mniejsze zadania. Ustawiaj ZAWSZE przy tworzeniu zadania.';
+
 const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'find_companies',
@@ -610,6 +615,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         },
         attachments: { type: 'array', items: { type: 'integer' }, description: 'ID z Bazy wiedzy' },
         person_id: { type: 'string', description: 'Do kogo (id z get_people albo tymczasowe OS1 z save_person)' },
+        points: { type: 'integer', enum: [1, 2, 3, 5, 8, 13, 21], description: POINTS_DESC },
       },
       required: ['task'],
       additionalProperties: false,
@@ -641,6 +647,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         blocked: { type: 'string', description: 'Dlaczego zadanie stoi (np. „czekamy na skan umowy od Armady”); "" zdejmuje blokadę' },
         event_id: { type: 'string', description: 'przypnij zadanie do wydarzenia (EV-…); "" odpina' },
         lead_id: { type: 'string', description: 'przypnij zadanie do firmy; "" odpina' },
+        points: { type: 'integer', enum: [1, 2, 3, 5, 8, 13, 21], description: POINTS_DESC },
       },
       required: ['task_id'],
       additionalProperties: false,
@@ -1938,7 +1945,7 @@ export class Assistant {
         (st === 'all' || (st === 'open' ? !isClosed(t.status) : t.status === st))).slice(0, 80)
         .map((t) => ({ task_id: t.id, task: t.task, due: t.due || null, status: t.status, event: t.eventTitle || undefined,
           event_id: t.eventId || undefined, company: t.company || undefined, person: t.person?.name, materials: t.materials.map((m) => m.title),
-          attachments: t.attachments.length || undefined })));
+          attachments: t.attachments.length || undefined, points: t.points, points_estimated: t.pointsAuto || undefined })));
     }
     if (name === 'get_my_day') {
       const d = await this.crm.dashboard();
@@ -1950,9 +1957,21 @@ export class Assistant {
         stuck_processes: await new Processes(this.crm).runs().then((r) => r.filter((x) => x.stuck.length).map((x) => `${x.title}: ${x.stuck.join('; ')}`)).then((x) => x.length ? x : undefined),
         top_call_queue: d.queue.slice(0, 5).map((l) => ({ id: l.id, company: l.company, city: l.city })),
         ...(await this.laterForDay()),
+        capacity: await this.capacityLine(),
       });
     }
     throw new Error(`Nieznane narzędzie ${name}`);
+  }
+
+  /** For get_my_day: this week's load in story points against the usual pace. */
+  private async capacityLine() {
+    const c = capacity(await this.crm.listTasks(), this.crm.today());
+    return {
+      this_week_planned_points: c.thisWeek.planned, done_this_week: c.thisWeek.done, usual_weekly_velocity: c.velocity,
+      verdict: c.velocity && c.thisWeek.planned > c.velocity * 1.2 ? 'ZA DUŻO na ten tydzień — zaproponuj, co przesunąć' : undefined,
+      by_person: c.people.filter((p) => p.planned).slice(0, 6).map((p) => `${p.name || 'nieprzypisane'}: ${p.planned} pkt`),
+      too_big_to_do: c.tooBig.length ? c.tooBig.map((t) => `${t.id} (${t.points} pkt): ${t.task} — rozbij na mniejsze`) : undefined,
+    };
   }
 
   /** For get_my_day: reminders whose day came, and now and then one older idea to mention in passing. */
@@ -2473,8 +2492,8 @@ export class Assistant {
           case 'create_task': {
             const t = await crm.saveTask({ task: input.task, due: input.due || '', eventId: this.eventRef(input.event_id, ids), leadId: input.lead_id || '',
               notes: input.notes || '', materials: input.materials || [], attachments: input.attachments || [],
-              personId: this.personRef(input.person_id, ids) });
-            leadId = t.leadId || undefined; message = `Dodano zadanie: ${t.task} (${t.id})`;
+              personId: this.personRef(input.person_id, ids), points: input.points });
+            leadId = t.leadId || undefined; message = `Dodano zadanie: ${t.task} (${t.id}, ${t.points} pkt)`;
             break;
           }
           case 'update_task': {
@@ -2482,7 +2501,7 @@ export class Assistant {
             if (!cur) throw new Error(`Nie ma zadania ${input.task_id}.`);
             const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task, blocked: input.blocked, skipReason: input.skip_reason,
               eventId: input.event_id === undefined ? undefined : this.eventRef(input.event_id, ids), leadId: input.lead_id === undefined ? undefined : txt(input.lead_id),
-              personId: input.person_id ? this.personRef(input.person_id, ids) : undefined,
+              personId: input.person_id ? this.personRef(input.person_id, ids) : undefined, points: input.points,
               materials: input.add_materials?.length ? [...cur.materials, ...input.add_materials] : undefined,
               attachments: input.add_attachments?.length ? [...new Set([...cur.attachments, ...input.add_attachments.map(Number)])] : undefined });
             leadId = undefined; message = t.status === 'done' ? `Odhaczono: ${t.task}` : t.status === 'skipped' ? `Niewykonane: ${t.task}` : `Zmieniono: ${t.task}`;

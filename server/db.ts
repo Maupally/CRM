@@ -132,6 +132,8 @@ ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS materials TEXT NOT NULL DEFAULT '
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS attachments TEXT NOT NULL DEFAULT '';
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS sort INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS person_id BIGINT NOT NULL DEFAULT 0;
+-- effort in story points (Fibonacci: 1 2 3 5 8 13 21); 0 = not estimated, an estimate from the wording is shown instead
+ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS points INTEGER NOT NULL DEFAULT 0;
 -- a task can be one step of a running process (procedure); blocked = why it cannot move
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS run_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS step INTEGER NOT NULL DEFAULT 0;
