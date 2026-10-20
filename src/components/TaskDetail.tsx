@@ -122,17 +122,19 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
   const [due, setDue] = useState('');
   const [attached, setAttached] = useState<number[]>([]);
   const [personId, setPersonId] = useState(0);
+  const [topic, setTopic] = useState('');
+  const all = useQuery({ queryKey: ['tasks'], queryFn: api.tasks, enabled: !!task });
   useEffect(() => {
-    if (task) { setMaterials(task.materials); setText(task.task); setDue(task.due); setAttached(task.attachments); setPersonId(task.personId || 0); }
+    if (task) { setMaterials(task.materials); setText(task.task); setDue(task.due); setAttached(task.attachments); setPersonId(task.personId || 0); setTopic(task.topic || ''); }
   }, [task]);
   const dirty = !!task && (JSON.stringify(materials) !== JSON.stringify(task.materials) || text !== task.task || due !== task.due
-    || attached.join() !== task.attachments.join() || personId !== (task.personId || 0));
+    || attached.join() !== task.attachments.join() || personId !== (task.personId || 0) || topic !== (task.topic || ''));
 
-  const save = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId }), { ok: 'Zapisano', onDone: onClose });
+  const save = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId, topic }), { ok: 'Zapisano', onDone: onClose });
   const closed = !!task && (task.status === 'done' || task.status === 'skipped');
-  const toggle = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId,
+  const toggle = useAction(() => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId, topic,
     status: closed ? 'todo' : 'done' }), { ok: (t) => t.status === 'done' ? 'Zrobione' : 'Przywrócone', onDone: onClose });
-  const skip = useAction((reason: string) => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId,
+  const skip = useAction((reason: string) => api.saveTask({ id: task!.id, task: text, due, materials, attachments: attached, personId, topic,
     status: 'skipped', skipReason: reason }), { ok: 'Oznaczone jako niewykonane', onDone: onClose });
   const askSkip = () => {
     const reason = prompt('Dlaczego nie wykonano? (zostanie w historii i w raporcie)', '');
@@ -167,6 +169,11 @@ export function TaskDetail({ task, onClose }: { task: Task | null; onClose: () =
       <div className="fields">
         <label className="field wide">Zadanie<input type="text" value={text} onChange={(e) => setText(e.target.value)} /></label>
         <label className="field">Termin<input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
+        <label className="field wide">Projekt / temat
+          <input type="text" list="task-topics" value={topic} placeholder={task.eventTitle || task.company ? 'opcjonalnie — grupuje się już pod wydarzeniem/firmą' : 'np. Związki wyznaniowe — bez tego trafia do „Inne”'}
+            onChange={(e) => setTopic(e.target.value)} />
+          <datalist id="task-topics">{[...new Set((all.data || []).map((t) => t.topic).filter(Boolean))].sort().map((t) => <option key={t} value={t} />)}</datalist>
+        </label>
       </div>
       {task.notes && <div className="soft pre small">{task.notes}</div>}
 

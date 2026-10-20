@@ -870,7 +870,7 @@ export class Crm {
       ...(r.company ? { company: r.company } : {}),
       ...(r.company_segment ? { companySegment: r.company_segment } : {}),
       runId: Number(r.run_id) || 0, step: Number(r.step) || 0, blocked: r.blocked || '', started: r.started || '', created: r.created || '',
-      skipReason: r.skip_reason || '', points: Number(r.points) || estimatePoints(r.task), pointsAuto: !Number(r.points),
+      skipReason: r.skip_reason || '', points: Number(r.points) || estimatePoints(r.task), pointsAuto: !Number(r.points), topic: r.topic || '',
       ...(r.run_title ? { run: { title: r.run_title, process: r.run_process || '', steps: Number(r.run_steps) || 0 } } : {}),
     };
   }
@@ -944,6 +944,7 @@ export class Crm {
     if (personId) await this.getPerson(personId);
     const blocked = isClosed(status) ? '' : longTxt(pick(d.blocked, cur?.blocked ?? ''));
     const skipReason = status === 'skipped' ? longTxt(pick(d.skipReason, cur?.skip_reason ?? '')) : '';
+    const topic = txt(pick(d.topic, cur?.topic ?? ''));
     const points = d.pointsAuto ? Number(cur?.points) || 0 : snapPoints(pick(d.points as number | undefined, Number(cur?.points) || 0));
 
     if (cur) {
@@ -951,8 +952,8 @@ export class Crm {
       // closed (done or not done) keeps the day it was closed
       const completed = isClosed(status) ? (status === cur.status && cur.completed ? cur.completed : this.today()) : '';
       await this.q.run(`UPDATE crm.tasks SET event_id=?, lead_id=?, task=?, owner=?, due=?, status=?, notes=?, completed=?,
-        materials=?, attachments=?, person_id=?, blocked=?, skip_reason=?, points=? WHERE id = ?`,
-        [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, personId, blocked, skipReason, points, id]);
+        materials=?, attachments=?, person_id=?, blocked=?, skip_reason=?, points=?, topic=? WHERE id = ?`,
+        [eventId, leadId, task, owner, due, status, notes, completed, materials, attachments, personId, blocked, skipReason, points, topic, id]);
       if (status === 'done' && cur.status !== 'done' && personId) await this.touchPerson(personId);
       if (isClosed(status) !== isClosed(cur.status)) await this.advanceRun(Number(cur.run_id));
       return this.taskById(id);
@@ -963,7 +964,7 @@ export class Crm {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [nid, eventId, leadId, task, owner, due, status, notes,
         isClosed(status) ? (isIsoDay(d.completed) ? d.completed : c.today()) : '', materials, attachments, personId, c.today()]);
       if (skipReason) await c.q.run('UPDATE crm.tasks SET skip_reason = ? WHERE id = ?', [skipReason, nid]);
-      if (points) await c.q.run('UPDATE crm.tasks SET points = ? WHERE id = ?', [points, nid]);
+      if (points || topic) await c.q.run('UPDATE crm.tasks SET points = ?, topic = ? WHERE id = ?', [points, topic, nid]);
       return nid;
     });
     return this.taskById(newId);

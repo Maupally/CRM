@@ -16,6 +16,7 @@ import { personProfile } from './profile.js';
 import { feesText } from './fees.js';
 import { weeklyItems } from './weekly.js';
 import { capacity } from '../shared/capacity.js';
+import { suggestGroups } from '../shared/topics.js';
 import { Ideas } from './ideas.js';
 import { BoardStore } from './board.js';
 import { buildDefaults, buildFormScript, type Question } from './forms.js';
@@ -356,6 +357,8 @@ const FOLLOW_UP = {
   additionalProperties: false,
 };
 
+const TOPIC_DESC = 'Projekt / temat, do którego należy zadanie (np. „Związki wyznaniowe”, „Rekrutacja 2027”), gdy nie jest to wydarzenie (event_id) ani firma (lead_id). ' +
+  'Weź nazwę z suggest_task_group, żeby trafiło do istniejącej grupy; nową nazwę tylko po zgodzie użytkownika.';
 const POINTS_DESC = 'Wysiłek w punktach Fibonacciego (złożoność + niepewność + praca, nie godziny): 1 drobiazg (telefon, potwierdzenie), 2 prosty mail/post, ' +
   '3 jasna rzecz w kilku krokach (umówić spotkanie, zamówienie), 5 kilka kroków i ludzi (regulamin, newsletter), 8 złożone (strona z formularzem, kampania), ' +
   '13/21 za duże — zamiast tego rozbij na mniejsze zadania. Ustawiaj ZAWSZE przy tworzeniu zadania.';
@@ -509,6 +512,8 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
 ];
 
+/** Task reads kept in plain chat and the connector (the rest of the knowledge tools are for Studio). */
+const TASK_READS = new Set(['get_tasks', 'suggest_task_group']);
 const KNOWLEDGE_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'search_knowledge',
@@ -520,6 +525,13 @@ const KNOWLEDGE_TOOLS: Anthropic.Beta.BetaTool[] = [
     name: 'read_knowledge',
     description: 'Pełna treść materiału z Bazy wiedzy (tekst; obraz zobaczysz bezpośrednio).',
     input_schema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'], additionalProperties: false },
+  },
+  {
+    name: 'suggest_task_group',
+    description: 'Zanim utworzysz zadanie: do jakiej istniejącej grupy pasuje (wydarzenie, projekt/temat, procedura, rodzaj firm, firma) — na podstawie podobnych zadań. ' +
+      'Zwraca propozycje z polem set (co wpisać w create_task: event_id / topic / lead_id), liczbą otwartych zadań i przykładami. ' +
+      'Zaproponuj użytkownikowi najlepszą (albo 2–3) i dopytaj; gdy nic nie pasuje — zaproponuj nazwę nowego tematu.',
+    input_schema: { type: 'object', properties: { task: { type: 'string', description: 'Opis nowego zadania' } }, required: ['task'], additionalProperties: false },
   },
   {
     name: 'get_tasks',
@@ -590,7 +602,8 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
     name: 'create_task',
     description: 'PROPOZYCJA zadania do zrobienia — w projekcie/wydarzeniu (event_id), przy firmie (lead_id) albo samodzielnego. ' +
       'Gdy zadanie polega na przygotowaniu treści, NAPISZ je od razu i daj w materials (gotowe do skopiowania/wysłania), ' +
-      'a potrzebne pliki z Bazy wiedzy (np. plakat) podepnij w attachments.',
+      'a potrzebne pliki z Bazy wiedzy (np. plakat) podepnij w attachments. ' +
+      'ZAWSZE przypisz grupę: event_id, lead_id albo topic. Najpierw suggest_task_group; jeśli trafienie nie jest oczywiste — zaproponuj 1–3 grupy i dopytaj. Bez grupy zadanie ląduje w „Inne”.',
     input_schema: {
       type: 'object',
       properties: {
@@ -616,6 +629,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         attachments: { type: 'array', items: { type: 'integer' }, description: 'ID z Bazy wiedzy' },
         person_id: { type: 'string', description: 'Do kogo (id z get_people albo tymczasowe OS1 z save_person)' },
         points: { type: 'integer', enum: [1, 2, 3, 5, 8, 13, 21], description: POINTS_DESC },
+        topic: { type: 'string', description: TOPIC_DESC },
       },
       required: ['task'],
       additionalProperties: false,
@@ -648,6 +662,7 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
         event_id: { type: 'string', description: 'przypnij zadanie do wydarzenia (EV-…); "" odpina' },
         lead_id: { type: 'string', description: 'przypnij zadanie do firmy; "" odpina' },
         points: { type: 'integer', enum: [1, 2, 3, 5, 8, 13, 21], description: POINTS_DESC },
+        topic: { type: 'string', description: TOPIC_DESC + ' "" usuwa.' },
       },
       required: ['task_id'],
       additionalProperties: false,
@@ -1237,7 +1252,7 @@ export class Assistant {
       ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...WRITE_TOOLS, ...chatTools, ...WEB_TOOLS]
       : full
         ? [...READ_TOOLS, ...KNOWLEDGE_TOOLS, ...STUDIO_TOOLS, ...WRITE_TOOLS, ...chatTools, CODE_TOOL]
-        : [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks'), ...WRITE_TOOLS, ...chatTools];
+        : [...READ_TOOLS, ...KNOWLEDGE_TOOLS.filter((t) => TASK_READS.has(t.name)), ...WRITE_TOOLS, ...chatTools];
     let saveTo = opts.threadId || 0;
     const chatNote = !chatList.length ? '' : opts.threadId
       ? `\nRozmawiasz w czacie „${chatList.find((c) => c.id === opts.threadId)?.title || ''}” (id ${opts.threadId}) — to, co tu napiszesz, zapisze się w nim samo. Inne czaty możesz przeczytać (read_chat).`
@@ -1423,7 +1438,7 @@ export class Assistant {
     messages.push({ role: 'user', content: first });
 
     const reads = READ_TOOLS.filter((t) => ['get_events', 'find_companies', 'get_company', 'get_people'].includes(t.name));
-    const tools = [WRITE_DOCUMENT, EDIT_DOCUMENT, ...KNOWLEDGE_TOOLS.filter((t) => t.name !== 'get_tasks'), ...reads, CODE_TOOL];
+    const tools = [WRITE_DOCUMENT, EDIT_DOCUMENT, ...KNOWLEDGE_TOOLS.filter((t) => !TASK_READS.has(t.name)), ...reads, CODE_TOOL];
     const files: KnowledgeItem[] = [];
     let containerId = d.containerId || undefined;
     let html: string | undefined, note = '', title: string | undefined, reply = '';
@@ -1505,7 +1520,7 @@ export class Assistant {
   static mcpActions() {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
     // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
-    const kb = KNOWLEDGE_TOOLS.filter((t) => t.name === 'get_tasks');
+    const kb = KNOWLEDGE_TOOLS.filter((t) => TASK_READS.has(t.name));
     const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name) || BOARD_ACTIONS.has(t.name));
     return [...READ_TOOLS, ...kb, ...own, ...writes].map((t) => ({
       name: t.name,
@@ -1938,13 +1953,19 @@ export class Assistant {
       if (!r.people.length && !r.companies.length && !later.length) return 'Nikt w siatce ani w CRM nie pasuje. Zapytaj użytkownika, kogo zna, i zapisz tę osobę (save_person z services).';
       return JSON.stringify({ ...r, ...fromLater });
     }
+    if (name === 'suggest_task_group') {
+      const [tasks, events] = await Promise.all([this.crm.listTasks(), this.crm.listEvents()]);
+      const s = suggestGroups(String(input.task || ''), tasks, events, this.crm.today());
+      return JSON.stringify(s.length ? { suggestions: s }
+        : { suggestions: [], hint: 'Nic podobnego — zapytaj, czego to dotyczy, i zaproponuj nazwę nowego tematu (topic). Gdy to naprawdę jednorazowe — może zostać w „Inne”.' });
+    }
     if (name === 'get_tasks') {
       const all = await this.crm.listTasks();
       const st = input.status || 'open';
       return JSON.stringify(all.filter((t) => (!input.event_id || t.eventId === input.event_id) && (!input.lead_id || t.leadId === input.lead_id) &&
         (st === 'all' || (st === 'open' ? !isClosed(t.status) : t.status === st))).slice(0, 80)
         .map((t) => ({ task_id: t.id, task: t.task, due: t.due || null, status: t.status, event: t.eventTitle || undefined,
-          event_id: t.eventId || undefined, company: t.company || undefined, person: t.person?.name, materials: t.materials.map((m) => m.title),
+          event_id: t.eventId || undefined, topic: t.topic || undefined, company: t.company || undefined, person: t.person?.name, materials: t.materials.map((m) => m.title),
           attachments: t.attachments.length || undefined, points: t.points, points_estimated: t.pointsAuto || undefined })));
     }
     if (name === 'get_my_day') {
@@ -2492,7 +2513,7 @@ export class Assistant {
           case 'create_task': {
             const t = await crm.saveTask({ task: input.task, due: input.due || '', eventId: this.eventRef(input.event_id, ids), leadId: input.lead_id || '',
               notes: input.notes || '', materials: input.materials || [], attachments: input.attachments || [],
-              personId: this.personRef(input.person_id, ids), points: input.points });
+              personId: this.personRef(input.person_id, ids), points: input.points, topic: input.topic });
             leadId = t.leadId || undefined; message = `Dodano zadanie: ${t.task} (${t.id}, ${t.points} pkt)`;
             break;
           }
@@ -2501,7 +2522,7 @@ export class Assistant {
             if (!cur) throw new Error(`Nie ma zadania ${input.task_id}.`);
             const t = await crm.saveTask({ id: cur.id, status: input.status, due: input.due, task: input.task, blocked: input.blocked, skipReason: input.skip_reason,
               eventId: input.event_id === undefined ? undefined : this.eventRef(input.event_id, ids), leadId: input.lead_id === undefined ? undefined : txt(input.lead_id),
-              personId: input.person_id ? this.personRef(input.person_id, ids) : undefined, points: input.points,
+              personId: input.person_id ? this.personRef(input.person_id, ids) : undefined, points: input.points, topic: input.topic === undefined ? undefined : txt(input.topic),
               materials: input.add_materials?.length ? [...cur.materials, ...input.add_materials] : undefined,
               attachments: input.add_attachments?.length ? [...new Set([...cur.attachments, ...input.add_attachments.map(Number)])] : undefined });
             leadId = undefined; message = t.status === 'done' ? `Odhaczono: ${t.task}` : t.status === 'skipped' ? `Niewykonane: ${t.task}` : `Zmieniono: ${t.task}`;

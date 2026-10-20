@@ -168,6 +168,8 @@ export interface Task {
   person?: { name: string; role: string; email: string; phone: string };
   eventTitle?: string;
   eventDate?: string;
+  /** project / topic it belongs to, when no event or company says it */
+  topic: string;
   /** effort in story points (Fibonacci); estimated from the wording when nobody set it */
   points: number;
   /** true when `points` is Opal5's guess, not set by the user or Claude */
