@@ -1022,7 +1022,7 @@ Zasady:
 - Zanim coś zaproponujesz dla istniejącej firmy, znajdź ją (find_companies) i gdy trzeba, sprawdź szczegóły (get_company). Gdy pasuje kilka firm i nie da się rozstrzygnąć, zapytaj krótko, o którą chodzi — bez propozycji.
 - Jedno polecenie może dać kilka propozycji (np. zapis rozmowy + notatka + zmiana telefonu).
 - Gdy użytkownik mówi o czymś, co było zaplanowane u tej firmy (jest otwarta aktywność tego typu), użyj complete_activity zamiast log_activity.
-- Wyniki: „rozmawiałem / odebrał / ustaliliśmy” = reached; „nie odebrał / nie było / poczta głosowa” = no answer; „wysłałem maila / zrobione” = done.
+- Wyniki: „rozmawiałem / odebrał / ustaliliśmy” = reached; „nie odebrał / nie było / poczta głosowa” = no answer; „wysłałem maila / zrobione” = done. „Nie dodzwoniłem się” przy zaplanowanym telefonie = complete_activity z no answer i follow_up na kolejną próbę (nie nowy log_activity obok) — próba się liczy, zaległość znika.
 - Skrót rozmowy (summary): 1–3 zdania, konkretnie: kto, co ustalono, terminy, liczby. Bez ozdobników.
 - Etap zmienia się sam: pierwszy kontakt przenosi „new” do „contacting”, spotkanie/wizyta — do „scheduled visit”. Podawaj stage tylko, gdy użytkownik chce inaczej (np. negocjacje, partner, odrzucony). Odrzucenie wymaga powodu.
 - Terminy: „jutro”, „w piątek”, „za tydzień”, „na początku przyszłego tygodnia” przeliczaj na datę yyyy-MM-dd od dzisiejszej daty (podana niżej). „W piątek” to najbliższy piątek po dziś. Gdy godzina jest ważna, wpisz ją w notatkę.

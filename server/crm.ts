@@ -3,7 +3,7 @@ import { nowIso } from './db.js';
 import {
   STAGES, TYPES, RESULTS, COUNTED, CLOSED_STAGES, EVENT_STATUS, TASK_STATUS, DEFAULT_SEGMENT, STAGE_LABEL,
   type Stage, type Lead, type Activity, type Segment, type Template, type CrmEvent, type Task, type Material, type Person, type PersonEvent, type EventPerson, type Style,
-  txt, longTxt, searchKey, isClosed, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, priority, autoStage,
+  txt, longTxt, searchKey, isClosed, normPhone, normEmail, normUrl, companyKey, isIsoDay, addDays, weekday, priority, autoStage,
   fillTemplate, isoDay,
   estimatePoints, snapPoints,
 } from '../shared/domain.js';
@@ -208,6 +208,27 @@ export class Crm {
       leadId, date: this.checkDate(f.date, 'data follow-upu'), type, result: 'planned',
       note: longTxt(f.note),
     });
+  }
+
+  /**
+   * A contact was made (or tried) — so the older plans for the same kind of contact with this company are covered
+   * and stop counting as overdue. A call nobody picked up also moves the overdue call tasks to the next try:
+   * trying is doing, the next attempt is what is due now.
+   */
+  private async afterContact(leadId: string, type: string, result: string, date: string, f: FollowUp | null | undefined, except = 0) {
+    if (type === 'Note') return;
+    const covered = `objęte kontaktem z ${date}`;
+    await this.q.run(`UPDATE crm.activities SET result = 'cancelled', note = CASE WHEN note = '' THEN ? ELSE note || ' | ' || ? END
+      WHERE lead_id = ? AND result = 'planned' AND type = ? AND date <= ? AND id <> ?`, [covered, covered, leadId, type, date, except]);
+    if (result !== 'no answer') return;
+    let next = f?.date || addDays(date, 1);
+    while (!f?.date && weekday(next) > 4) next = addDays(next, 1);
+    const tasks = await this.q.all(`SELECT id, task, notes FROM crm.tasks WHERE lead_id = ? AND status NOT IN ('done', 'skipped') AND due <> '' AND due <= ?`, [leadId, date]);
+    for (const t of tasks) {
+      if (!/zadzwo|telefon|dodzwon|call/i.test(String(t.task))) continue;
+      const line = `Próba ${date}: nie odebrał — ponowić ${next}`;
+      await this.q.run('UPDATE crm.tasks SET due = ?, notes = ? WHERE id = ?', [next, [t.notes, line].filter(Boolean).join('\n'), t.id]);
+    }
   }
 
   /** Works out the target stage for a finished activity, validating an explicit choice. */
@@ -415,8 +436,9 @@ export class Crm {
 
     await this.tx(async (c) => {
       if (to !== from) await c.applyStage(leadId, to);
-      await c.insertActivity({ leadId, date, type, result, note: text,
+      const id = await c.insertActivity({ leadId, date, type, result, note: text,
         stageFrom: to !== from ? from : '', stageTo: to !== from ? to : '' });
+      await c.afterContact(leadId, type, result, date, d.followUp, id);
       await c.schedule(leadId, d.followUp);
       await c.touch(leadId);
     });
@@ -444,6 +466,7 @@ export class Crm {
       if (to !== from) await c.applyStage(a.lead_id, to);
       await c.q.run(`UPDATE crm.activities SET result = ?, date = ?, note = ?, stage_from = ?, stage_to = ?
         WHERE id = ?`, [result, now, text, to !== from ? from : '', to !== from ? to : '', id]);
+      await c.afterContact(a.lead_id, a.type, result, now, d.followUp, id);
       await c.schedule(a.lead_id, d.followUp);
       await c.touch(a.lead_id);
     });
