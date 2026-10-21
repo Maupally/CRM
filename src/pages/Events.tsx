@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { StoryPanel } from '../components/Story';
 import { useQuery } from '@tanstack/react-query';
 import { MapPin, Pencil, Trash2, X, PartyPopper, Phone, Copy, Download, Eye, ExternalLink, FileCode2 } from 'lucide-react';
 import { api } from '../api';
@@ -98,6 +99,7 @@ function EventDetail({ event: e, tasks, onEdit, onClose }: { event: CrmEvent; ta
       </div>
       <EventPeople eventId={e.id} />
       <EventAssets eventId={e.id} />
+      <StoryPanel target={{ eventId: e.id }} title="Historia" card={false} />
       <div className="group-label">Checklista · {open.length} otwartych</div>
       <ul className="list">
         {[...open, ...done].map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} />)}

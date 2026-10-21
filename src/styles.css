@@ -786,3 +786,17 @@ a.qa { text-decoration: none; color: inherit; }
 .cap-track > .plan { position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .55; }
 .cap-track > .over { position: absolute; top: 0; bottom: 0; background: var(--bad); opacity: .6; }
 .cap-line { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); opacity: .6; }
+
+/* ---------- project story (pasted e-mail threads) */
+.story-thread { padding: 0 20px 12px; }
+.story-subject { font-weight: 600; font-size: 13.5px; padding: 6px 0; }
+.story { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--line-strong, var(--line)); }
+.story-item { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; position: relative; }
+.story-dot { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; margin-left: -23px;
+  background: var(--tint); color: var(--accent); }
+.story-item.out .story-dot { background: var(--accent); color: #fff; }
+.story-item.note .story-dot { background: var(--line); color: var(--soft); }
+.story-text { font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.story-del { opacity: 0; }
+.story-item:hover .story-del, .story-del:focus { opacity: 1; }
+@media (hover: none) { .story-del { opacity: .6; } }

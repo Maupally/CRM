@@ -486,6 +486,24 @@ export const IDEA_STATUS = ['open', 'used', 'dropped'] as const;
 export type IdeaStatus = (typeof IDEA_STATUS)[number];
 export const IDEA_STATUS_LABEL: Record<IdeaStatus, string> = { open: 'Czeka', used: 'Wykorzystane', dropped: 'Odpuszczone' };
 /** Something to come back to later — a company, an offer, an idea — not tied to any company, event or task yet. */
+/** One step in a project's story — a message from a pasted e-mail thread or a note — under a company, an event or a topic. */
+export type StoryDirection = 'in' | 'out' | 'note';
+export interface StoryItem {
+  id: number;
+  leadId: string;
+  eventId: string;
+  topic: string;
+  /** the e-mail thread (subject) it came from */
+  thread: string;
+  day: string;
+  who: string;
+  direction: StoryDirection;
+  text: string;
+  createdAt: string;
+  company?: string;
+  eventTitle?: string;
+}
+
 export interface Idea {
   id: number;
   title: string;

@@ -1,4 +1,7 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea, MsgChannel, MsgStats, Board, PersonFile } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea, MsgChannel, MsgStats, Board, PersonFile, StoryItem } from '../shared/domain';
+import type { ParsedThread, StoryDraft } from '../server/story';
+import type { GroupSuggestion } from '../shared/topics';
+export type ParsedStory = ParsedThread & { ai: boolean; companies: { id: string; company: string }[]; groups: GroupSuggestion[] };
 import type { FeeYear, FeesView } from '../shared/fees';
 import type { DoneRow, WeeklyItems } from '../server/weekly';
 
@@ -231,6 +234,10 @@ export const api = {
   personFile: (id: number) => get<PersonFile>(`/people/${id}/file`),
   deleteNote: (id: number) => del(`/notes/${id}`),
   unlink: (id: number) => del(`/links/${id}`),
+  story: (t: { lead?: string; event?: string; topic?: string } = {}) => get<StoryItem[]>(`/story?${new URLSearchParams(t as Record<string, string>)}`),
+  parseStory: (text: string) => post<ParsedStory>('/story/parse', { text }),
+  saveStory: (d: { leadId?: string; eventId?: string; topic?: string; thread: string; items: StoryDraft[] }) => post<{ added: number; skipped: number }>('/story', d),
+  deleteStory: (id: number) => del<{ ok: boolean }>(`/story/${id}`),
   ideas: () => get<Idea[]>('/ideas'),
   saveIdea: (d: Partial<Idea>) => post<Idea>('/ideas', d),
   deleteIdea: (id: number) => del(`/ideas/${id}`),

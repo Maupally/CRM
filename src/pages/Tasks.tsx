@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Building2, CalendarDays, ChevronRight, FolderKanban, Inbox, Layers, PhoneCall, Sparkles, Workflow } from 'lucide-react';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
+import { PasteStory, StoryPanel } from '../components/Story';
 import { openAssistant } from '../components/Assistant';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ListChecks } from 'lucide-react';
+import { ClipboardPaste, ListChecks } from 'lucide-react';
 import { api, type OpenItem } from '../api';
 import { CompleteDialog } from '../components/ActivityForms';
 import { TaskRow } from '../components/TaskRow';
@@ -235,6 +236,8 @@ function Projects({ today }: { today: string }) {
   const tasks = useQuery({ queryKey: ['tasks'], queryFn: api.tasks });
   const [showDone, setShowDone] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
+  const [pasting, setPasting] = useState(false);
+  const stories = useQuery({ queryKey: ['story', {}], queryFn: () => api.story() });
   const folds = useOpenTopics('tasks.topics.open');
   const openKeys = folds.keys;
   const toggle = folds.toggle;
@@ -252,11 +255,15 @@ function Projects({ today }: { today: string }) {
     }
     for (const x of g.values()) x.items.sort((a, b) => (a.runId && a.runId === b.runId ? a.step - b.step
       : Number(!!a.leadId) - Number(!!b.leadId) || Number(isClosed(a.status)) - Number(isClosed(b.status)) || (a.due || '9').localeCompare(b.due || '9')));
+    // topics that so far have only a story (a pasted thread), no tasks
+    for (const st of stories.data || []) {
+      if (st.topic && !st.leadId && !st.eventId && !g.has(`T:${st.topic}`)) g.set(`T:${st.topic}`, { key: `T:${st.topic}`, kind: 'project', title: st.topic, items: [] });
+    }
     const out = [...g.values()];
     // most urgent first: the earliest open due date; topics with nothing scheduled at the end
     const first = (x: G) => x.items.filter((t) => !isClosed(t.status) && t.due).map((t) => t.due).sort()[0] || '9999';
     return out.sort((a, b) => first(a).localeCompare(first(b)) || Number(a.kind === 'other') - Number(b.kind === 'other') || b.items.length - a.items.length);
-  }, [tasks.data, showDone]);
+  }, [tasks.data, showDone, stories.data]);
 
   const allGroups = useMemo(() => namedGroups(tasks.data || []), [tasks.data]);
   if (tasks.isLoading) return <Loading />;
@@ -270,6 +277,8 @@ function Projects({ today }: { today: string }) {
           <button className="chip" onClick={() => setOpenKeys(new Set(groups.map((x) => x.key)))}>Rozwiń wszystkie</button>
           <button className="chip" onClick={() => setOpenKeys(new Set())}>Zwiń</button>
         </div>
+        <button className="btn sm" onClick={() => setPasting(true)}><ClipboardPaste size={14} /> Wklej wątek maila</button>
+        <PasteStory open={pasting} onClose={() => setPasting(false)} />
         <span className="grow" />
         <button className="btn sm ghost" onClick={() => openAssistant('Co mi zostało do zrobienia w projektach? Ułóż kolejność na ten tydzień.')}>
           <Sparkles size={14} /> Ułóż kolejkę
@@ -297,6 +306,7 @@ function Projects({ today }: { today: string }) {
               {g.leadId && <Link className="btn sm ghost" to={`/firmy/${g.leadId}`} onClick={(e) => e.stopPropagation()}>Karta firmy →</Link>}
             </button>
             {isOpen && <ul className="list">{g.items.map((t) => <ProjectTaskRow key={t.id} t={t} today={today} onOpen={setDetail} link={g.kind === 'topic' || g.kind === 'other' || g.kind === 'run'} />)}</ul>}
+            {isOpen && (g.kind === 'project' || g.kind === 'topic') && <StoryPanel target={{ topic: g.title }} card={false} />}
           </div>
         );
       })}

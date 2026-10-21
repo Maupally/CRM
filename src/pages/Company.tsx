@@ -15,6 +15,7 @@ import {
 } from '../components/ui';
 import { STAGES, STAGE_INFO, TYPES, isClosed, normPhone, shortDate, type Activity, type Lead, type Segment, type Task } from '../../shared/domain';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
+import { StoryPanel } from '../components/Story';
 
 type Sheet = null | { mail: true } | { edit: true };
 
@@ -122,6 +123,8 @@ export function CompanyPage() {
           </section>
 
           <CompanyTasks tasks={(tasksQ.data || []).filter((t) => t.leadId === lead.id)} today={today} onOpen={setTaskOpen} />
+
+          <StoryPanel target={{ leadId: lead.id }} title="Historia projektu" />
 
           <History activities={activities} lead={lead} today={today} />
         </div>

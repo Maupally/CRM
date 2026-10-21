@@ -9,6 +9,8 @@ import { Designs } from './designs.js';
 import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
 import { Ideas } from './ideas.js';
+import { Stories, parseThread } from './story.js';
+import { suggestGroups } from '../shared/topics.js';
 import { BoardStore } from './board.js';
 import { Messages } from './messages.js';
 import { Processes } from './processes.js';
@@ -296,6 +298,23 @@ export function createApp(o: AppOptions) {
   api.delete('/notes/:id', async (c) => c.json(await (await boardStore()).deleteNote(num(c.req.param('id')))));
   api.post('/links', async (c) => { const d = await body<any>(c); return c.json(await (await boardStore()).link(d.a, d.b, d.label)); });
   api.delete('/links/:id', async (c) => c.json(await (await boardStore()).unlink(num(c.req.param('id')))));
+  // project story from pasted e-mail threads
+  api.get('/story', async (c) => c.json(await new Stories(await crm()).list({ leadId: c.req.query('lead') || '', eventId: c.req.query('event') || '', topic: c.req.query('topic') || '' })));
+  api.post('/story/parse', async (c) => {
+    const k = await crm();
+    const d = await body<{ text?: string }>(c);
+    const raw = String(d.text || '');
+    if (!raw.trim()) throw new HttpError(400, 'Wklej treść wątku.');
+    const parsed = process.env.ANTHROPIC_API_KEY ? await new Assistant(k).parseThread(raw) : parseThread(raw, k.today());
+    const [companies, tasks, events] = await Promise.all([new Stories(k).companiesFor(parsed.emails), k.listTasks(), k.listEvents()]);
+    const groups = suggestGroups(`${parsed.subject} ${parsed.items.map((i) => i.text).join(' ')}`, tasks, events, k.today());
+    return c.json({ ...parsed, ai: !!process.env.ANTHROPIC_API_KEY, companies, groups });
+  });
+  api.post('/story', async (c) => {
+    const d = await body<{ leadId?: string; eventId?: string; topic?: string; thread?: string; items?: [] }>(c);
+    return c.json(await new Stories(await crm()).add({ leadId: d.leadId, eventId: d.eventId, topic: d.topic }, d.thread || '', d.items || []));
+  });
+  api.delete('/story/:id', async (c) => c.json(await new Stories(await crm()).remove(num(c.req.param('id')))));
   const ideas = async () => { const k = await crm(); return new Ideas(k.db, () => k.today()); };
   api.get('/ideas', async (c) => c.json(await (await ideas()).list()));
   api.post('/ideas', async (c) => c.json(await (await ideas()).save(await body(c))));
