@@ -880,11 +880,14 @@ const WRITE_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: 'update_event',
-    description: 'PROPOZYCJA zmiany wydarzenia: status (planned/confirmed/done/cancelled), data, godzina, miejsce albo dopisanie notatki.',
+    description: 'PROPOZYCJA zmiany wydarzenia: nazwa (np. poprawka literówki), rodzaj, firma-partner, status (planned/confirmed/done/cancelled), data, godzina, miejsce albo dopisanie notatki.',
     input_schema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'ID wydarzenia, np. EV-0002' },
+        title: { type: 'string', description: 'nowa nazwa wydarzenia' },
+        type: { type: 'string', enum: ['Open day', 'Workshop', 'Fair', 'Sponsorship', 'Meeting', 'Other'] },
+        lead_id: { type: 'string', description: 'firma-partner (find_companies); "" odpina' },
         status: { type: 'string', enum: ['planned', 'confirmed', 'done', 'cancelled'] },
         date: { type: 'string' }, time: { type: 'string' }, location: { type: 'string' },
         add_note: { type: 'string', description: 'Tekst dopisywany do notatek wydarzenia' },
@@ -2169,6 +2172,12 @@ export class Assistant {
         if (input.date) this.checkDate(input.date);
         title = `Wydarzenie: ${e.title} (${shortDate(e.date)})`;
         const st: Record<string, string> = { planned: 'planowane', confirmed: 'potwierdzone', done: 'odbyło się', cancelled: 'odwołane' };
+        if (input.title !== undefined) {
+          if (!txt(input.title)) throw new Error('Nazwa wydarzenia nie może być pusta.');
+          lines.push(`Nazwa → ${txt(input.title)}`);
+        }
+        if (input.type) lines.push(`Rodzaj → ${input.type}`);
+        if (input.lead_id !== undefined) lines.push(txt(input.lead_id) ? `Firma → ${await this.companyName(txt(input.lead_id), pending)}` : 'Odepnij od firmy');
         if (input.status) lines.push(`Status → ${st[input.status] || input.status}`);
         if (input.date) lines.push(`Data → ${shortDate(input.date)}`);
         if (input.time) lines.push(`Godzina → ${input.time}`);
@@ -2461,7 +2470,8 @@ export class Assistant {
             const e = (await crm.listEvents()).find((x) => x.id === input.id);
             if (!e) throw new Error(`Nie ma wydarzenia ${input.id}.`);
             const notes = input.add_note ? [e.notes, txt(input.add_note)].filter(Boolean).join('\n') : e.notes;
-            const saved = await crm.saveEvent({ ...e, status: input.status || e.status, date: input.date || e.date,
+            const lead = input.lead_id === undefined ? {} : { leadId: txt(input.lead_id), company: '' };
+            const saved = await crm.saveEvent({ ...e, ...lead, title: txt(input.title) || e.title, type: input.type || e.type, status: input.status || e.status, date: input.date || e.date,
               time: input.time ?? e.time, location: input.location ?? e.location, notes });
             leadId = undefined; message = `Zmieniono wydarzenie: ${saved.title}`;
             break;
