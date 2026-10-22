@@ -2361,7 +2361,7 @@ export class Assistant {
         if (input.due) this.checkDate(input.due);
         title = `${input.status === 'done' ? 'Odhacz' : input.status === 'skipped' ? 'Niewykonane' : 'Zmień'}: ${t.task}`;
         if (input.status === 'skipped' && txt(input.skip_reason)) lines.push(`Powód: ${txt(input.skip_reason)}`);
-        if (input.status) lines.push(`Status → ${({ todo: 'do zrobienia', doing: 'w toku', done: 'zrobione' } as Record<string, string>)[input.status]}`);
+        if (input.status) lines.push(`Status → ${({ todo: 'do zrobienia', doing: 'w toku', done: 'zrobione', skipped: 'niewykonane' } as Record<string, string>)[input.status]}`);
         if (input.due) lines.push(`Termin → ${WD[weekday(input.due)]} ${shortDate(input.due)}`);
         if (input.task) lines.push(`Opis → ${input.task}`);
         if (input.add_materials?.length) lines.push(`Nowe materiały: ${input.add_materials.map((m: Input) => m.title).join(', ')}`);
