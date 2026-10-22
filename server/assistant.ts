@@ -18,6 +18,8 @@ import { weeklyItems } from './weekly.js';
 import { capacity } from '../shared/capacity.js';
 import { suggestGroups } from '../shared/topics.js';
 import { Stories, parseThread, type ParsedThread } from './story.js';
+import { Marketing } from './marketing.js';
+import { CONTENT_STATUS_LABEL, PARTNER_STATUS_LABEL } from '../shared/marketing.js';
 import { Ideas } from './ideas.js';
 import { BoardStore } from './board.js';
 import { buildDefaults, buildFormScript, type Question } from './forms.js';
@@ -266,6 +268,53 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'get_content_plan',
+    description: 'Kalendarz treści (posty, rolki, maile, reklamy, udostępnienia na grupach): data, kanał, rodzaj, tytuł, wydarzenie, kto robi, status ' +
+      '(idea → production → ready → published), link do publikacji i wynik. Bez dat = zakres ±2 tygodnie od dziś plus wszystko bez daty. ' +
+      'Sprawdź przy planowaniu promocji wydarzenia i gdy pytanie brzmi „co wychodzi w tym tygodniu”, „co ma Roma do nagrania”.',
+    input_schema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, event_id: { type: 'string' } }, additionalProperties: false },
+  },
+  {
+    name: 'save_content',
+    description: 'Kalendarz treści: dodaje pozycję albo zmienia istniejącą (z id). Planując promocję wydarzenia, rozpisz ją na konkretne treści (np. zapowiedź, rolka Romy, ' +
+      'przypomnienie, udostępnienia na grupach i do znajomych, relacja po) z datami, kanałami i osobą. Gotowy tekst posta wpisz w body. ' +
+      'Gdy ktoś mówi, że coś poszło — status published z linkiem; wynik (zasięg, zapisy) w result.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' }, day: { type: 'string', description: 'yyyy-MM-dd, "" = jeszcze bez daty' },
+        channel: { type: 'string', description: 'Facebook, Instagram, TikTok, YouTube, LinkedIn, Grupy FB, WhatsApp, Kinderpedia, Newsletter, Strona, Reklama, Inne' },
+        kind: { type: 'string', description: 'Post, Rolka / wideo, Relacja, Karuzela, Artykuł, Mail, Reklama, Udostępnienie, Plakat / grafika, Inne' },
+        title: { type: 'string' }, body: { type: 'string', description: 'tekst / scenariusz / brief' }, event_id: { type: 'string' },
+        owner: { type: 'string', description: 'kto robi (imię)' },
+        status: { type: 'string', enum: ['idea', 'production', 'ready', 'published', 'dropped'] },
+        link: { type: 'string' }, result: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_partner_backlog',
+    description: 'Backlog partnerski: ludzie, których znamy i którzy mogą puścić dalej nasze informacje (np. nauczycielka tańca do swoich klientów) — kto, skąd go znamy, ' +
+      'do kogo dociera, co może zrobić, przy jakim wydarzeniu, kto z nas się tym zajmie, status. Sprawdzaj przy promocji każdego wydarzenia.',
+    input_schema: { type: 'object', properties: { event_id: { type: 'string' }, status: { type: 'string', enum: ['idea', 'asked', 'agreed', 'done', 'no'] } }, additionalProperties: false },
+  },
+  {
+    name: 'save_partner_idea',
+    description: 'Backlog partnerski: dopisuje osobę/pomysł albo zmienia istniejący (z id). Zapisz od razu, gdy na spotkaniu albo w rozmowie pada „X mogłaby powiedzieć o tym swoim klientom”. ' +
+      'status: idea (pomysł) → asked (zapytane) → agreed (zgoda) → done (zrobione) / no.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer' }, who: { type: 'string' }, relation: { type: 'string', description: 'skąd ją/go znamy, kim jest' },
+        reach: { type: 'string', description: 'do kogo dociera' }, idea: { type: 'string', description: 'co może zrobić' }, contact: { type: 'string' },
+        event_id: { type: 'string' }, owner: { type: 'string', description: 'kto z nas się tym zajmie' },
+        status: { type: 'string', enum: ['idea', 'asked', 'agreed', 'done', 'no'] }, notes: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'get_story',
     description: 'Historia projektu (wątki maili i notatki) przy firmie, wydarzeniu albo temacie — od najstarszej. Sprawdź, gdy pytanie brzmi „na czym stanęło z X”, „co ustaliliśmy”, przed mailem do partnera i przed raportem.',
     input_schema: { type: 'object', properties: { lead_id: { type: 'string' }, event_id: { type: 'string' }, topic: { type: 'string' } }, additionalProperties: false },
@@ -364,9 +413,10 @@ const GATEWAY = [
 
 const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
 const STORY_ACTIONS = new Set(['save_story', 'get_story']);
+const MARKETING_ACTIONS = new Set(['get_content_plan', 'save_content', 'get_partner_backlog', 'save_partner_idea']);
 const BOARD_ACTIONS = new Set(['save_person_note', 'link_nodes', 'get_person_file']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
-const CONNECTOR_WRITES = new Set(['save_story', 'save_person_note', 'link_nodes', 'save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
+const CONNECTOR_WRITES = new Set(['save_content', 'save_partner_idea', 'save_story', 'save_person_note', 'link_nodes', 'save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -1592,7 +1642,7 @@ export class Assistant {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
     // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
     const kb = KNOWLEDGE_TOOLS.filter((t) => TASK_READS.has(t.name));
-    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name) || BOARD_ACTIONS.has(t.name) || STORY_ACTIONS.has(t.name));
+    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name) || BOARD_ACTIONS.has(t.name) || STORY_ACTIONS.has(t.name) || MARKETING_ACTIONS.has(t.name));
     return [...READ_TOOLS, ...kb, ...own, ...writes].map((t) => ({
       name: t.name,
       description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
@@ -1759,6 +1809,27 @@ export class Assistant {
         notes: f.notes.slice(0, 40).map((n) => ({ id: n.id, day: n.day, text: n.text, ref: n.ref || undefined, also: n.links.filter((l) => !(l.kind === 'person' && l.id === String(p.id))).map((l) => l.label) })),
         connections: f.connections.map((c) => ({ kind: c.node.kind, id: c.node.id, name: c.node.label, why: c.why.slice(0, 5) })),
       });
+    }
+    if (MARKETING_ACTIONS.has(name)) {
+      const m = new Marketing(this.crm);
+      if (name === 'save_content') {
+        const c = await m.saveContent(input);
+        return `Kalendarz treści (id ${c.id}): ${c.day || 'bez daty'} · ${[c.channel, c.kind].filter(Boolean).join(' / ')} · ${c.title}${c.owner ? ` · ${c.owner}` : ''} · ${CONTENT_STATUS_LABEL[c.status]}.`;
+      }
+      if (name === 'save_partner_idea') {
+        const p = await m.savePartner(input);
+        return `Backlog partnerski (id ${p.id}): ${p.who}${p.idea ? ` — ${p.idea}` : ''} · ${PARTNER_STATUS_LABEL[p.status]}${p.owner ? ` · zajmuje się ${p.owner}` : ''}.`;
+      }
+      if (name === 'get_content_plan') {
+        const today = this.crm.today();
+        const list = await m.content({ from: input.from || (input.event_id ? undefined : addDays(today, -14)), to: input.to || (input.event_id ? undefined : addDays(today, 21)), eventId: input.event_id });
+        return list.length ? JSON.stringify(list.map((c) => ({ id: c.id, day: c.day || null, channel: c.channel, kind: c.kind, title: c.title, event: c.eventTitle, owner: c.owner,
+          status: c.status, late: c.status !== 'published' && c.day && c.day < today ? true : undefined, link: c.link || undefined, result: c.result || undefined,
+          body: c.body ? c.body.slice(0, 300) : undefined }))) : 'Kalendarz treści jest pusty w tym zakresie.';
+      }
+      const list = await m.partners({ eventId: input.event_id, status: input.status });
+      return list.length ? JSON.stringify(list.map((p) => ({ id: p.id, who: p.who, relation: p.relation, reach: p.reach, idea: p.idea, event: p.eventTitle, owner: p.owner,
+        status: p.status, contact: p.contact || undefined, notes: p.notes || undefined, added_by: p.createdBy }))) : 'Backlog partnerski jest pusty.';
     }
     if (STORY_ACTIONS.has(name)) {
       const stories = new Stories(this.crm);

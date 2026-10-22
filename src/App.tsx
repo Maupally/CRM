@@ -5,7 +5,7 @@ import {
   Users,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
-  Target, Workflow, FileText, Lightbulb,
+  Target, Workflow, FileText, Lightbulb, Megaphone,
 } from 'lucide-react';
 import { api } from './api';
 import { searchKey } from '../shared/domain';
@@ -27,11 +27,16 @@ const ProcessesPage = lazy(() => import('./pages/Processes').then((m) => ({ defa
 const TemplatesPage = lazy(() => import('./pages/Templates').then((m) => ({ default: m.TemplatesPage })));
 const LaterPage = lazy(() => import('./pages/Later').then((m) => ({ default: m.LaterPage })));
 const PeoplePage = lazy(() => import('./pages/People').then((m) => ({ default: m.PeoplePage })));
+const MarketingPage = lazy(() => import('./pages/Marketing').then((m) => ({ default: m.MarketingPage })));
+const TeamSpacePage = lazy(() => import('./pages/TeamSpace').then((m) => ({ default: m.TeamSpacePage })));
 const PersonFilePage = lazy(() => import('./pages/People').then((m) => ({ default: m.PersonFilePage })));
 
 export function App() {
   const qc = useQueryClient();
-  const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: Infinity });
+  const loc = useLocation();
+  // a team link opens only the marketing space — no login, nothing else of Opal5
+  const team = loc.pathname.startsWith('/z/');
+  const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: Infinity, enabled: !team });
 
   useEffect(() => {
     const out = () => qc.setQueryData(['me'], (m: any) => ({ ...(m || {}), authenticated: false }));
@@ -39,6 +44,7 @@ export function App() {
     return () => window.removeEventListener('crm:signed-out', out);
   }, [qc]);
 
+  if (team) return <Suspense fallback={<Loading />}><Routes><Route path="/z/:token" element={<TeamSpacePage />} /></Routes></Suspense>;
   if (me.isLoading) return <Loading />;
   if (me.error) return <div className="login"><div className="error-box">{(me.error as Error).message}</div></div>;
   if (me.data?.setupNeeded) return <SetPassword />;
@@ -105,6 +111,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
     { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
     { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
     { to: '/zespol', label: 'Zespół', icon: Users },
+    { to: '/marketing', label: 'Marketing', icon: Megaphone },
     { to: '/procesy', label: 'Procesy', icon: Workflow },
     { to: '/na-pozniej', label: 'Na później', icon: Lightbulb },
   ] },
@@ -181,6 +188,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/zespol" element={<PeoplePage />} />
             <Route path="/zespol/:id" element={<PersonFilePage />} />
             <Route path="/b2c" element={<B2cPage />} />
+            <Route path="/marketing" element={<MarketingPage />} />
             <Route path="/szablony" element={<TemplatesPage />} />
             <Route path="/procesy" element={<ProcessesPage />} />
             <Route path="/na-pozniej" element={<LaterPage />} />
@@ -207,6 +215,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },
             { to: '/zespol', label: 'Zespół', icon: Users },
+    { to: '/marketing', label: 'Marketing', icon: Megaphone },
             { to: '/procesy', label: 'Procesy', icon: Workflow },
             { to: '/na-pozniej', label: 'Na później', icon: Lightbulb },
             { to: '/raporty', label: 'Raporty', icon: BarChart3 },

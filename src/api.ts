@@ -1,5 +1,6 @@
 import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea, MsgChannel, MsgStats, Board, PersonFile, StoryItem } from '../shared/domain';
 import type { ParsedThread, StoryDraft } from '../server/story';
+import type { ContentItem, ContentReportRow, PartnerIdea, ShareLink } from '../shared/marketing';
 import type { GroupSuggestion } from '../shared/topics';
 export type ParsedStory = ParsedThread & { ai: boolean; companies: { id: string; company: string }[]; groups: GroupSuggestion[] };
 import type { FeeYear, FeesView } from '../shared/fees';
@@ -266,4 +267,37 @@ export const api = {
     f.append('confirm', 'REPLACE');
     return req<Record<string, unknown> & { warnings: string[] }>('POST', '/import', f);
   },
+};
+
+/* ---------- marketing: the same calls for Opal5 and for a team link (which opens only these two lists) */
+export interface TeamContext { name: string; events: { id: string; title: string; date: string }[]; team: string[] }
+export interface MarketingClient {
+  key: string;
+  context: () => Promise<TeamContext>;
+  content: (from: string, to: string) => Promise<ContentItem[]>;
+  saveContent: (d: Partial<ContentItem>) => Promise<ContentItem>;
+  deleteContent: (id: number) => Promise<unknown>;
+  report: (month: string) => Promise<{ month: string; rows: ContentReportRow[]; published: ContentItem[] }>;
+  partners: () => Promise<PartnerIdea[]>;
+  savePartner: (d: Partial<PartnerIdea>) => Promise<PartnerIdea>;
+  deletePartner: (id: number) => Promise<unknown>;
+}
+export function marketingClient(token?: string): MarketingClient {
+  const base = token ? `/share/${encodeURIComponent(token)}` : '/marketing';
+  return {
+    key: token ? 'team' : 'own',
+    context: () => get<TeamContext>(token ? base : `${base}/context`),
+    content: (from, to) => get<ContentItem[]>(`${base}/content?from=${from}&to=${to}`),
+    saveContent: (d) => post<ContentItem>(`${base}/content`, d),
+    deleteContent: (id) => del(`${base}/content/${id}`),
+    report: (month) => get(`${base}/content-report?month=${month}`),
+    partners: () => get<PartnerIdea[]>(`${base}/partners`),
+    savePartner: (d) => post<PartnerIdea>(`${base}/partners`, d),
+    deletePartner: (id) => del(`${base}/partners/${id}`),
+  };
+}
+export const shareLinks = {
+  list: () => get<ShareLink[]>('/marketing/links'),
+  add: (name: string) => post<ShareLink>('/marketing/links', { name }),
+  revoke: (token: string) => del(`/marketing/links/${encodeURIComponent(token)}`),
 };

@@ -10,6 +10,7 @@ import { Threads } from './threads.js';
 import { B2c } from './b2c.js';
 import { Ideas } from './ideas.js';
 import { Stories, parseThread } from './story.js';
+import { Marketing } from './marketing.js';
 import { suggestGroups } from '../shared/topics.js';
 import { BoardStore } from './board.js';
 import { Messages } from './messages.js';
@@ -138,6 +139,30 @@ export function createApp(o: AppOptions) {
       : '❌ Ten adres konektora jest nieaktualny. Skopiuj nowy z Opal5 → Ustawienia → Claude.'}</body>`, good ? 200 : 404);
   });
   api.delete('/mcp/:token', (c) => c.body(null, 405));
+
+  // Team space: a personal link opens only the content calendar and the partnership backlog — no login, nothing else.
+  const team = async (c: Context) => {
+    const m = new Marketing(await o.crm());
+    return { m, by: await m.resolve(c.req.param('token') || '') };
+  };
+  const json = (c: Context) => c.req.json<Record<string, any>>().catch(() => { throw new HttpError(400, 'Niepoprawne dane.'); });
+  const own = async (by: string, row: { createdBy: string }) => {
+    if (row.createdBy !== by) throw new HttpError(403, 'Usunąć możesz tylko to, co sam(a) dodałeś/dodałaś — poproś Martina.');
+  };
+  api.get('/share/:token', async (c) => { const { m, by } = await team(c); return c.json({ name: by, ...(await m.teamContext()) }); });
+  api.get('/share/:token/content', async (c) => { const { m } = await team(c); return c.json(await m.content({ from: c.req.query('from'), to: c.req.query('to') })); });
+  api.get('/share/:token/content-report', async (c) => { const { m } = await team(c); return c.json(await m.contentReport(c.req.query('month') || '')); });
+  api.post('/share/:token/content', async (c) => { const { m, by } = await team(c); return c.json(await m.saveContent(await json(c), by)); });
+  api.delete('/share/:token/content/:id', async (c) => {
+    const { m, by } = await team(c); const id = Number(c.req.param('id'));
+    await own(by, await m.getContent(id)); return c.json(await m.removeContent(id));
+  });
+  api.get('/share/:token/partners', async (c) => { const { m } = await team(c); return c.json(await m.partners()); });
+  api.post('/share/:token/partners', async (c) => { const { m, by } = await team(c); return c.json(await m.savePartner(await json(c), by)); });
+  api.delete('/share/:token/partners/:id', async (c) => {
+    const { m, by } = await team(c); const id = Number(c.req.param('id'));
+    await own(by, await m.getPartner(id)); return c.json(await m.removePartner(id));
+  });
 
   api.use('*', async (c, next) => {
     if (!(await authed(c))) return c.json({ error: 'Zaloguj się.' }, 401);
@@ -298,6 +323,20 @@ export function createApp(o: AppOptions) {
   api.delete('/notes/:id', async (c) => c.json(await (await boardStore()).deleteNote(num(c.req.param('id')))));
   api.post('/links', async (c) => { const d = await body<any>(c); return c.json(await (await boardStore()).link(d.a, d.b, d.label)); });
   api.delete('/links/:id', async (c) => c.json(await (await boardStore()).unlink(num(c.req.param('id')))));
+  // marketing: content calendar, partnership backlog, team links
+  const mk = async () => new Marketing(await crm());
+  api.get('/marketing/content', async (c) => c.json(await (await mk()).content({ from: c.req.query('from'), to: c.req.query('to') })));
+  api.get('/marketing/content-report', async (c) => c.json(await (await mk()).contentReport(c.req.query('month') || '')));
+  api.post('/marketing/content', async (c) => c.json(await (await mk()).saveContent(await body(c))));
+  api.delete('/marketing/content/:id', async (c) => c.json(await (await mk()).removeContent(num(c.req.param('id')))));
+  api.get('/marketing/partners', async (c) => c.json(await (await mk()).partners()));
+  api.post('/marketing/partners', async (c) => c.json(await (await mk()).savePartner(await body(c))));
+  api.delete('/marketing/partners/:id', async (c) => c.json(await (await mk()).removePartner(num(c.req.param('id')))));
+  api.get('/marketing/context', async (c) => c.json({ name: '', ...(await (await mk()).teamContext()) }));
+  api.get('/marketing/links', async (c) => c.json(await (await mk()).links()));
+  api.post('/marketing/links', async (c) => c.json(await (await mk()).addLink(String((await body<{ name?: string }>(c)).name || ''))));
+  api.delete('/marketing/links/:token', async (c) => c.json(await (await mk()).revokeLink(c.req.param('token'))));
+
   // project story from pasted e-mail threads
   api.get('/story', async (c) => c.json(await new Stories(await crm()).list({ leadId: c.req.query('lead') || '', eventId: c.req.query('event') || '', topic: c.req.query('topic') || '' })));
   api.post('/story/parse', async (c) => {
