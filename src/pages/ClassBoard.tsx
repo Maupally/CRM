@@ -19,7 +19,7 @@ const appDark = () => document.documentElement.dataset.theme === 'dark' || (!doc
 const FONT = "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif";
 const PAD = 32, LINE = 20;
 /** a lead opens in the school system */
-const LEAD_URL = 'https://evotech.com/lead/';
+const LEAD_URL = 'https://evvotek.com/lead/';
 type Hit = { x: number; y: number; w: number; h: number; url: string };
 let COL = 158;
 const YEARS = ['2627', '2728'] as const;
@@ -28,16 +28,15 @@ const mmYY = (d?: string) => (d ? `${d.slice(5, 7)}.${d.slice(0, 4)}` : '–');
 const LEGEND: [keyof Ink, string, string][] = [
   ['current', 'zapisani', 'chodzą w tym roku (faktura); przekreśleni odchodzą'],
   ['joining', 'dołączają', 'umowa podpisana, start później (data obok)'],
-  ['potential', 'potencjalni', 'aktywne leady (bez future leadów): szansa zapisu w % i etap'],
+  ['potential', 'potencjalni', 'aktywne leady (bez future leadów), w nawiasie szansa zapisu'],
 ];
 
 function entryText(e: BoardEntry, year: string, names: boolean): string {
-  const g = e.gender === 'F' ? '♀' : e.gender === 'M' ? '♂' : '·';
   const who = names && e.name ? e.name : '';
-  if (e.kind === 'current' || e.kind === 'leaving') return `${g} ${who || mmYY(e.born)}`;
-  if (e.kind === 'joining') return `${g} ${who || mmYY(e.born)} → ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : '?'}`;
+  if (e.kind === 'current' || e.kind === 'leaving') return who || mmYY(e.born);
+  if (e.kind === 'joining') return `${who || mmYY(e.born)} → ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : '?'}`;
   const later = e.year && e.year !== year ? ` ${yearLabel(e.year).slice(2)}` : '';
-  return who ? `${e.chance ?? 0}% ${who}${later}` : `${e.chance ?? 0}% ${stageLabel(e.stage) || 'lead'}${later}`;
+  return `${who || stageLabel(e.stage) || 'lead'}${later} (${e.chance ?? 0}%)`;
 }
 
 /** Draws the board on a canvas — the same picture goes to the screen, the PNG and the clipboard. */
@@ -75,7 +74,7 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
     const nw = text(name, PAD + 16, ly, 13, c, { weight: 600 });
     text(`— ${what}`, PAD + 20 + nw, ly, 13, INK.soft);
   });
-  text(names ? 'zawiera imiona — tylko do użytku wewnętrznego' : '♀/♂ mm.rrrr = płeć i miesiąc urodzenia · bez imion i danych kontaktowych', w - PAD, 98, 12, names ? INK.potential : INK.faint, { align: 'right' });
+  text(names ? 'zawiera imiona — tylko do użytku wewnętrznego' : 'mm.rrrr = miesiąc urodzenia · bez imion i danych kontaktowych', w - PAD, 98, 12, names ? INK.potential : INK.faint, { align: 'right' });
   const leaving = tot('leaving');
   text(`${tot('current') + leaving} zapisanych${leaving ? ` (${leaving} odchodzi)` : ''} · ${tot('joining')} dołącza · ${tot('potential')} potencjalnych`, w - PAD, 116, 13, INK.title, { align: 'right', weight: 600 });
 
@@ -195,7 +194,7 @@ export function ClassBoardPage() {
         </div>
         <div className="row small soft" style={{ gap: 8, alignItems: 'flex-start' }}>
           <ShieldCheck size={16} style={{ flex: 'none', color: 'var(--ok)' }} />
-          <span>Pliki czytam tylko w tej przeglądarce — nic z nich nie wysyłam. Imiona widzisz tylko tutaj; „Zapisz w Opal5” zapisuje wersję bez imion, maili i telefonów (klasa, miesiąc urodzenia, płeć, etap i szansa leada). Możesz wgrywać eksporty prosto z systemu, bez czyszczenia.</span>
+          <span>Pliki czytam tylko w tej przeglądarce — nic z nich nie wysyłam. Imiona widzisz tylko tutaj; „Zapisz w Opal5” zapisuje wersję bez imion, maili i telefonów (klasa, miesiąc urodzenia, etap i szansa leada). Możesz wgrywać eksporty prosto z systemu, bez czyszczenia.</span>
         </div>
         {files.names.length > 0 && <div className="small">{files.names.join(' · ')}{!files.leads && ' · (dorzuć eksport leadów, żeby zobaczyć potencjalnych)'}</div>}
         {names && hasNames && <div className="small" style={{ color: 'var(--warn)' }}>Imiona widać tylko tutaj — nie zapisuję ich w Opal5. Zanim wyślesz obrazek do raportu, odznacz „Imiona i nazwiska”.</div>}

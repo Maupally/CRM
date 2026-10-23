@@ -121,7 +121,7 @@ export function sanitizeBoard(b: ClassBoardData, year: string): ClassBoardData {
   const cols = (Array.isArray(b?.columns) ? b.columns : []).slice(0, 20).map((c) => ({
     key: str(c.key).slice(0, 20), label: str(c.label).slice(0, 30), cohort: str(c.cohort).slice(0, 20),
     entries: (Array.isArray(c.entries) ? c.entries : []).slice(0, 300).filter((e) => kinds.includes(e.kind)).map((e) => ({
-      kind: e.kind, gender: e.gender === 'F' || e.gender === 'M' ? e.gender : undefined, born: ym(e.born), start: ym(e.start),
+      kind: e.kind, born: ym(e.born), start: ym(e.start),
       stage: e.stage && /^[a-z_]{1,30}$/.test(e.stage) ? e.stage : undefined, year: e.year && /^\d{4}$/.test(e.year) ? e.year : undefined,
       chance: e.kind === 'potential' ? Math.max(0, Math.min(100, Math.round(Number(e.chance) || 0))) : undefined,
     })),
