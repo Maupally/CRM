@@ -2,9 +2,27 @@ import { Hono, type Context } from 'hono';
 import { getSignedCookie, setSignedCookie, deleteCookie } from 'hono/cookie';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Crm, HttpError } from './crm.js';
-import { openDb } from './db.js';
-import { importWorkbook, exportWorkbook } from './spreadsheet.js';
-import { Assistant, type AssistantTurn } from './assistant.js';
+import { dbClock, openDb } from './db.js';
+import { Assistant, withSummary, type AssistantTurn } from './assistant.js';
+import { TOOLS_VERSION, handleMcp, handleStaleMcp, lastMcp, mcpToken } from './mcp.js';
+import { Designs } from './designs.js';
+import { Threads } from './threads.js';
+import { B2c } from './b2c.js';
+import { Ideas } from './ideas.js';
+import { Stories, parseThread } from './story.js';
+import { Marketing } from './marketing.js';
+import { sanitizeBoard, type ClassBoardData } from '../shared/classboard.js';
+import { suggestGroups } from '../shared/topics.js';
+import { BoardStore } from './board.js';
+import { Messages } from './messages.js';
+import { Processes } from './processes.js';
+import { suggestProcesses } from './suggest.js';
+import { personProfile } from './profile.js';
+import { callReport, callReportHtml, callReportReady, getCallConfig, parseScriptConfig, saveCallConfig, sendCallReport } from './callreport.js';
+import { getFees, resetFeeYear, saveFeeYear } from './fees.js';
+import { WeeklyMemory, doneList, weeklyItems } from './weekly.js';
+import { Knowledge, MAX_FILE } from './knowledge.js';
+import { mailEnabled } from './mail.js';
 
 export interface AppOptions {
   /** Called on the first request; the result is reused afterwards. */
@@ -13,6 +31,8 @@ export interface AppOptions {
   password?: string;
   secret?: string;
   secureCookies?: boolean;
+  /** Online (Vercel) the app never runs open: without a password it shows how to set one and serves nothing else. */
+  requirePassword?: boolean;
 }
 
 const COOKIE = 'crm_session';
@@ -33,6 +53,7 @@ export function appFromEnv() {
     password: process.env.APP_PASSWORD || '',
     secret: process.env.SESSION_SECRET,
     secureCookies: process.env.SECURE_COOKIES === '1' || !!process.env.VERCEL,
+    requirePassword: !!process.env.VERCEL || process.env.REQUIRE_PASSWORD === '1',
   });
 }
 
@@ -51,7 +72,28 @@ export function createApp(o: AppOptions) {
     return c.json({ error: msg || 'Błąd serwera' }, 500);
   });
 
+  /* ---- timing: how long each request took, how much of it was the database, and whether the server had just started */
+  const bootAt = Date.now();
+  let served = 0;
+  api.use('*', async (c, next) => {
+    const t = performance.now();
+    const clock = { ms: 0, n: 0 };
+    const cold = served++ === 0;
+    await dbClock.run(clock, next);
+    const total = performance.now() - t;
+    c.header('Server-Timing', `app;dur=${total.toFixed(0)}, db;dur=${clock.ms.toFixed(0)};desc="${clock.n} queries"${cold ? ', cold;dur=0' : ''}`);
+    c.header('Timing-Allow-Origin', '*');
+    if (total > 1000) console.log(`slow ${c.req.method} ${c.req.path} ${total.toFixed(0)}ms db=${clock.ms.toFixed(0)}ms/${clock.n}q${cold ? ` cold (up ${Date.now() - bootAt}ms)` : ''}`);
+  });
+
   /* ---- auth */
+  const setupNeeded = !password && !!o.requirePassword;
+  if (setupNeeded) {
+    api.get('/me', (c) => c.json({ authenticated: false, passwordRequired: true, setupNeeded: true }));
+    api.all('*', (c) => c.json({ error: 'Opal5 jest zablokowany, dopóki nie ustawisz hasła (APP_PASSWORD w Vercel).' }, 503));
+    return new Hono().route('/api', api);
+  }
+
   const authed = async (c: Context) => {
     if (!password) return true;
     const v = await getSignedCookie(c, secret, COOKIE);
@@ -79,6 +121,50 @@ export function createApp(o: AppOptions) {
     return c.json({ ok: true });
   });
 
+  // Connector for Claude chats: the secret token in the path stands in for the login.
+  const connectorToken = mcpToken(secret);
+  api.post('/mcp/:token', async (c) => {
+    if (!same(c.req.param('token'), connectorToken)) return handleStaleMcp(c, o.crm);
+    return handleMcp(c, o.crm);
+  });
+  // Opened in a browser, the address says whether it is the current one; MCP clients asking for a stream get 405.
+  api.get('/mcp/:token', (c) => {
+    if ((c.req.header('accept') || '').includes('text/event-stream')) return c.body(null, 405);
+    const good = same(c.req.param('token'), connectorToken);
+    const tools = Assistant.mcpTools().map((t) => t.name).sort();
+    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><body style="font:16px system-ui;padding:24px;max-width:720px">${good
+      ? `<p>✅ To jest aktualny adres konektora Opal5. Wklej go w claude.ai → Settings → Connectors.</p>
+        <p>Wersja narzędzi: <b>${TOOLS_VERSION}</b> · ${tools.length} narzędzi:</p><p style="line-height:1.8">${tools.map((t) => `<code>${t}</code>`).join(' ')}</p>
+        <p style="color:#666">Jeśli Claude w czacie mówi, że któregoś nie ma — claude.ai trzyma starą listę: odłącz i podłącz konektor, sprawdź w czacie
+        (ikona narzędzi → Opal5), czy nowe narzędzia są włączone, i zacznij nowy czat.</p>`
+      : '❌ Ten adres konektora jest nieaktualny. Skopiuj nowy z Opal5 → Ustawienia → Claude.'}</body>`, good ? 200 : 404);
+  });
+  api.delete('/mcp/:token', (c) => c.body(null, 405));
+
+  // Team space: a personal link opens only the content calendar and the partnership backlog — no login, nothing else.
+  const team = async (c: Context) => {
+    const m = new Marketing(await o.crm());
+    return { m, by: await m.resolve(c.req.param('token') || '') };
+  };
+  const json = (c: Context) => c.req.json<Record<string, any>>().catch(() => { throw new HttpError(400, 'Niepoprawne dane.'); });
+  const own = async (by: string, row: { createdBy: string }) => {
+    if (row.createdBy !== by) throw new HttpError(403, 'Usunąć możesz tylko to, co sam(a) dodałeś/dodałaś — poproś Martina.');
+  };
+  api.get('/share/:token', async (c) => { const { m, by } = await team(c); return c.json({ name: by, ...(await m.teamContext()) }); });
+  api.get('/share/:token/content', async (c) => { const { m } = await team(c); return c.json(await m.content({ from: c.req.query('from'), to: c.req.query('to') })); });
+  api.get('/share/:token/content-report', async (c) => { const { m } = await team(c); return c.json(await m.contentReport(c.req.query('month') || '')); });
+  api.post('/share/:token/content', async (c) => { const { m, by } = await team(c); return c.json(await m.saveContent(await json(c), by)); });
+  api.delete('/share/:token/content/:id', async (c) => {
+    const { m, by } = await team(c); const id = Number(c.req.param('id'));
+    await own(by, await m.getContent(id)); return c.json(await m.removeContent(id));
+  });
+  api.get('/share/:token/partners', async (c) => { const { m } = await team(c); return c.json(await m.partners()); });
+  api.post('/share/:token/partners', async (c) => { const { m, by } = await team(c); return c.json(await m.savePartner(await json(c), by)); });
+  api.delete('/share/:token/partners/:id', async (c) => {
+    const { m, by } = await team(c); const id = Number(c.req.param('id'));
+    await own(by, await m.getPartner(id)); return c.json(await m.removePartner(id));
+  });
+
   api.use('*', async (c, next) => {
     if (!(await authed(c))) return c.json({ error: 'Zaloguj się.' }, 401);
     await next();
@@ -93,7 +179,7 @@ export function createApp(o: AppOptions) {
   const crm = o.crm;
 
   /* ---- reads */
-  api.get('/config', async (c) => c.json({ ...(await (await crm()).config()), assistant: !!process.env.ANTHROPIC_API_KEY }));
+  api.get('/config', async (c) => c.json({ ...(await (await crm()).config()), assistant: !!process.env.ANTHROPIC_API_KEY, mail: mailEnabled() }));
   api.get('/dashboard', async (c) => c.json(await (await crm()).dashboard()));
   api.get('/leads', async (c) => c.json(await (await crm()).listLeads()));
   api.get('/leads/:id', async (c) => c.json(await (await crm()).leadCard(c.req.param('id'))));
@@ -102,9 +188,204 @@ export function createApp(o: AppOptions) {
   })));
   api.get('/agenda', async (c) => c.json(await (await crm()).agenda(c.req.query('from') || '', c.req.query('to') || '')));
   api.get('/stats', async (c) => c.json(await (await crm()).stats()));
+  api.get('/report/done', async (c) => c.json(await doneList(await crm(), c.req.query('from'), c.req.query('to'))));
+  // class board: anonymous (class, birth month, gender, lead stage) — built in the browser from the school system's exports
+  api.get('/classboard/:year', async (c) => {
+    const v = await (await crm()).setting(`classboard.${c.req.param('year')}`);
+    return c.json(v ? JSON.parse(v) : null);
+  });
+  api.post('/classboard/:year', async (c) => {
+    const b = await body<ClassBoardData>(c);
+    const clean = sanitizeBoard(b, c.req.param('year'));
+    await (await crm()).setSetting(`classboard.${clean.year}`, JSON.stringify(clean));
+    return c.json({ ok: true });
+  });
+  api.get('/report/memory', async (c) => { const m = new WeeklyMemory(await crm()); return c.json({ rules: await m.rules(), sent: await m.sent() }); });
+  api.post('/report/memory', async (c) => {
+    const m = new WeeklyMemory(await crm());
+    const d = await body<{ rules?: string[]; sent?: string }>(c);
+    if (Array.isArray(d.rules)) await m.setRules(d.rules);
+    if (d.sent) await m.addSent(d.sent);
+    return c.json({ rules: await m.rules(), sent: await m.sent() });
+  });
+  api.get('/report/items', async (c) => c.json(await weeklyItems(await crm(), c.req.query('from'), c.req.query('to'))));
   api.get('/report', async (c) => c.json(await (await crm()).report(c.req.query('from'), c.req.query('to'))));
   api.get('/events', async (c) => c.json(await (await crm()).listEvents()));
   api.get('/tasks', async (c) => c.json(await (await crm()).listTasks()));
+  api.get('/connector', async (c) => {
+    const u = new URL(c.req.url);
+    const host = c.req.header('x-forwarded-host') || u.host;
+    const proto = c.req.header('x-forwarded-proto') || u.protocol.replace(':', '');
+    return c.json({ url: `${proto}://${host}/api/mcp/${connectorToken}`, version: TOOLS_VERSION,
+      tools: Assistant.mcpTools().map((t) => t.name).sort(), ...(await lastMcp(await crm())) });
+  });
+  /* ---- chats */
+  const threads = async () => new Threads((await crm()).db);
+  api.get('/threads', async (c) => c.json(await (await threads()).list()));
+  api.post('/threads', async (c) => c.json(await (await threads()).create(await body(c))));
+  api.get('/threads/:id', async (c) => c.json(await (await threads()).get(num(c.req.param('id')))));
+  api.patch('/threads/:id', async (c) => c.json(await (await threads()).update(num(c.req.param('id')), await body(c))));
+  api.delete('/threads/:id', async (c) => c.json(await (await threads()).remove(num(c.req.param('id')))));
+
+  /* ---- studio */
+  const designs = async () => new Designs((await crm()).db);
+  const RUN_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; default-src 'none'; " +
+    "script-src 'unsafe-inline' 'unsafe-eval' https:; style-src 'unsafe-inline' https:; img-src * data: blob:; font-src https: data:; connect-src 'none'";
+  api.get('/studio', async (c) => c.json(await (await designs()).list()));
+  api.post('/studio', async (c) => {
+    const d = await body<{ title?: string; kind?: string; fromKnowledge?: number; versions?: { html: string; note?: string }[]; chat?: { role: 'user' | 'assistant'; text: string }[] }>(c);
+    const ds = await designs();
+    return c.json(d.fromKnowledge ? await ds.fromKnowledge(await kb(), Number(d.fromKnowledge), d.kind) : await ds.create(d));
+  });
+  api.get('/studio/:id', async (c) => {
+    const { containerId: _, ...d } = await (await designs()).get(num(c.req.param('id')));
+    return c.json(d);
+  });
+  api.patch('/studio/:id', async (c) => c.json(await (await designs()).update(num(c.req.param('id')), await body(c))));
+  api.delete('/studio/:id', async (c) => c.json(await (await designs()).remove(num(c.req.param('id')))));
+  api.post('/studio/:id/restore', async (c) => c.json(await (await designs()).restore(num(c.req.param('id')), Number((await body<{ version: number }>(c)).version))));
+  api.post('/studio/:id/message', async (c) => {
+    const d = await body<{ text?: string; attachments?: number[] }>(c);
+    const { containerId: _, ...r } = await new Assistant(await crm()).designTurn(await designs(), num(c.req.param('id')), d.text || '', d.attachments || []);
+    return c.json(r);
+  });
+  /** The document itself: for the preview frame, full screen, printing to PDF, or download (?download=1). */
+  api.get('/studio/:id/html', async (c) => {
+    const v = c.req.query('v');
+    const ds = await designs();
+    const id = num(c.req.param('id'));
+    const r = await ds.render(await kb(), id, v !== undefined ? Number(v) : undefined);
+    const text = ['form', 'brief'].includes((await ds.get(id)).kind);   // a script or a brief is text, not a page
+    const name = `${r.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'projekt'}.${text ? ((await ds.get(id)).kind === 'form' ? 'gs' : 'txt') : 'html'}`;
+    return c.body(r.html, 200, {
+      'Content-Type': `${text ? 'text/plain' : 'text/html'}; charset=utf-8`,
+      'Content-Disposition': `${c.req.query('download') ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'Content-Security-Policy': RUN_CSP,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+  });
+  /** Keeps the current version in the knowledge base, so the assistant and tasks can use it. */
+  api.post('/studio/:id/save', async (c) => {
+    const ds = await designs();
+    const id = num(c.req.param('id'));
+    const d = await ds.get(id);
+    const html = d.versions[d.versions.length - 1]?.html;
+    if (!html) throw new HttpError(400, 'Projekt jest jeszcze pusty.');
+    const name = `${d.title.replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'projekt'}.html`;
+    return c.json(await (await kb()).add({ title: d.title, filename: name, mime: 'text/html', data: new TextEncoder().encode(html),
+      tags: 'narzędzie studio', description: `Ze Studio (${d.versions.length} wersji)` }));
+  });
+
+  api.get('/style', async (c) => c.json(await (await crm()).style()));
+  api.put('/style', async (c) => c.json(await (await crm()).saveStyle(await body(c))));
+  api.post('/style/learn', async (c) => {
+    const d = await body<{ ids?: number[]; chats?: number[]; mode?: string }>(c);
+    return c.json({ text: await new Assistant(await crm()).learnStyle((d.ids || []).map(Number),
+      d.mode === 'casual' ? 'casual' : d.mode === 'project' ? 'project' : 'b2b', (d.chats || []).map(Number)) });
+  });
+  api.get('/people', async (c) => c.json(await (await crm()).listPeople()));
+  api.get('/events/:id/assets', async (c) => c.json(await (await designs()).list({ eventId: c.req.param('id') })));
+  api.get('/events/:id/people', async (c) => c.json(await (await crm()).eventPeople(c.req.param('id'))));
+  api.post('/events/:id/people', async (c) => {
+    const d = await body<{ personId?: number; role?: string }>(c);
+    return c.json(await (await crm()).linkPersonEvent(c.req.param('id'), Number(d.personId), d.role || ''));
+  });
+  api.delete('/events/:id/people/:pid', async (c) => c.json(await (await crm()).unlinkPersonEvent(c.req.param('id'), num(c.req.param('pid')))));
+  api.get('/help', async (c) => c.json(await (await crm()).findHelp(c.req.query('q') || '')));
+
+  /* ---- procedures: editing here, creating and starting by voice (claude.ai) */
+  const procs = async () => new Processes(await crm());
+  api.get('/processes', async (c) => c.json(await (await procs()).list()));
+  api.post('/processes', async (c) => {
+    const d = await body<{ id?: number }>(c);
+    if (!d.id) throw new HttpError(400, 'Nowe procedury zapisuje Claude — tu można je edytować.');
+    return c.json(await (await procs()).save(d));
+  });
+  api.delete('/processes/:id', async (c) => c.json(await (await procs()).remove(num(c.req.param('id')))));
+  api.get('/processes/suggestions', async (c) => c.json(await suggestProcesses(await crm())));
+  api.get('/runs', async (c) => c.json(await (await procs()).runs({ all: c.req.query('all') === '1' })));
+  api.post('/runs/:id/cancel', async (c) => c.json(await (await procs()).cancel(num(c.req.param('id')))));
+  api.get('/people/:id/profile', async (c) => c.json(await personProfile(await crm(), num(c.req.param('id')))));
+  api.get('/people/:id/work', async (c) => c.json(await (await procs()).personWork(num(c.req.param('id')))));
+
+  /* ---- CALL REPORT (Plus call recording) */
+  const stamp = () => new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' });
+  api.get('/reports/calls/config', async (c) => c.json({ ...(await getCallConfig(await crm())), ready: callReportReady(), mail: mailEnabled() }));
+  api.put('/reports/calls/config', async (c) => c.json(await saveCallConfig(await crm(), await body(c))));
+  api.post('/reports/calls/import', async (c) => {
+    const d = await body<{ script?: string }>(c);
+    return c.json(await saveCallConfig(await crm(), parseScriptConfig(String(d.script || ''))));
+  });
+  api.get('/reports/calls', async (c) => {
+    const r = await callReport(await crm(), { from: c.req.query('from'), to: c.req.query('to') });
+    return c.json({ report: r, html: callReportHtml(r, stamp()) });
+  });
+  api.post('/reports/calls/send', async (c) => {
+    const d = await body<{ from?: string; to?: string }>(c);
+    const k = await crm();
+    const r = await callReport(k, { from: d.from, to: d.to });
+    return c.json(await sendCallReport(k, r, callReportHtml(r, stamp())));
+  });
+
+  /* ---- B2C progress */
+  const b2c = async () => { const k = await crm(); return new B2c(k.db, () => k.today()); };
+  api.get('/fees', async (c) => c.json(await getFees(await crm())));
+  api.put('/fees/:city/:y1/:y2', async (c) => c.json(await saveFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`, await body(c))));
+  api.delete('/fees/:city/:y1/:y2', async (c) => c.json(await resetFeeYear(await crm(), c.req.param('city'), `${c.req.param('y1')}/${c.req.param('y2')}`)));
+  const messages = async () => { const k = await crm(); return new Messages(k.db, () => k.today()); };
+  api.post('/messages/log', async (c) => c.json(await (await messages()).log(await body(c))));
+  api.get('/messages/stats', async (c) => c.json(await (await messages()).stats(c.req.query('from'), c.req.query('to'))));
+  const boardStore = async () => new BoardStore(await crm());
+  api.get('/board', async (c) => c.json(await (await boardStore()).board()));
+  api.get('/people/:id/file', async (c) => c.json(await (await boardStore()).personFile(num(c.req.param('id')))));
+  api.post('/notes', async (c) => c.json(await (await boardStore()).addNote(await body(c))));
+  api.delete('/notes/:id', async (c) => c.json(await (await boardStore()).deleteNote(num(c.req.param('id')))));
+  api.post('/links', async (c) => { const d = await body<any>(c); return c.json(await (await boardStore()).link(d.a, d.b, d.label)); });
+  api.delete('/links/:id', async (c) => c.json(await (await boardStore()).unlink(num(c.req.param('id')))));
+  // marketing: content calendar, partnership backlog, team links
+  const mk = async () => new Marketing(await crm());
+  api.get('/marketing/content', async (c) => c.json(await (await mk()).content({ from: c.req.query('from'), to: c.req.query('to') })));
+  api.get('/marketing/content-report', async (c) => c.json(await (await mk()).contentReport(c.req.query('month') || '')));
+  api.post('/marketing/content', async (c) => c.json(await (await mk()).saveContent(await body(c))));
+  api.delete('/marketing/content/:id', async (c) => c.json(await (await mk()).removeContent(num(c.req.param('id')))));
+  api.get('/marketing/partners', async (c) => c.json(await (await mk()).partners()));
+  api.post('/marketing/partners', async (c) => c.json(await (await mk()).savePartner(await body(c))));
+  api.delete('/marketing/partners/:id', async (c) => c.json(await (await mk()).removePartner(num(c.req.param('id')))));
+  api.get('/marketing/context', async (c) => c.json({ name: '', ...(await (await mk()).teamContext()) }));
+  api.get('/marketing/links', async (c) => c.json(await (await mk()).links()));
+  api.post('/marketing/links', async (c) => c.json(await (await mk()).addLink(String((await body<{ name?: string }>(c)).name || ''))));
+  api.delete('/marketing/links/:token', async (c) => c.json(await (await mk()).revokeLink(c.req.param('token'))));
+
+  // project story from pasted e-mail threads
+  api.get('/story', async (c) => c.json(await new Stories(await crm()).list({ leadId: c.req.query('lead') || '', eventId: c.req.query('event') || '', topic: c.req.query('topic') || '' })));
+  api.post('/story/parse', async (c) => {
+    const k = await crm();
+    const d = await body<{ text?: string }>(c);
+    const raw = String(d.text || '');
+    if (!raw.trim()) throw new HttpError(400, 'Wklej treść wątku.');
+    const parsed = process.env.ANTHROPIC_API_KEY ? await new Assistant(k).parseThread(raw) : parseThread(raw, k.today());
+    const [companies, tasks, events] = await Promise.all([new Stories(k).companiesFor(parsed.emails), k.listTasks(), k.listEvents()]);
+    const groups = suggestGroups(`${parsed.subject} ${parsed.items.map((i) => i.text).join(' ')}`, tasks, events, k.today());
+    return c.json({ ...parsed, ai: !!process.env.ANTHROPIC_API_KEY, companies, groups });
+  });
+  api.post('/story', async (c) => {
+    const d = await body<{ leadId?: string; eventId?: string; topic?: string; thread?: string; items?: [] }>(c);
+    return c.json(await new Stories(await crm()).add({ leadId: d.leadId, eventId: d.eventId, topic: d.topic }, d.thread || '', d.items || []));
+  });
+  api.delete('/story/:id', async (c) => c.json(await new Stories(await crm()).remove(num(c.req.param('id')))));
+  const ideas = async () => { const k = await crm(); return new Ideas(k.db, () => k.today()); };
+  api.get('/ideas', async (c) => c.json(await (await ideas()).list()));
+  api.post('/ideas', async (c) => c.json(await (await ideas()).save(await body(c))));
+  api.delete('/ideas/:id', async (c) => c.json(await (await ideas()).remove(num(c.req.param('id')))));
+  api.get('/b2c', async (c) => c.json(await (await b2c()).list()));
+  api.post('/b2c', async (c) => c.json(await (await b2c()).save(await body(c))));
+  api.delete('/b2c/:id', async (c) => c.json(await (await b2c()).remove(num(c.req.param('id')))));
+  api.post('/b2c/:id/progress', async (c) => {
+    const d = await body<{ delta?: number; note?: string; day?: string }>(c);
+    return c.json(await (await b2c()).progress(num(c.req.param('id')), Number(d.delta) || 0, d.note || '', d.day));
+  });
+  api.get('/b2c/:id/log', async (c) => c.json(await (await b2c()).log(num(c.req.param('id')))));
   api.get('/segments', async (c) => c.json(await (await crm()).listSegments()));
   api.get('/templates', async (c) => c.json(await (await crm()).listTemplates()));
   api.get('/duplicates', async (c) => c.json(await (await crm()).duplicates()));
@@ -134,6 +415,9 @@ export function createApp(o: AppOptions) {
   api.post('/tasks', async (c) => c.json(await (await crm()).saveTask(await body(c))));
   api.post('/tasks/:id/toggle', async (c) => c.json(await (await crm()).toggleTask(c.req.param('id'))));
   api.delete('/tasks/:id', async (c) => c.json(await (await crm()).deleteTask(c.req.param('id'))));
+  api.post('/people', async (c) => c.json(await (await crm()).savePerson(await body(c))));
+  api.delete('/people/:id', async (c) => c.json(await (await crm()).deletePerson(Number(c.req.param('id')))));
+  api.post('/people/:id/touch', async (c) => c.json(await (await crm()).touchPerson(Number(c.req.param('id')))));
 
   /* ---- playbook */
   api.post('/segments', async (c) => c.json(await (await crm()).saveSegment(await body(c))));
@@ -142,10 +426,21 @@ export function createApp(o: AppOptions) {
   api.delete('/templates/:code', async (c) => c.json(await (await crm()).deleteTemplate(c.req.param('code'))));
 
   /* ---- assistant: proposals first, writes only after the user approves */
+  api.post('/report/summary', async (c) => {
+    const d = await c.req.json().catch(() => ({}));
+    const k = await crm();
+    if (!process.env.ANTHROPIC_API_KEY) {         // no assistant: the notes still make it into the report
+      const rep = await k.report(d.from || undefined, d.to || undefined);
+      return c.json({ ...rep, summary: '', text: withSummary(rep.text, String(d.notes || ''), 'NOTES') });
+    }
+    return c.json(await new Assistant(k).reportWithSummary(d.from || undefined, d.to || undefined, String(d.notes || '')));
+  });
   api.post('/assistant', async (c) => {
-    const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string; image?: { mediaType: string; data: string }; spoken?: boolean }>(c);
+    const d = await body<{ text: string; history?: AssistantTurn[]; leadId?: string; image?: { mediaType: string; data: string };
+      spoken?: boolean; attachments?: number[]; containerId?: string; threadId?: number }>(c);
     return c.json(await new Assistant(await crm()).ask(d.text || '', Array.isArray(d.history) ? d.history : [],
-      { leadId: d.leadId, image: d.image || null, spoken: !!d.spoken }));
+      { leadId: d.leadId, image: d.image || null, spoken: !!d.spoken, attachments: Array.isArray(d.attachments) ? d.attachments : [],
+        containerId: typeof d.containerId === 'string' ? d.containerId : undefined, threadId: Number(d.threadId) || undefined }));
   });
   api.post('/assistant/execute', async (c) => {
     const d = await body<{ items: { tool: string; input: Record<string, unknown> }[] }>(c);
@@ -154,9 +449,50 @@ export function createApp(o: AppOptions) {
     return c.json(await new Assistant(k, process.env.ANTHROPIC_API_KEY || 'unused').execute(d.items.slice(0, 20)));
   });
 
+  /* ---- knowledge base */
+  const kb = async () => new Knowledge((await crm()).db);
+  api.get('/knowledge', async (c) => c.json(await (await kb()).list()));
+  api.get('/knowledge/:id', async (c) => c.json(await (await kb()).get(num(c.req.param('id')))));
+  api.post('/knowledge', async (c) => {
+    const k = await kb();
+    if ((c.req.header('content-type') || '').includes('multipart/form-data')) {
+      const form = await c.req.formData();
+      const f = form.get('file');
+      if (!(f instanceof File)) throw new HttpError(400, 'Dołącz plik.');
+      if (f.size > MAX_FILE) throw new HttpError(400, 'Plik jest za duży (maks. 4 MB).');
+      return c.json(await k.add({ title: String(form.get('title') || ''), filename: f.name, mime: f.type,
+        data: new Uint8Array(await f.arrayBuffer()), description: String(form.get('description') || ''), tags: String(form.get('tags') || '') }), 201);
+    }
+    const d = await body<{ title?: string; text?: string; description?: string; tags?: string }>(c);
+    return c.json(await k.add(d), 201);
+  });
+  api.patch('/knowledge/:id', async (c) => c.json(await (await kb()).update(num(c.req.param('id')), await body(c))));
+  api.delete('/knowledge/:id', async (c) => c.json(await (await kb()).remove(num(c.req.param('id')))));
+  api.get('/knowledge/:id/file', async (c) => {
+    const f = await (await kb()).file(num(c.req.param('id')));
+    const inline = c.req.query('inline') === '1';
+    const headers: Record<string, string> = {
+      'Content-Type': f.mime || 'application/octet-stream',
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.filename)}`,
+      'Cache-Control': 'private, max-age=300',
+      'X-Content-Type-Options': 'nosniff',
+    };
+    // generated HTML is previewed in a sandbox: no scripts, no access to the CRM's cookies or API
+    // ?run=1 lets an HTML tool (a calculator, templates page from Claude) run its scripts — still in a sandbox
+    // with an opaque origin, so it cannot read the CRM's cookies or call its API.
+    if (/html/.test(f.mime)) {
+      headers['Content-Security-Policy'] = inline && c.req.query('run') === '1'
+        ? "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads; default-src 'none'; " +
+          "script-src 'unsafe-inline' 'unsafe-eval' https:; style-src 'unsafe-inline' https:; img-src * data: blob:; font-src https: data:; connect-src 'none'"
+        : 'sandbox; default-src \'none\'; img-src * data:; style-src \'unsafe-inline\' *; font-src *';
+    }
+    return c.body(f.data as unknown as ArrayBuffer, 200, headers);
+  });
+
   /* ---- data */
   api.get('/export.xlsx', async (c) => {
     const k = await crm();
+    const { exportWorkbook } = await import('./spreadsheet.js');   // xlsx loads only when needed (cold starts stay light)
     const buf = await exportWorkbook(k);
     return c.body(new Uint8Array(buf), 200, {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -170,6 +506,7 @@ export function createApp(o: AppOptions) {
     if (form.get('confirm') !== 'REPLACE') throw new HttpError(400, 'Import zastępuje wszystkie dane — potwierdź.');
     const k = await crm();
     try {
+      const { importWorkbook } = await import('./spreadsheet.js');
       return c.json(await importWorkbook(k.db, new Uint8Array(await f.arrayBuffer()), k.today(), k.owner));
     } catch (e) {
       throw new HttpError(400, e instanceof Error ? e.message : String(e));

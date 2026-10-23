@@ -1,4 +1,4 @@
-# B2B CRM
+# Opal5
 
 CRM do partnerstw B2B: pulpit dnia, zadania, lejek (kanban), baza firm z widokami,
 karta firmy z historią i pitchem, kalendarz, wydarzenia z checklistą, raporty
@@ -21,7 +21,10 @@ dodać do ekranu głównego („Dodaj do ekranu głównego” w Chrome).
    - `APP_PASSWORD` — hasło do CRM (**obowiązkowo**, w bazie są prawdziwe kontakty),
    - `OWNER` — imię w raporcie (domyślnie `Martin`),
    - `ANTHROPIC_API_KEY` — klucz z console.anthropic.com, włącza asystenta głosowego,
-   - opcjonalnie `SESSION_SECRET` — dowolny długi ciąg znaków.
+   - opcjonalnie `SESSION_SECRET` — dowolny długi ciąg znaków,
+   - opcjonalnie `RESEND_API_KEY` + `MAIL_FROM` (np. `Martin <martin@twojadomena.pl>`, domena
+     zweryfikowana w resend.com) i `MAIL_REPLY_TO` — wtedy maile do grup firm wysyła sam CRM.
+     Bez tego asystent przygotuje adresy (UDW) i treść do wklejenia w swojej poczcie.
 4. **Deployments → Redeploy**.
 5. Wejdź na adres projektu, zaloguj się, **Ustawienia → Dane → Import z arkusza** i wgraj .xlsx
    (w Google Sheets: Plik → Pobierz → Microsoft Excel).
@@ -48,7 +51,79 @@ notatkę, daty i treść maila można poprawić przed zapisem. Bez zatwierdzenia
   potem „zaplanuj im telefony na przyszły tydzień” — rozłoży równo na dni robocze.
 - **Raport i wydarzenia**: „zrób raport tygodniowy”, „bieg Terry'ego Foxa jest potwierdzony”.
 
-Model: Claude Opus 5 (`server/assistant.ts`). Rozpoznawanie i czytanie mowy robi przeglądarka
+- **Projekty i zadania**: wydarzenia to projekty z listą zadań („wrzuć mi na dziś przygotowanie
+  tekstów na bieg”). Asystent od razu pisze gotowe materiały (tekst dla nauczycieli, post, SMS do
+  rodziców) i podpina pliki z Bazy wiedzy (np. plakat). „Zrobione”, „przesuń na jutro”,
+  „co mi zostało w projekcie X” — odhacza i przesuwa. Widok: **Zadania → Projekty**.
+- **Mail do grupy**: „wyślij zaproszenie na bieg do szkół i przedszkoli” — lista odbiorców z bazy,
+  temat i treść do poprawienia, załączniki. Ostrzega, gdy wśród odbiorców są firmy bez wcześniejszego
+  kontaktu (masowy mail bez zgody = niezamówiona informacja handlowa). Ten sam mail nie pójdzie
+  dwa razy pod jeden adres w tej samej kampanii.
+- **Pliki (📎)**: wrzuć PDF, Worda albo zdjęcie i powiedz, co zrobić — „dodaj kod QR do zapisów
+  w prawym dolnym rogu”, „zrób do tego stronę www w HTML”, „streść”. Gotowe pliki wracają w czacie
+  i lądują w Bazie wiedzy (podgląd, pobieranie). Rozmowa zostaje po zamknięciu — „Nowa rozmowa” czyści.
+
+## Przeniesienie z Claude i styl pisania
+
+Wszystko dzieje się w Opal5. Wiedzę z projektu „Maple Bear” przenosisz raz:
+1. claude.ai → Ustawienia → Prywatność → **Eksportuj dane**; z maila pobierz plik .zip.
+2. **Baza wiedzy → Przenieś z Claude** → wybierz plik, zaznacz projekt i czaty (B2B, conversation,
+   templates). Plik czyta przeglądarka; do CRM trafiają tylko zaznaczone rzeczy: dokumenty projektu,
+   jego instrukcje, rozmowy (jako notatki) i artefakty HTML (jako narzędzia, np. kalkulator).
+3. **Ustawienia → Styl pisania → Ucz się z czatów**: asystent czyta wybrane rozmowy i zapisuje
+   zasady pisania — osobno maile B2B i rozmowy swobodne (rodzice, nauczyciele).
+
+### Praca w claude.ai (plan Pro) z zapisem w Opal5
+
+Ustawienia → **Claude**: adres konektora MCP (`/api/mcp/<token>`) i gotowe zasady do instrukcji projektu.
+W claude.ai Claude czyta i zapisuje CRM, a do tego `log_chat` zapisuje rozmowy w **Czatach**, `save_design` strony
+i prezentacje w **Studio** (ten sam tytuł = nowa wersja), `save_note` ustalenia w **Bazie wiedzy**.
+Bez `ANTHROPIC_API_KEY` Opal5 nie wywołuje API (nic nie kosztuje): asystent pod mikrofonem znika, Czaty i Studio są do podglądu i pobierania.
+
+## Internet
+
+Asystent w CRM sam szuka w internecie, gdy pytasz „co to za firma”, podajesz adres e-mail albo
+domenę, albo mówisz „sprawdź w internecie…” (web search + otwieranie stron).
+
+## Narzędzia HTML
+
+Artefakt z czatu Claude (np. kalkulator, strona z szablonami) pobierz jako .html i wgraj do Bazy
+wiedzy — pojawi się w „Narzędziach” i działa w CRM (w piaskownicy, bez dostępu do danych CRM).
+
+## Czaty
+
+**Menu → Czaty** (`/czaty`): wszystkie rozmowy — przeniesione z Claude i nowe — z pełną historią, z
+boku lista (szukaj, filtr B2B / swobodny / ogólny). W każdym czacie można pisać dalej (z mikrofonem);
+asystent ma wtedy jego historię jako kontekst. Asystent pod mikrofonem widzi listę czatów: przy
+pisaniu maila do firmy czyta czat B2B i zapisuje w nim całą wymianę (prośbę i gotowy mail), więc widać
+ją w obu miejscach. Kod: `server/threads.ts`, `src/pages/Chats.tsx`.
+
+## Studio
+
+**Menu → Studio** (`/studio`): strony WWW, prezentacje, szablony maili i dokumenty robione w rozmowie
+z Claude — jak Claude Design. Po lewej czat, po prawej podgląd na żywo (komputer / telefon), wersje
+(każda poprawka to nowa wersja, starsze można przywrócić), pobieranie HTML, druk do PDF, eksport do
+PowerPoint/Word. Projekt można zacząć od pliku HTML z Bazy wiedzy (np. prezentacji przeniesionej z
+Claude: „Edytuj w Studio”). Obrazy z Bazy wiedzy wstawiają się przez `kb://ID`. Kod: `server/designs.ts`,
+`Assistant.designTurn`, `src/pages/Studio.tsx`.
+
+## Zespół
+
+**Więcej → Zespół** (`/zespol`): dyrekcja, koordynatorzy, nauczyciele — imię, funkcja, e-mail, telefon
+i jak ich nazywasz („dyrektor”, „Patryk”). Asystent sprawdza tę listę, gdy w poleceniu pada imię
+albo funkcja, i przypina osobę do zadania; gdy kogoś nie zna, proponuje dodanie. W zadaniu widać,
+do kogo jest, z telefonem i mailem. Mail w zadaniu ma osobne pola Do / Temat / Treść (każde do
+skopiowania) i nigdy nie ma stopki. Najczęstsze kontakty są na górze listy.
+
+## Baza wiedzy
+
+**Więcej → Baza wiedzy** (`/wiedza`). Tu trafia to, co było w projekcie „Maple Bear” w czatach Claude:
+plakaty, prezentacje, oferta, gotowe teksty, zasady. Projektu z claude.ai nie da się podpiąć przez API,
+więc: w projekcie pobierz pliki (i artefakty), wgraj je tutaj; wiedzę z samych rozmów wklej jako
+**Notatkę**. Dobry tytuł i opis („Plakat biegu Terry'ego Foxa, 10.10”) pomagają asystentowi trafić.
+Pliki do 4 MB; z PDF i Worda CRM sam wyciąga tekst.
+
+Model: Claude Opus 5.5 (`server/assistant.ts`). Szybkie sprawy (odhaczanie, przesuwanie, notatki, telefony) idą bez Bazy wiedzy i plików, na niskim poziomie myślenia; pełna ścieżka włącza się, gdy trzeba coś napisać albo dołączono plik. Rozpoznawanie i czytanie mowy robi przeglądarka
 (Chrome na Androidzie, Safari).
 
 ## Co się zmieniło względem wersji z Sheets
@@ -95,6 +170,10 @@ Docker / VPS: `docker build -t b2b-crm . && docker run -p 3000:3000 -e DATABASE_
 ```
 shared/domain.ts       etapy, reguły (priorytet, auto-etap), normalizacja, polskie etykiety
 server/crm.ts          wszystkie odczyty i zapisy
+server/assistant.ts    asystent (narzędzia, propozycje, wykonanie)
+server/knowledge.ts    Baza wiedzy (pliki, notatki, wyszukiwanie)
+server/studio.ts       kody QR i nanoszenie ich na PDF / plakat
+server/mail.ts         wysyłka maili do grup (Resend)
 server/db.ts           Postgres (serwer) albo PGlite (lokalnie), schemat `crm`
 server/report.ts       raport tygodniowy
 server/spreadsheet.ts  import / eksport .xlsx
@@ -102,3 +181,13 @@ server/app.ts          API + logowanie
 api/index.ts           funkcja Vercel
 src/                   interfejs (React)
 ```
+
+### B2C (postępy)
+
+Zakładka **B2C**: cele z licznikiem (np. „Telefony do rodziców — 18/60”), ile zostało, ile w ostatnich 7 dniach, terminy.
+Na razie osobno, bez połączenia z CRM B2C. Z claude.ai: `b2c_status`, `b2c_progress`, `b2c_save_item`.
+
+### Logowanie
+
+Online (Vercel) Opal5 nie działa bez hasła: ustaw `APP_PASSWORD` w Vercel → Environment Variables i zrób Redeploy.
+Sesja trwa 30 dni. Zmiana hasła zmienia adres konektora dla claude.ai.

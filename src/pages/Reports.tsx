@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Activity, AlarmClock, PhoneCall, Target, Copy, Send } from 'lucide-react';
-import { api, type Bucket } from '../api';
-import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, typeLabel, useToast, useToday } from '../components/ui';
-import { COUNTED, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Activity, AlarmClock, PhoneCall, Target, Mail, MessageSquare, Building, Copy, Send, Sparkles, Loader2, Download, Settings2, Check, X } from 'lucide-react';
+import { api, type Bucket, type CallConfig } from '../api';
+import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, useAction, typeLabel, useConfig, useToast, useToday } from '../components/ui';
+import { COUNTED, MSG_CHANNEL_LABEL, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
 
 const TYPE_COLOR: Record<string, string> = {
   Call: 'var(--accent)', Email: 'var(--violet)', SMS: 'var(--warn)', Meeting: 'var(--ok)', Visit: '#1E9E8F',
@@ -12,16 +12,16 @@ const TYPE_COLOR: Record<string, string> = {
 
 export function ReportsPage() {
   const [sp, setSp] = useSearchParams();
-  const tab = (sp.get('tab') || 'przeglad') as 'przeglad' | 'tygodniowy';
+  const tab = (sp.get('tab') || 'przeglad') as 'przeglad' | 'tygodniowy' | 'zrobione' | 'polaczenia' | 'wiadomosci';
   return (
     <>
       <div className="page-head">
         <div><h1>Raporty</h1><div className="sub">Aktywność, lejek i raport tygodniowy do wysłania.</div></div>
         <span className="spacer" />
-        <Seg value={tab} options={['przeglad', 'tygodniowy'] as const} onChange={(t) => setSp(t === 'przeglad' ? {} : { tab: t }, { replace: true })}
-          labels={{ przeglad: 'Przegląd', tygodniowy: 'Raport tygodniowy' }} />
+        <Seg value={tab} options={['przeglad', 'tygodniowy', 'zrobione', 'wiadomosci', 'polaczenia'] as const} onChange={(t) => setSp(t === 'przeglad' ? {} : { tab: t }, { replace: true })}
+          labels={{ przeglad: 'Przegląd', tygodniowy: 'Raport tygodniowy', zrobione: 'Zrobione', wiadomosci: 'Wiadomości', polaczenia: 'Call report' }} />
       </div>
-      {tab === 'przeglad' ? <Overview /> : <Weekly />}
+      {tab === 'przeglad' ? <Overview /> : tab === 'polaczenia' ? <CallReport /> : tab === 'wiadomosci' ? <MessagesReport /> : tab === 'zrobione' ? <DoneView /> : <WeeklyBuilder />}
     </>
   );
 }
@@ -118,12 +118,26 @@ function BucketTile({ label, b }: { label: string; b: Bucket }) {
   );
 }
 
+const lsGet = (k: string) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
+
 function Weekly() {
   const today = useToday();
   const toast = useToast();
+  const cfg = useConfig();
   const [from, setFrom] = useState(() => addDays(today, -6));
   const [to, setTo] = useState(today);
+  const key = `crm-report-notes:${from}:${to}`;
+  const [notes, setNotes] = useState(() => lsGet(`crm-report-notes:${addDays(today, -6)}:${today}`));
+  const [final, setFinal] = useState<{ key: string; text: string } | null>(null);
+  useEffect(() => { setNotes(lsGet(key)); }, [key]);
   const q = useQuery({ queryKey: ['report', from, to], queryFn: () => api.report(from, to), enabled: !!from && !!to });
+  const sum = useMutation({
+    mutationFn: () => api.reportSummary(from, to, notes),
+    onSuccess: (r) => setFinal({ key, text: r.text }),
+    onError: (e) => toast((e as Error).message, 'error'),
+  });
+  const text = final?.key === key ? final.text : q.data?.text;
   const presets: [string, string, string][] = [
     ['Ostatnie 7 dni', addDays(today, -6), today],
     ['Ten tydzień', startOfWeek(today), today],
@@ -144,12 +158,451 @@ function Weekly() {
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 160, height: 36 }} />
       </div>
       <div className="divider" />
-      <div className="row wrap" style={{ padding: '12px 20px' }}>
-        <span className="soft small grow">Tekst po angielsku, gotowy do wklejenia w maila.</span>
-        <button className="btn sm primary" disabled={!q.data} onClick={() => { copyText(q.data!.text); toast('Skopiowano raport'); }}><Copy size={14} /> Kopiuj</button>
-        <a className="btn sm" href={q.data ? `mailto:?subject=${encodeURIComponent('B2B weekly report')}&body=${encodeURIComponent(q.data.text)}` : undefined}><Send size={14} /> Wyślij</a>
+      <div className="col tight" style={{ padding: '12px 20px' }}>
+        <label className="field">Od siebie — co jeszcze się wydarzyło, co podkreślić
+          <textarea rows={3} value={notes} placeholder="np. Dzień otwarty opublikowany na FB, zaproszenia do partnerów wysłane. Rozmowa z dyrekcją o biegu."
+            onChange={(e) => { setNotes(e.target.value); lsSet(key, e.target.value); }} />
+        </label>
+        <div className="row wrap">
+          <button className="btn sm primary" onClick={() => sum.mutate()} disabled={sum.isPending || !q.data}>
+            {sum.isPending ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+            {cfg.data?.assistant ? (final?.key === key ? ' Podsumuj jeszcze raz' : ' Dodaj podsumowanie') : ' Dodaj moje uwagi'}
+          </button>
+          {final?.key === key && <button className="btn sm ghost" onClick={() => setFinal(null)}>Bez podsumowania</button>}
+          <span className="soft small grow">{cfg.data?.assistant
+            ? 'Asystent przejdzie po rozmowach, zadaniach i wydarzeniach z okresu i napisze krótkie podsumowanie — z Twoimi uwagami.'
+            : 'Twoje uwagi trafią na górę raportu.'} Raport jest po angielsku.</span>
+        </div>
       </div>
-      {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : <pre className="report">{q.data!.text}</pre>}
+      <div className="divider" />
+      <div className="row wrap" style={{ padding: '12px 20px' }}>
+        <span className="grow" />
+        <button className="btn sm" disabled={!text} onClick={() => { copyText(text!); toast('Skopiowano raport'); }}><Copy size={14} /> Kopiuj</button>
+        <a className="btn sm" href={text ? `mailto:?subject=${encodeURIComponent('B2B weekly report')}&body=${encodeURIComponent(text)}` : undefined}><Send size={14} /> Wyślij</a>
+      </div>
+      {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : <pre className="report">{text}</pre>}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ CALL REPORT (Plus call recording) */
+
+/** The Friday–Thursday week ending on the latest Thursday, as in the old Apps Script. */
+function reportWeek(today: string) {
+  let to = today;
+  while (new Date(`${to}T12:00:00Z`).getUTCDay() !== 4) to = addDays(to, -1);
+  return { from: addDays(to, -6), to };
+}
+
+function CallReport() {
+  const today = useToday();
+  const toast = useToast();
+  const cfg = useQuery({ queryKey: ['call-config'], queryFn: api.callConfig });
+  const [range, setRange] = useState(() => reportWeek(today));
+  const [showCfg, setShowCfg] = useState(false);
+  const run = useMutation({ mutationFn: () => api.callReport(range.from, range.to), onError: (e: Error) => toast(e.message, 'error') });
+  const send = useMutation({ mutationFn: () => api.sendCallReport(range.from, range.to),
+    onSuccess: (r) => toast(`Wysłano do ${r.sent} odbiorców`), onError: (e: Error) => toast(e.message, 'error') });
+  const shift = (days: number) => setRange({ from: addDays(range.from, days), to: addDays(range.to, days) });
+  const c = cfg.data;
+  const download = () => {
+    if (!run.data) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([run.data.html], { type: 'text/html' }));
+    a.download = `call-report-${run.data.report.label}.html`;
+    a.click();
+  };
+
+  if (cfg.isLoading) return <Loading />;
+  return (
+    <div className="col" style={{ gap: 18 }}>
+      <section className="card pad col" style={{ gap: 12 }}>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <h2 className="grow" style={{ margin: 0 }}>Call report — aktywność telefoniczna</h2>
+          <button className="btn sm ghost" onClick={() => setShowCfg(!showCfg)}><Settings2 size={14} /> Konfiguracja</button>
+        </div>
+        {c && !c.ready && <div className="error-box small">Brak danych logowania do nagrywania Plusa. W Vercel → Settings → Environment Variables dodaj <code>PLUS_REC_USER</code> i <code>PLUS_REC_PASSWORD</code>, potem Redeploy.</div>}
+        {c && !c.people.length && <div className="hint">Najpierw wklej swój stary skrypt w „Konfiguracja” — wezmę z niego osoby, numery i odbiorców (bez hasła).</div>}
+        <div className="row wrap" style={{ gap: 8 }}>
+          <button className="btn sm" onClick={() => shift(-7)}>← tydzień</button>
+          <input type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} style={{ width: 150 }} />
+          <span className="soft">→</span>
+          <input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} style={{ width: 150 }} />
+          <button className="btn sm" onClick={() => shift(7)} disabled={range.to >= today}>tydzień →</button>
+          <span className="grow" />
+          <button className="btn primary" onClick={() => run.mutate()} disabled={run.isPending || !c?.ready || !c?.people.length}>
+            {run.isPending ? <Loader2 size={15} className="spin" /> : <PhoneCall size={15} />} Generuj raport
+          </button>
+        </div>
+        <div className="hint">Tydzień jak w skrypcie: piątek–czwartek. Dane pobierane na żywo z nagrywania Plusa (dopasowanie po numerze, potem po nazwie działu).</div>
+      </section>
+
+      {showCfg && c && <CallConfigPanel c={c} />}
+
+      {run.data && (
+        <section className="card pad col" style={{ gap: 10 }}>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <b className="grow">{run.data.report.from} → {run.data.report.to} · pobrano {run.data.report.fetched} połączeń</b>
+            <button className="btn sm" onClick={() => { copyText(run.data!.html); toast('Skopiowano HTML'); }}><Copy size={14} /> Kopiuj HTML</button>
+            <button className="btn sm" onClick={download}><Download size={14} /> Pobierz</button>
+            <button className="btn sm primary" disabled={send.isPending || !c?.mail || !c?.recipients.length}
+              title={c?.mail ? '' : 'Wysyłka z Opal5 nie jest włączona (RESEND_API_KEY, MAIL_FROM)'}
+              onClick={() => confirm(`Wysłać raport do ${c?.recipients.length} odbiorców?`) && send.mutate()}>
+              {send.isPending ? <Loader2 size={14} className="spin" /> : <Send size={14} />} Wyślij ({c?.recipients.length || 0})
+            </button>
+          </div>
+          {run.data.report.warnings.map((w) => <div key={w} className="small" style={{ color: 'var(--warn)' }}>⚠ {w}</div>)}
+          <iframe title="Call report" srcDoc={run.data.html} sandbox="" style={{ width: '100%', height: 620, border: 0, borderRadius: 10, background: '#f0f0f0' }} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function CallConfigPanel({ c }: { c: CallConfig & { ready: boolean; mail: boolean } }) {
+  const toast = useToast();
+  const [script, setScript] = useState('');
+  const [people, setPeople] = useState(c.people);
+  const [recipients, setRecipients] = useState(c.recipients.join('\n'));
+  const [blacklist, setBlacklist] = useState(c.blacklist.join(' '));
+  useEffect(() => { setPeople(c.people); setRecipients(c.recipients.join('\n')); setBlacklist(c.blacklist.join(' ')); }, [c]);
+  const imp = useMutation({ mutationFn: () => api.importCallScript(script),
+    onSuccess: (r) => { toast(`Wczytano: ${r.people.length} osób, ${r.blacklist.length} numerów, ${r.recipients.length} odbiorców`); setScript(''); cfgRefetch(); },
+    onError: (e: Error) => toast(e.message, 'error') });
+  const save = useMutation({ mutationFn: () => api.saveCallConfig({ people, recipients: recipients.split(/[\s,;]+/), blacklist: blacklist.split(/[\s,;]+/) }),
+    onSuccess: () => { toast('Zapisano'); cfgRefetch(); }, onError: (e: Error) => toast(e.message, 'error') });
+  const qc = useQueryClient();
+  const cfgRefetch = () => qc.invalidateQueries({ queryKey: ['call-config'] });
+  return (
+    <section className="card pad col" style={{ gap: 12 }}>
+      <h2 style={{ margin: 0 }}>Konfiguracja raportu</h2>
+      <div className="small soft">Logowanie do Plusa: {c.ready ? '✅ ustawione w Vercel' : '❌ brak (PLUS_REC_USER, PLUS_REC_PASSWORD)'} · Wysyłka maili: {c.mail ? '✅' : '❌ wyłączona — raport pobierzesz i wyślesz sam'}</div>
+      <label className="field">Wklej stary skrypt Google Apps Script — wezmę osoby, numery wewnętrzne i odbiorców (login i hasło pomijam)
+        <textarea rows={4} value={script} onChange={(e) => setScript(e.target.value)} placeholder="const CONFIG = { … }" /></label>
+      <button className="btn sm" style={{ alignSelf: 'flex-start' }} disabled={!script.trim() || imp.isPending} onClick={() => imp.mutate()}>Wczytaj ze skryptu</button>
+      {people.length > 0 && (
+        <div className="col tight">
+          <span className="small soft">Osoby — numer nagrywany (MSISDN) daje wynik zgodny z raportem Plusa; bez numeru dopasowanie idzie po nazwie działu</span>
+          {people.map((p, i) => (
+            <div key={i} className="row wrap" style={{ gap: 6 }}>
+              <b style={{ width: 150 }} className="trunc">{p.person}</b>
+              <select value={p.group} onChange={(e) => setPeople(people.map((x, k) => k === i ? { ...x, group: e.target.value as 'sales' | 'admin' } : x))} style={{ width: 100 }}>
+                <option value="sales">Sales</option><option value="admin">Admin</option>
+              </select>
+              <input type="text" value={p.recordingNumber || ''} placeholder="numer, np. 48600123456" style={{ width: 170 }}
+                onChange={(e) => setPeople(people.map((x, k) => k === i ? { ...x, recordingNumber: e.target.value || null } : x))} />
+              <span className="small faint trunc grow">{p.recordingNumber ? '' : p.departmentNames.join(' | ')}{p.treatAllAsExternal ? ' · cały ruch jako zewnętrzny' : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <label className="field">Odbiorcy (po jednym w linii)<textarea rows={4} value={recipients} onChange={(e) => setRecipients(e.target.value)} /></label>
+      <label className="field">Numery wewnętrzne (blacklist) — połączenie między nimi liczy się jako wewnętrzne<textarea rows={3} value={blacklist} onChange={(e) => setBlacklist(e.target.value)} /></label>
+      <button className="btn primary sm" style={{ alignSelf: 'flex-start' }} disabled={save.isPending} onClick={() => save.mutate()}>Zapisz konfigurację</button>
+    </section>
+  );
+}
+
+const MSG_COLOR = { email: 'var(--violet)', sms: 'var(--warn)', internal: 'var(--ok)' } as const;
+const MONTH = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
+const monthLabel = (m: string) => `${MONTH[Number(m.slice(5, 7)) - 1]} ${m.slice(2, 4)}`;
+const monthEnd = (m: string) => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
+
+/** Messages copied from Opal5 templates: e-mails and SMS per month, what is used most. */
+function MessagesReport() {
+  const today = useToday();
+  const [month, setMonth] = useState(today.slice(0, 7));
+  const q = useQuery({ queryKey: ['msgstats', month], queryFn: () => api.messageStats(`${month}-01`, monthEnd(month)) });
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorBox error={q.error} />;
+  const s = q.data!;
+  const p = s.period;
+  const max = Math.max(1, ...s.months.map((m) => m.total));
+  const maxDay = Math.max(1, ...s.daily.map((d) => d.total));
+  const prev = s.months[s.months.findIndex((m) => m.month === month) - 1];
+  const diff = prev && prev.total ? Math.round(((p.total - prev.total) / prev.total) * 100) : null;
+  const keys = ['email', 'sms', 'internal'] as const;
+  return (
+    <div className="col loose" style={{ gap: 18 }}>
+      <div className="chips">
+        {s.months.slice(-6).map((m) => <button key={m.month} className={`chip ${m.month === month ? 'on' : ''}`} onClick={() => setMonth(m.month)}>{monthLabel(m.month)} <span className="n">{m.total}</span></button>)}
+      </div>
+      <div className="grid kpis">
+        <StatTile label={`E-maile · ${monthLabel(month)}`} value={p.email} icon={Mail} tone="violet" />
+        <StatTile label={`SMS · ${monthLabel(month)}`} value={p.sms} icon={MessageSquare} tone="amber" />
+        <StatTile label="Wewnętrzne (nowe umowy)" value={p.internal} icon={Building} tone="green" />
+        <StatTile label="Razem wiadomości" value={p.total} icon={Send} hint={diff === null ? 'z szablonów Opal5' : `${diff >= 0 ? '+' : ''}${diff}% vs ${monthLabel(prev!.month)}`} />
+      </div>
+      <div className="grid halves">
+        <section className="card pad">
+          <div className="row between wrap" style={{ marginBottom: 18 }}><h2>Miesięcznie — 12 miesięcy</h2>
+            <div className="legend">{keys.map((k) => <span key={k}><i style={{ background: MSG_COLOR[k] }} />{MSG_CHANNEL_LABEL[k]}</span>)}</div></div>
+          <div className="bars">
+            {s.months.map((m) => (
+              <div key={m.month} className={`b ${m.month === month ? 'today' : ''} ${m.total ? '' : 'empty'}`} style={{ cursor: 'pointer' }} onClick={() => setMonth(m.month)}
+                title={`${monthLabel(m.month)}: ${m.total} — e-maile ${m.email}, SMS ${m.sms}, wewnętrzne ${m.internal}`}>
+                {m.total ? keys.filter((k) => m[k]).map((k) => <span key={k} style={{ height: `${(m[k] / max) * 100}%`, background: MSG_COLOR[k] }} />) : <span />}
+              </div>
+            ))}
+          </div>
+          <div className="axis"><span>{monthLabel(s.months[0].month)}</span><span>{monthLabel(s.months.at(-1)!.month)}</span></div>
+        </section>
+        <section className="card pad">
+          <h2 style={{ marginBottom: 18 }}>Ostatnie 30 dni</h2>
+          <div className="bars">
+            {s.daily.map((d) => (
+              <div key={d.date} className={`b ${d.date === today ? 'today' : ''} ${d.total ? '' : 'empty'}`} title={`${shortDate(d.date)}: e-maile ${d.email}, SMS ${d.sms}, wewnętrzne ${d.internal}`}>
+                {d.total ? keys.filter((k) => d[k]).map((k) => <span key={k} style={{ height: `${(d[k] / maxDay) * 100}%`, background: MSG_COLOR[k] }} />) : <span />}
+              </div>
+            ))}
+          </div>
+          <div className="axis"><span>{shortDate(s.daily[0].date)}</span><span>dziś</span></div>
+        </section>
+      </div>
+      <section className="card">
+        <div className="card-head"><h2>Najczęściej wysyłane · {monthLabel(month)}</h2></div>
+        {p.top.length ? (
+          <ul className="list">
+            {p.top.map((t) => (
+              <li key={`${t.channel}:${t.template}`} className="li">
+                <span className="grow">{t.template}</span>
+                <span className="tag" style={{ color: MSG_COLOR[t.channel] }}>{MSG_CHANNEL_LABEL[t.channel]}</span>
+                <b style={{ width: 40, textAlign: 'right' }}>{t.n}</b>
+              </li>
+            ))}
+          </ul>
+        ) : <div className="empty">W tym miesiącu nic nie skopiowano z Szablonów. Każde „Kopiuj” w Szablonach liczy się tu jako wysłana wiadomość.</div>}
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ WEEKLY REPORT BUILDER (pick the tiles) */
+
+type WSec = 'topics' | 'partners' | 'held' | 'next';
+const WSEC: [WSec, string, string][] = [
+  ['topics', 'Tematy w toku', 'firmy w kontakcie, z umówioną wizytą albo w negocjacjach'],
+  ['partners', 'Aktywne partnerstwa', 'aktywni partnerzy, z którymi coś się działo'],
+  ['held', 'Wydarzenia — zrealizowane', 'wydarzenia z tego okresu'],
+  ['next', 'W przyszłym tygodniu', 'wydarzenia, spotkania i wizyty na 7 dni po raporcie'],
+];
+const lsJson = <T,>(k: string, d: T): T => { try { return JSON.parse(localStorage.getItem(k) || '') as T; } catch { return d; } };
+
+/**
+ * The report as it is really sent: Opal5 proposes tiles (topics by stage, partnerships, events, next week) with a
+ * one-line status; only the tiles you click go into the text, and every line can be rewritten. Kept per period.
+ */
+function WeeklyBuilder() {
+  const today = useToday();
+  const toast = useToast();
+  const [from, setFrom] = useState(() => addDays(today, -6));
+  const [to, setTo] = useState(today);
+  const [full, setFull] = useState(false);
+  const key = `crm-weekly:${from}:${to}`;
+  const q = useQuery({ queryKey: ['report-items', from, to], queryFn: () => api.reportItems(from, to) });
+  const [picked, setPicked] = useState<string[]>([]);
+  const [lines, setLines] = useState<Record<string, string>>({});
+  const [extra, setExtra] = useState('');
+  const [showActive, setShowActive] = useState(false);
+  const [header, setHeader] = useState(() => lsJson('crm-weekly:header', false));
+  // the mail client adds the signature — the sent report ends with the funnel line
+  const [sign, setSign] = useState(() => lsJson('crm-weekly:sign2', ''));
+  const keep = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
+  useEffect(() => {
+    const v = lsJson(key, { picked: [] as string[], lines: {} as Record<string, string>, extra: '', showActive: true });
+    setPicked(v.picked); setLines(v.lines); setExtra(v.extra); setShowActive(v.showActive);
+  }, [key]);
+  const save = (p = picked, l = lines, e = extra, a = showActive) => { try { localStorage.setItem(key, JSON.stringify({ picked: p, lines: l, extra: e, showActive: a })); } catch { /* private mode */ } };
+  const toggle = (id: string) => { const p = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]; setPicked(p); save(p); };
+  const setLine = (id: string, v: string) => { const l = { ...lines, [id]: v }; setLines(l); save(picked, l); };
+  const presets: [string, string, string][] = [
+    ['Ostatnie 7 dni', addDays(today, -6), today],
+    ['Ten tydzień', startOfWeek(today), today],
+    ['Poprzedni tydzień', addDays(startOfWeek(today), -7), addDays(startOfWeek(today), -1)],
+  ];
+
+  const data = q.data;
+  const items = data?.items || [];
+  const lineOf = (id: string) => lines[id] ?? items.find((i) => i.id === id)?.line ?? '';
+  const text = useMemo(() => {
+    if (!data) return '';
+    const chosen = (sec: WSec) => items.filter((i) => i.section === sec && picked.includes(i.id));
+    // „- Nazwa – zdanie”; further lines of the text become sub-points „  - …”
+    const row = (i: (typeof items)[number], lead = '') => {
+      const [first = '', ...more] = lineOf(i.id).split('\n').map((x) => x.trim().replace(/^[-*•]\s*/, '')).filter(Boolean);
+      return [`- ${lead}${i.title}${first ? ` – ${first}` : ''}`, ...more.map((m) => `  - ${m}`)].join('\n');
+    };
+    const out: string[] = [];
+    const block = (title: string, rows: string[]) => { if (rows.length) out.push(...(out.length ? [''] : []), title, ...rows); };
+    if (header) out.push('B2B Weekly Report — Maple Bear Katowice', `${shortDate(data.from)} – ${shortDate(data.to)} · ${data.owner}`);
+    block('Tematy w toku', chosen('topics').map((i) => row(i)));
+    block('Aktywne partnerstwa:', chosen('partners').map((i) => row(i)));
+    block('Wydarzenia', chosen('held').map((i) => row(i, lineOf(i.id).trim() ? '' : 'Zrealizowane: ')));
+    block('W przyszłym tygodniu', chosen('next').map((i) => row(i)));
+    if (extra.trim()) out.push('', extra.trim());
+    if (showActive) out.push('', data.funnel);
+    if (sign.trim()) out.push(...(extra.trim() ? [] : ['']), sign.trim());
+    return out.join('\n');
+  }, [data, items, picked, lines, extra, showActive, header, sign]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (full) return (<><div className="row" style={{ marginBottom: 10 }}><button className="btn sm" onClick={() => setFull(false)}>← Raport z kafelków</button></div><Weekly /></>);
+
+  return (
+    <div className="col" style={{ gap: 14 }}>
+      <section className="card">
+        <div className="toolbar">
+          <div className="chips">{presets.map(([l, a, b]) => <button key={l} className={`chip ${from === a && to === b ? 'on' : ''}`} onClick={() => { setFrom(a); setTo(b); }}>{l}</button>)}</div>
+          <span className="grow" />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 160, height: 36 }} />
+          <span className="soft">–</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 160, height: 36 }} />
+          <button className="btn sm ghost" onClick={() => setFull(true)}>Pełny raport automatyczny</button>
+        </div>
+      </section>
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+        <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 440px)', alignItems: 'start' }}>
+          <div className="col" style={{ gap: 14 }}>
+            <div className="hint">Kliknij kafelki, które mają trafić do raportu — tylko zaznaczone się w nim pojawią. Tekst przy zaznaczonym kafelku możesz przepisać po swojemu.</div>
+            {WSEC.map(([sec, label, hint]) => {
+              const list = items.filter((i) => i.section === sec);
+              const on = list.filter((i) => picked.includes(i.id)).length;
+              return (
+                <section key={sec} className="card">
+                  <div className="card-head"><h2>{label}</h2><span className="count">{on}/{list.length}</span>
+                    {list.length > 0 && <button className="btn sm ghost" onClick={() => { const ids = list.map((i) => i.id); const p = on === list.length ? picked.filter((x) => !ids.includes(x)) : [...new Set([...picked, ...ids])]; setPicked(p); save(p); }}>{on === list.length ? 'Odznacz' : 'Zaznacz'} wszystkie</button>}
+                  </div>
+                  {!list.length ? <div className="small faint" style={{ padding: '0 20px 16px' }}>Nic — {hint}.</div> : (
+                    <div className="wtiles">
+                      {list.map((i) => {
+                        const sel = picked.includes(i.id);
+                        return (
+                          <div key={i.id} className={`wtile ${sel ? 'on' : ''} ${i.touched ? '' : 'quiet'}`} onClick={() => toggle(i.id)}>
+                            <div className="row" style={{ gap: 6 }}>
+                              <span className="wcheck">{sel ? <Check size={13} /> : null}</span>
+                              <b className="grow trunc">{i.title}</b>
+                              {i.stage && i.stage !== 'active' && <span className="tag" style={{ color: STAGE_COLOR[i.stage] }}>{stageLabel(i.stage)}</span>}
+                            </div>
+                            {sel ? (
+                              <textarea rows={2} value={lineOf(i.id)} onClick={(e) => e.stopPropagation()} onChange={(e) => setLine(i.id, e.target.value)}
+                                placeholder="krótko, bez dat: na jakim etapie, na co czekamy" />
+                            ) : <div className="small soft clamp2">{i.line || '—'}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+          <section className="card" style={{ position: 'sticky', top: 12 }}>
+            <div className="card-head"><h2>Raport</h2>
+              <button className="btn sm" disabled={!text} onClick={() => { copyText(text); toast('Skopiowano raport'); }}><Copy size={14} /> Kopiuj</button>
+              <a className="btn sm" href={`mailto:?subject=${encodeURIComponent(`B2B Weekly Report ${shortDate(from)}–${shortDate(to)}`)}&body=${encodeURIComponent(text)}`}><Send size={14} /> Wyślij</a>
+            </div>
+            <div className="col" style={{ gap: 8, padding: '0 20px 12px' }}>
+              <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={showActive} onChange={(e) => { setShowActive(e.target.checked); save(picked, lines, extra, e.target.checked); }} /> Linia lejka na końcu</label>
+              <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={header} onChange={(e) => { setHeader(e.target.checked); keep('crm-weekly:header', e.target.checked); }} /> Nagłówek z okresem</label>
+              <label className="field">Na koniec (opcjonalnie)<textarea rows={2} value={extra} onChange={(e) => { setExtra(e.target.value); save(picked, lines, e.target.value); }} placeholder="np. Nowy kontrakt wystartował we wtorek" /></label>
+              <label className="field">Podpis<input type="text" value={sign} onChange={(e) => { setSign(e.target.value); keep('crm-weekly:sign2', e.target.value); }} /></label>
+            </div>
+            <pre className="report" style={{ margin: 0 }}>{text}</pre>
+            <ReportMemory text={text} />
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What the report has learned: rules from your corrections (Claude adds them when you fix a report in the chat) and
+ * the last report you really sent — Claude writes the next one in the same form.
+ */
+function ReportMemory({ text }: { text: string }) {
+  const q = useQuery({ queryKey: ['report-memory'], queryFn: api.reportMemory });
+  const [rules, setRules] = useState<string | null>(null);
+  const save = useAction((d: { rules?: string[]; sent?: string }) => api.saveReportMemory(d), { ok: 'Zapisano', onDone: () => setRules(null) });
+  const shown = rules ?? (q.data?.rules || []).join('\n');
+  const last = q.data?.sent[0];
+  return (
+    <div className="col" style={{ gap: 8, padding: '12px 20px 16px', borderTop: '1px solid var(--line)' }}>
+      <div className="row between"><b>Czego raport się nauczył</b>
+        <button className="btn sm" disabled={!text} onClick={() => save.mutate({ sent: text })} title="Zapisz ten tekst jako wzór — Claude napisze następny raport w tej formie">Zapisz jako wysłany</button>
+      </div>
+      <div className="small soft">Zasady z Twoich poprawek — po jednej w linii. Claude dopisuje je sam, gdy poprawiasz raport w czacie, i trzyma się ich co tydzień.</div>
+      <textarea rows={8} value={shown} onChange={(e) => setRules(e.target.value)} />
+      {rules !== null && <button className="btn sm primary" onClick={() => save.mutate({ rules: rules.split('\n') })}>Zapisz zasady</button>}
+      {last && (
+        <details>
+          <summary className="small soft">Ostatnio wysłany ({shortDate(last.date)}) — wzór dla Claude</summary>
+          <pre className="report" style={{ margin: '8px 0 0' }}>{last.text}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ DONE THIS WEEK (for yourself) */
+
+const WD_LONG = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela'];
+
+/** What got done in the period, day by day — tasks finished, tasks dropped, calls and e-mails made. Just for you, not for the report. */
+function DoneView() {
+  const today = useToday();
+  const toast = useToast();
+  const [from, setFrom] = useState(() => startOfWeek(today));
+  const [to, setTo] = useState(today);
+  const [show, setShow] = useState<'all' | 'task' | 'contact' | 'skipped'>('all');
+  const q = useQuery({ queryKey: ['report-done', from, to], queryFn: () => api.reportDone(from, to) });
+  const presets: [string, string, string][] = [
+    ['Ten tydzień', startOfWeek(today), today],
+    ['Poprzedni tydzień', addDays(startOfWeek(today), -7), addDays(startOfWeek(today), -1)],
+    ['Ostatnie 7 dni', addDays(today, -6), today],
+    ['30 dni', addDays(today, -29), today],
+  ];
+  const rows = (q.data?.rows || []).filter((r) => show === 'all' || r.kind === show);
+  const n = (k: string) => (q.data?.rows || []).filter((r) => r.kind === k).length;
+  const days = [...new Set(rows.map((r) => r.date))];
+  const text = days.map((d) => [`${WD_LONG[(new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7]} ${shortDate(d)}`,
+    ...rows.filter((r) => r.date === d).map((r) => `${r.kind === 'skipped' ? '✗' : '✓'} ${r.title}${r.where ? ` (${r.where})` : ''}${r.note ? ` — ${r.note}` : ''}`)].join('\n')).join('\n\n');
+  return (
+    <section className="card">
+      <div className="toolbar">
+        <div className="chips">{presets.map(([l, a, b]) => <button key={l} className={`chip ${from === a && to === b ? 'on' : ''}`} onClick={() => { setFrom(a); setTo(b); }}>{l}</button>)}</div>
+        <span className="grow" />
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 160, height: 36 }} />
+        <span className="soft">–</span>
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 160, height: 36 }} />
+      </div>
+      <div className="row wrap" style={{ gap: 8, padding: '0 20px 12px' }}>
+        <Seg value={show} options={['all', 'task', 'contact', 'skipped'] as const} onChange={setShow}
+          labels={{ all: `Wszystko · ${q.data?.rows.length ?? 0}`, task: `Zadania · ${n('task')}`, contact: `Kontakty · ${n('contact')}`, skipped: `Niewykonane · ${n('skipped')}` }} />
+        <span className="grow" />
+        <button className="btn sm" disabled={!rows.length} onClick={() => { copyText(text); toast('Skopiowano listę'); }}><Copy size={14} /> Kopiuj</button>
+      </div>
+      {q.isLoading ? <Loading /> : q.error ? <div className="pad"><ErrorBox error={q.error} /></div> : !rows.length ? (
+        <div className="empty">Nic w tym okresie.</div>
+      ) : days.map((d) => (
+        <div key={d}>
+          <div className="group-label" style={{ padding: '10px 20px 4px' }}>{WD_LONG[(new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7]} · {shortDate(d)}</div>
+          <ul className="list">
+            {rows.filter((r) => r.date === d).map((r, i) => (
+              <li key={i} className="li" style={{ alignItems: 'flex-start' }}>
+                <span className={`type-ic ${r.kind === 'contact' ? 'Call' : r.kind === 'task' ? 'Meeting' : ''}`} style={{ width: 26, height: 26 }}>
+                  {r.kind === 'skipped' ? <X size={13} /> : r.kind === 'contact' ? <PhoneCall size={13} /> : <Check size={13} />}</span>
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div style={{ textDecoration: r.kind === 'skipped' ? 'line-through' : undefined }}>
+                    {r.link ? <Link to={r.link} style={{ color: 'inherit' }}>{r.title}</Link> : r.title}
+                    {r.where && <span className="soft small"> · {r.where}</span>}{r.who && <span className="soft small"> · {r.who}</span>}
+                  </div>
+                  {r.note && <div className="small soft">{r.note}</div>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }

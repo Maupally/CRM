@@ -1,7 +1,24 @@
-import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage } from '../shared/domain';
+import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea, MsgChannel, MsgStats, Board, PersonFile, StoryItem } from '../shared/domain';
+import type { ParsedThread, StoryDraft } from '../server/story';
+import type { ClassBoardData } from '../shared/classboard';
+import type { ContentItem, ContentReportRow, PartnerIdea, ShareLink } from '../shared/marketing';
+import type { GroupSuggestion } from '../shared/topics';
+export type ParsedStory = ParsedThread & { ai: boolean; companies: { id: string; company: string }[]; groups: GroupSuggestion[] };
+import type { FeeYear, FeesView } from '../shared/fees';
+import type { DoneRow, WeeklyItems } from '../server/weekly';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
+}
+
+/** Recent request timings (browser total vs server and database time) — shown in Ustawienia → Szybkość. */
+export interface Timing { at: number; method: string; url: string; total: number; app: number; db: number; queries: number; cold: boolean }
+export const timings: Timing[] = [];
+function recordTiming(method: string, url: string, total: number, header: string) {
+  const dur = (name: string) => Number(header.match(new RegExp(`${name};dur=([\\d.]+)`))?.[1] || 0);
+  timings.push({ at: Date.now(), method, url: url.split('?')[0], total, app: dur('app'), db: dur('db'),
+    queries: Number(header.match(/"(\d+) queries"/)?.[1] || 0), cold: /cold;/.test(header) });
+  if (timings.length > 200) timings.splice(0, timings.length - 200);
 }
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -11,7 +28,9 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
     init.body = JSON.stringify(body);
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
   }
+  const t0 = performance.now();
   const res = await fetch('/api' + url, init);
+  recordTiming(method, url, performance.now() - t0, res.headers.get('server-timing') || '');
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
   if (!res.ok) {
     if (res.status === 401 && url !== '/login') window.dispatchEvent(new Event('crm:signed-out'));
@@ -38,6 +57,7 @@ export interface Config {
   segments: (Segment & { leads: number })[];
   templates: Template[];
   assistant?: boolean;
+  mail?: boolean;
 }
 
 export interface LeadCard {
@@ -59,6 +79,7 @@ export interface Dashboard {
   queue: Lead[];
   pipeline: Record<string, number>;
   tasks: Task[];
+  tasksDoneToday: number;
   events: CrmEvent[];
   doneToday: { activities: number; companies: number };
   doneWeek: { activities: number; companies: number };
@@ -89,12 +110,53 @@ export interface Proposal {
 }
 export interface AssistantTurn { role: 'user' | 'assistant'; text: string }
 
+export interface CallPerson { person: string; group: 'sales' | 'admin'; recordingNumber: string | null; departmentNames: string[]; treatAllAsExternal: boolean }
+export interface CallConfig { baseUrl: string; people: CallPerson[]; blacklist: string[]; recipients: string[] }
+export interface CallRow { person: string; group: string; stats: { totalAll: number; internal: number; external: number; answered: number; success: number;
+  outTotal: number; inTotal: number; failed: number; totalMin: number; avgMin: number } }
+export interface CallReportData { from: string; to: string; label: string; fetched: number; warnings: string[]; sales: CallRow[]; admin: CallRow[] }
+
+export interface ProcessSuggestion {
+  kind: 'new' | 'adjust' | 'start'; title: string; why: string; processId?: number; eventId?: string;
+  steps?: { title: string; personId: number; person: string; days: number; daysBefore: number; seen: number }[]; changes?: string[];
+}
+
+export interface PersonProfile {
+  done_total: number; done_last_90_days: number; on_time?: string; usually_late_by_days?: number; typical_days_to_finish?: number;
+  recurring_work?: { word: string; times: number; examples: string[] }[]; recently_done: string[]; open_now: number; late_now: number;
+}
+
+export interface PersonWork {
+  person: string; role: string; open: number;
+  items: { task_id: string; task: string; due?: string; late_days?: number; blocked?: string; company?: string; event?: string; process?: string; state: string }[];
+}
+
+export interface McpLast { at: string; tool: string; ok: boolean; error?: string }
+
 export const api = {
-  assistant: (text: string, history: AssistantTurn[], leadId?: string, image?: { mediaType: string; data: string }, spoken?: boolean) =>
-    post<{ reply: string; proposals: Proposal[] }>('/assistant', { text, history, leadId, image, spoken }),
+  assistant: (text: string, history: AssistantTurn[], opts: { leadId?: string; image?: { mediaType: string; data: string };
+    spoken?: boolean; attachments?: number[]; containerId?: string; threadId?: number } = {}) =>
+    post<{ reply: string; proposals: Proposal[]; files?: KnowledgeItem[]; containerId?: string; savedTo?: { id: number; title: string } }>('/assistant', { text, history, ...opts }),
+  threads: () => get<ThreadSummary[]>('/threads'),
+  thread: (id: number) => get<Thread>(`/threads/${id}`),
+  createThread: (d: { title?: string; mode?: string; source?: string; messages?: Partial<ThreadMessage>[]; updatedAt?: string }) => post<Thread>('/threads', d),
+  updateThread: (id: number, d: { title?: string; mode?: string }) => patch<Thread>(`/threads/${id}`, d),
+  deleteThread: (id: number) => del(`/threads/${id}`),
+
+  knowledge: () => get<KnowledgeItem[]>('/knowledge'),
+  knowledgeItem: (id: number) => get<KnowledgeItem & { text: string }>(`/knowledge/${id}`),
+  uploadKnowledge: (file: File, meta: { title?: string; description?: string; tags?: string } = {}) => {
+    const f = new FormData();
+    f.append('file', file);
+    for (const [k, v] of Object.entries(meta)) if (v) f.append(k, v);
+    return req<KnowledgeItem>('POST', '/knowledge', f);
+  },
+  addNote: (d: { title?: string; text: string; description?: string; tags?: string }) => post<KnowledgeItem>('/knowledge', d),
+  updateKnowledge: (id: number, d: { title?: string; description?: string; tags?: string; text?: string }) => patch<KnowledgeItem>(`/knowledge/${id}`, d),
+  deleteKnowledge: (id: number) => del(`/knowledge/${id}`),
   assistantExecute: (items: { tool: string; input: Record<string, any> }[]) =>
     post<{ results: { ok: boolean; message: string; leadId?: string }[] }>('/assistant/execute', { items }),
-  me: () => get<{ authenticated: boolean; passwordRequired: boolean }>('/me'),
+  me: () => get<{ authenticated: boolean; passwordRequired: boolean; setupNeeded?: boolean }>('/me'),
   login: (password: string) => post('/login', { password }),
   logout: () => post('/logout'),
 
@@ -122,12 +184,74 @@ export const api = {
   agenda: (from: string, to: string) =>
     get<{ activities: Activity[]; events: CrmEvent[]; tasks: Task[] }>(`/agenda?from=${from}&to=${to}`),
   stats: () => get<Stats>('/stats'),
+  reportDone: (from: string, to: string) => get<{ from: string; to: string; rows: DoneRow[] }>(`/report/done?from=${from}&to=${to}`),
+  reportItems: (from: string, to: string) => get<WeeklyItems>(`/report/items?from=${from}&to=${to}`),
+  classBoard: (year: string) => get<ClassBoardData | null>(`/classboard/${year}`),
+  saveClassBoard: (b: ClassBoardData) => post<{ ok: boolean }>(`/classboard/${b.year}`, b),
+  reportMemory: () => get<{ rules: string[]; sent: { date: string; text: string }[] }>('/report/memory'),
+  saveReportMemory: (d: { rules?: string[]; sent?: string }) => post<{ rules: string[]; sent: { date: string; text: string }[] }>('/report/memory', d),
   report: (from: string, to: string) => get<{ from: string; to: string; text: string }>(`/report?from=${from}&to=${to}`),
+  reportSummary: (from: string, to: string, notes: string) =>
+    post<{ from: string; to: string; text: string; summary: string }>('/report/summary', { from, to, notes }),
 
   events: () => get<CrmEvent[]>('/events'),
   saveEvent: (d: Partial<CrmEvent>) => post<CrmEvent>('/events', d),
   deleteEvent: (id: string) => del(`/events/${id}`),
   tasks: () => get<Task[]>('/tasks'),
+  designs: () => get<DesignSummary[]>('/studio'),
+  design: (id: number) => get<Design>(`/studio/${id}`),
+  createDesign: (d: { title?: string; kind?: string; fromKnowledge?: number; versions?: { html: string; note?: string }[]; chat?: { role: 'user' | 'assistant'; text: string }[] }) => post<Design>('/studio', d),
+  renameDesign: (id: number, d: { title?: string; kind?: string }) => patch<Design>(`/studio/${id}`, d),
+  deleteDesign: (id: number) => del(`/studio/${id}`),
+  designMessage: (id: number, text: string, attachments: number[] = []) => post<Design>(`/studio/${id}/message`, { text, attachments }),
+  restoreDesign: (id: number, version: number) => post<Design>(`/studio/${id}/restore`, { version }),
+  saveDesign: (id: number) => post<KnowledgeItem>(`/studio/${id}/save`),
+  style: () => get<Style>('/style'),
+  connector: () => get<{ url: string; version: string; tools: string[]; last: McpLast | null; badUrl: McpLast | null }>('/connector'),
+  saveStyle: (d: Partial<Style>) => req<Style>('PUT', '/style', d),
+  learnStyle: (ids: number[], mode: keyof Style, chats: number[] = []) => post<{ text: string }>('/style/learn', { ids, mode, chats }),
+  people: () => get<Person[]>('/people'),
+  savePerson: (d: Partial<Person>) => post<Person>('/people', d),
+  deletePerson: (id: number) => del(`/people/${id}`),
+  touchPerson: (id: number) => post<Person>(`/people/${id}/touch`),
+  eventAssets: (id: string) => get<DesignSummary[]>(`/events/${id}/assets`),
+  eventPeople: (id: string) => get<EventPerson[]>(`/events/${id}/people`),
+  linkEventPerson: (id: string, personId: number, role = '') => post<EventPerson[]>(`/events/${id}/people`, { personId, role }),
+  unlinkEventPerson: (id: string, personId: number) => del(`/events/${id}/people/${personId}`),
+  processes: () => get<Process[]>('/processes'),
+  saveProcess: (d: Partial<Process>) => post<Process>('/processes', d),
+  deleteProcess: (id: number) => del(`/processes/${id}`),
+  callConfig: () => get<CallConfig & { ready: boolean; mail: boolean }>('/reports/calls/config'),
+  saveCallConfig: (d: Partial<CallConfig>) => req<CallConfig>('PUT', '/reports/calls/config', d),
+  importCallScript: (script: string) => post<CallConfig>('/reports/calls/import', { script }),
+  callReport: (from: string, to: string) => get<{ report: CallReportData; html: string }>(`/reports/calls?from=${from}&to=${to}`),
+  sendCallReport: (from: string, to: string) => post<{ ok: boolean; sent: number }>('/reports/calls/send', { from, to }),
+  processSuggestions: () => get<ProcessSuggestion[]>('/processes/suggestions'),
+  runs: (all = false) => get<ProcessRun[]>(`/runs${all ? '?all=1' : ''}`),
+  cancelRun: (id: number) => post<ProcessRun>(`/runs/${id}/cancel`),
+  personProfile: (id: number) => get<PersonProfile>(`/people/${id}/profile`),
+  personWork: (id: number) => get<PersonWork>(`/people/${id}/work`),
+  fees: () => get<FeesView>('/fees'),
+  saveFees: (city: string, year: string, d: FeeYear) => req<FeesView>('PUT', `/fees/${city}/${year}`, d),
+  resetFees: (city: string, year: string) => req<FeesView>('DELETE', `/fees/${city}/${year}`),
+  logMessage: (d: { channel: MsgChannel; template: string; source: string; lang?: string; city?: string }) => post<{ ok: boolean }>('/messages/log', d).then(() => { window.dispatchEvent(new Event('crm:msg')); }, () => undefined),
+  messageStats: (from?: string, to?: string) => get<MsgStats>(`/messages/stats${from && to ? `?from=${from}&to=${to}` : ''}`),
+  board: () => get<Board>('/board'),
+  personFile: (id: number) => get<PersonFile>(`/people/${id}/file`),
+  deleteNote: (id: number) => del(`/notes/${id}`),
+  unlink: (id: number) => del(`/links/${id}`),
+  story: (t: { lead?: string; event?: string; topic?: string } = {}) => get<StoryItem[]>(`/story?${new URLSearchParams(t as Record<string, string>)}`),
+  parseStory: (text: string) => post<ParsedStory>('/story/parse', { text }),
+  saveStory: (d: { leadId?: string; eventId?: string; topic?: string; thread: string; items: StoryDraft[] }) => post<{ added: number; skipped: number }>('/story', d),
+  deleteStory: (id: number) => del<{ ok: boolean }>(`/story/${id}`),
+  ideas: () => get<Idea[]>('/ideas'),
+  saveIdea: (d: Partial<Idea>) => post<Idea>('/ideas', d),
+  deleteIdea: (id: number) => del(`/ideas/${id}`),
+  b2c: () => get<B2cItem[]>('/b2c'),
+  saveB2c: (d: Partial<B2cItem>) => post<B2cItem>('/b2c', d),
+  deleteB2c: (id: number) => del(`/b2c/${id}`),
+  b2cProgress: (id: number, delta: number, note = '') => post<B2cItem>(`/b2c/${id}/progress`, { delta, note }),
+  b2cLog: (id: number) => get<B2cLog[]>(`/b2c/${id}/log`),
   saveTask: (d: Partial<Task>) => post<Task>('/tasks', d),
   toggleTask: (id: string) => post<Task>(`/tasks/${id}/toggle`),
   deleteTask: (id: string) => del(`/tasks/${id}`),
@@ -148,4 +272,37 @@ export const api = {
     f.append('confirm', 'REPLACE');
     return req<Record<string, unknown> & { warnings: string[] }>('POST', '/import', f);
   },
+};
+
+/* ---------- marketing: the same calls for Opal5 and for a team link (which opens only these two lists) */
+export interface TeamContext { name: string; events: { id: string; title: string; date: string }[]; team: string[] }
+export interface MarketingClient {
+  key: string;
+  context: () => Promise<TeamContext>;
+  content: (from: string, to: string) => Promise<ContentItem[]>;
+  saveContent: (d: Partial<ContentItem>) => Promise<ContentItem>;
+  deleteContent: (id: number) => Promise<unknown>;
+  report: (month: string) => Promise<{ month: string; rows: ContentReportRow[]; published: ContentItem[] }>;
+  partners: () => Promise<PartnerIdea[]>;
+  savePartner: (d: Partial<PartnerIdea>) => Promise<PartnerIdea>;
+  deletePartner: (id: number) => Promise<unknown>;
+}
+export function marketingClient(token?: string): MarketingClient {
+  const base = token ? `/share/${encodeURIComponent(token)}` : '/marketing';
+  return {
+    key: token ? 'team' : 'own',
+    context: () => get<TeamContext>(token ? base : `${base}/context`),
+    content: (from, to) => get<ContentItem[]>(`${base}/content?from=${from}&to=${to}`),
+    saveContent: (d) => post<ContentItem>(`${base}/content`, d),
+    deleteContent: (id) => del(`${base}/content/${id}`),
+    report: (month) => get(`${base}/content-report?month=${month}`),
+    partners: () => get<PartnerIdea[]>(`${base}/partners`),
+    savePartner: (d) => post<PartnerIdea>(`${base}/partners`, d),
+    deletePartner: (id) => del(`${base}/partners/${id}`),
+  };
+}
+export const shareLinks = {
+  list: () => get<ShareLink[]>('/marketing/links'),
+  add: (name: string) => post<ShareLink>('/marketing/links', { name }),
+  revoke: (token: string) => del(`/marketing/links/${encodeURIComponent(token)}`),
 };
