@@ -13,7 +13,7 @@ describe('class board', () => {
       { status: 'dropped_out', birthday: '2019-01-01', gender: 'Male', academic_year_data: ay({ 2627: 'grade_1' }) },
     ];
     const leads = [
-      { status: 'active', grade: 'grade_0', academic_year: '2627', pipeline_status: 'meeting_booked', lead_score: '30', title: 'Jan Kowalski', contact_1_email: 'x@y.pl' },
+      { id: 'LEAD123', status: 'active', grade: 'grade_0', academic_year: '2627', pipeline_status: 'meeting_booked', lead_score: '30', title: 'Jan Kowalski', contact_1_email: 'x@y.pl' },
       { status: 'future_lead', grade: 'grade_1', academic_year: '2728', pipeline_status: 'contacted', title: 'mama@x.pl' },
       { status: 'future_lead', grade: null, academic_year: null, pipeline_status: 'contacted' },
       { status: 'disqualified', grade: 'sk', academic_year: '2627' },
@@ -35,7 +35,8 @@ describe('class board', () => {
     expect(nursery.entries.length).toBeGreaterThan(0);
     expect(JSON.stringify(b)).toMatch(/Kowalski/);
     expect(JSON.stringify(b)).not.toMatch(/x@y|mama@x/);
-    expect(JSON.stringify(sanitizeBoard(b, '2627'))).not.toMatch(/Ala|Kowalski/);
+    expect(JSON.stringify(b)).toMatch(/LEAD123/);
+    expect(JSON.stringify(sanitizeBoard(b, '2627'))).not.toMatch(/Ala|Kowalski|LEAD123/);
     // the server keeps only the anonymous fields, even if something else is sent
     const evil = { ...b, columns: [{ ...b.columns[0], entries: [{ kind: 'current', born: '2023-05', name: 'Ala', stage: 'Ala Kowalska' }] }] } as any;
     expect(JSON.stringify(sanitizeBoard(evil, '2627'))).not.toMatch(/Ala/);

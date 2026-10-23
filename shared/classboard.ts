@@ -16,7 +16,9 @@ export type Kid = 'current' | 'leaving' | 'joining' | 'potential';
 /** chance = the lead's enrolment probability in % (lead score; none = 0) */
 export interface BoardEntry { kind: Kid; gender?: 'M' | 'F'; born?: string; start?: string; stage?: string; year?: string; chance?: number;
   /** shown only in the browser that read the export — never stored or sent (sanitizeBoard drops it) */
-  name?: string }
+  name?: string;
+  /** the lead's id in the school system, for a link — browser only, like the name */
+  leadId?: string }
 export interface BoardColumn { key: string; label: string; cohort: string; entries: BoardEntry[] }
 export interface ClassBoardData { year: string; madeOn: string; columns: BoardColumn[]; skipped: { dropped: number; disqualified: number; noGrade: number } }
 
@@ -80,11 +82,11 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
     const chance = Math.max(0, Math.min(100, Number(str(l.lead_score)) || 0));
     // some lead titles are just an e-mail — that is a contact, not a name
     const name = [str(l.first_name), str(l.last_name)].filter(Boolean).join(' ') || (str(l.title).includes('@') ? '' : str(l.title)) || undefined;
-    if (!g) { col('none', 'Bez klasy').entries.push({ kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance, name }); continue; }
+    if (!g) { col('none', 'Bez klasy').entries.push({ kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance, name, leadId: str(l.id) || undefined }); continue; }
     // a past year in the lead means it was never moved on — count it as now
     const shift = ly && startYear(ly) > y0 ? startYear(ly) - y0 : 0;
     const i = GRADES.indexOf(g) - shift;
-    const entry: BoardEntry = { kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance, name };
+    const entry: BoardEntry = { kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance, name, leadId: str(l.id) || undefined };
     if (i < 0) col('younger', 'Młodsze').entries.push(entry);
     else col(GRADES[i], '').entries.push(entry);
   }

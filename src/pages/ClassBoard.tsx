@@ -18,6 +18,9 @@ let INK: Ink = LIGHT;
 const appDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 const FONT = "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif";
 const PAD = 32, LINE = 20;
+/** a lead opens in the school system */
+const LEAD_URL = 'https://evotech.com/lead/';
+type Hit = { x: number; y: number; w: number; h: number; url: string };
 let COL = 158;
 const YEARS = ['2627', '2728'] as const;
 const yearLabel = (y: string) => `20${y.slice(0, 2)}/${y.slice(2)}`;
@@ -38,7 +41,8 @@ function entryText(e: BoardEntry, year: string, names: boolean): string {
 }
 
 /** Draws the board on a canvas — the same picture goes to the screen, the PNG and the clipboard. */
-function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean, dark: boolean, names: boolean) {
+function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean, dark: boolean, names: boolean): Hit[] {
+  const hits: Hit[] = [];
   INK = dark ? DARK : LIGHT;
   COL = names ? 196 : 158;
   const cols = b.columns;
@@ -88,10 +92,19 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
     text(`${pot} potencjalnych`, lx, top + 98, 13, pot ? INK.potential : INK.faint, { weight: 600 });
     if (!numbersOnly) {
       x.fillStyle = INK.line; x.fillRect(lx, listTop - 12, COL - 24, 1);
-      c.entries.forEach((e, k) => text(entryText(e, b.year, names), lx, listTop + 6 + k * LINE, 13, INK[e.kind], { strike: e.kind === 'leaving', max: COL - 20 }));
+      c.entries.forEach((e, k) => {
+        const y = listTop + 6 + k * LINE;
+        const tw = text(entryText(e, b.year, names), lx, y, 13, INK[e.kind], { strike: e.kind === 'leaving', max: COL - 20 });
+        // leads are links to their card in the school system (on screen; the PNG is just a picture)
+        if (names && e.leadId) {
+          x.fillStyle = INK[e.kind]; x.globalAlpha = 0.35; x.fillRect(lx, y + 3, tw, 1); x.globalAlpha = 1;
+          hits.push({ x: lx, y: y - 14, w: tw, h: LINE, url: LEAD_URL + encodeURIComponent(e.leadId) });
+        }
+      });
     }
   });
   text('Źródło: eksport uczniów i leadów z systemu szkoły · leady na kolejne lata w kolumnie dzisiejszego rocznika', PAD, h - 22, 11, INK.faint);
+  return hits;
 }
 
 async function readExport(f: File) {
@@ -111,6 +124,7 @@ export function ClassBoardPage() {
   const [dark, setDark] = useState(appDark);
   const [names, setNames] = useState(true);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const hits = useRef<Hit[]>([]);
   const fresh = useMemo(() => (files.students ? buildBoard(files.students, files.leads || [], year) : null), [files, year]);
   const board = fresh || saved.data || null;
   // names exist only in a board built here from the exports; the saved one never has them
@@ -120,7 +134,7 @@ export function ClassBoardPage() {
 
   useEffect(() => {
     if (!board || !canvas.current) return;
-    const go = () => draw(canvas.current!, board, numbersOnly, dark, names && hasNames);
+    const go = () => { hits.current = draw(canvas.current!, board, numbersOnly, dark, names && hasNames); };
     go();
     // the font may arrive a moment later
     document.fonts?.load(`600 16px ${FONT}`).then(go).catch(() => undefined);
@@ -141,6 +155,11 @@ export function ClassBoardPage() {
     setFiles(next);
   };
 
+  const hitAt = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    return hits.current.find((h) => px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h);
+  };
   const png = () => new Promise<Blob>((res, rej) => canvas.current!.toBlob((b) => (b ? res(b) : rej(new Error('Nie udało się zrobić obrazka'))), 'image/png'));
   const download = async () => {
     const a = document.createElement('a');
@@ -186,7 +205,9 @@ export function ClassBoardPage() {
         {saved.error && <ErrorBox error={saved.error} />}
       </section>
       {board ? (
-        <section className="card" style={{ overflowX: 'auto', padding: 12 }}><canvas ref={canvas} /></section>
+        <section className="card" style={{ overflowX: 'auto', padding: 12 }}><canvas ref={canvas}
+          onMouseMove={(e) => { e.currentTarget.style.cursor = hitAt(e) ? 'pointer' : 'default'; }}
+          onClick={(e) => { const h = hitAt(e); if (h) window.open(h.url, '_blank', 'noopener'); }} /></section>
       ) : (
         <section className="card pad soft">Wgraj dwa pliki z systemu szkoły: <b>students_export</b> (uczniowie) i <b>leads_export</b> (leady). Kolejność nie ma znaczenia.</section>
       )}
