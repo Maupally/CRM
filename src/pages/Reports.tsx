@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, AlarmClock, PhoneCall, Target, Mail, MessageSquare, Building, Copy, Send, Sparkles, Loader2, Download, Settings2, Check, X } from 'lucide-react';
 import { api, type Bucket, type CallConfig } from '../api';
-import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, typeLabel, useConfig, useToast, useToday } from '../components/ui';
+import { ErrorBox, Loading, STAGE_COLOR, Seg, StatTile, copyText, stageLabel, useAction, typeLabel, useConfig, useToast, useToday } from '../components/ui';
 import { COUNTED, MSG_CHANNEL_LABEL, STAGES, addDays, shortDate, startOfWeek } from '../../shared/domain';
 
 const TYPE_COLOR: Record<string, string> = {
@@ -405,10 +405,11 @@ function WeeklyBuilder() {
   const [extra, setExtra] = useState('');
   const [showActive, setShowActive] = useState(false);
   const [header, setHeader] = useState(() => lsJson('crm-weekly:header', false));
-  const [sign, setSign] = useState(() => lsJson('crm-weekly:sign', 'Best regards'));
+  // the mail client adds the signature — the sent report ends with the funnel line
+  const [sign, setSign] = useState(() => lsJson('crm-weekly:sign2', ''));
   const keep = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
   useEffect(() => {
-    const v = lsJson(key, { picked: [] as string[], lines: {} as Record<string, string>, extra: '', showActive: false });
+    const v = lsJson(key, { picked: [] as string[], lines: {} as Record<string, string>, extra: '', showActive: true });
     setPicked(v.picked); setLines(v.lines); setExtra(v.extra); setShowActive(v.showActive);
   }, [key]);
   const save = (p = picked, l = lines, e = extra, a = showActive) => { try { localStorage.setItem(key, JSON.stringify({ picked: p, lines: l, extra: e, showActive: a })); } catch { /* private mode */ } };
@@ -426,15 +427,20 @@ function WeeklyBuilder() {
   const text = useMemo(() => {
     if (!data) return '';
     const chosen = (sec: WSec) => items.filter((i) => i.section === sec && picked.includes(i.id));
-    const row = (i: (typeof items)[number]) => { const l = lineOf(i.id).trim(); return l ? `${i.title} - ${l}` : i.title; };
+    // „- Nazwa – zdanie”; further lines of the text become sub-points „  - …”
+    const row = (i: (typeof items)[number], lead = '') => {
+      const [first = '', ...more] = lineOf(i.id).split('\n').map((x) => x.trim().replace(/^[-*•]\s*/, '')).filter(Boolean);
+      return [`- ${lead}${i.title}${first ? ` – ${first}` : ''}`, ...more.map((m) => `  - ${m}`)].join('\n');
+    };
     const out: string[] = [];
     const block = (title: string, rows: string[]) => { if (rows.length) out.push(...(out.length ? [''] : []), title, ...rows); };
     if (header) out.push('B2B Weekly Report — Maple Bear Katowice', `${shortDate(data.from)} – ${shortDate(data.to)} · ${data.owner}`);
-    block('Tematy w toku', chosen('topics').map(row));
-    block('Aktywne partnerstwa:', [...chosen('partners').map(row), ...(showActive ? [`Aktywnych partnerstw: ${data.pipeline.active}`] : [])]);
-    block('Wydarzenia', chosen('held').map((i) => `Zrealizowane: ${row(i)}`));
-    block('W przyszłym tygodniu', chosen('next').map((i) => `* ${row(i)}`));
+    block('Tematy w toku', chosen('topics').map((i) => row(i)));
+    block('Aktywne partnerstwa:', chosen('partners').map((i) => row(i)));
+    block('Wydarzenia', chosen('held').map((i) => row(i, lineOf(i.id).trim() ? '' : 'Zrealizowane: ')));
+    block('W przyszłym tygodniu', chosen('next').map((i) => row(i)));
     if (extra.trim()) out.push('', extra.trim());
+    if (showActive) out.push('', data.funnel);
     if (sign.trim()) out.push(...(extra.trim() ? [] : ['']), sign.trim());
     return out.join('\n');
   }, [data, items, picked, lines, extra, showActive, header, sign]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -495,14 +501,43 @@ function WeeklyBuilder() {
               <a className="btn sm" href={`mailto:?subject=${encodeURIComponent(`B2B Weekly Report ${shortDate(from)}–${shortDate(to)}`)}&body=${encodeURIComponent(text)}`}><Send size={14} /> Wyślij</a>
             </div>
             <div className="col" style={{ gap: 8, padding: '0 20px 12px' }}>
-              <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={showActive} onChange={(e) => { setShowActive(e.target.checked); save(picked, lines, extra, e.target.checked); }} /> Liczba aktywnych partnerstw ({data?.pipeline.active})</label>
+              <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={showActive} onChange={(e) => { setShowActive(e.target.checked); save(picked, lines, extra, e.target.checked); }} /> Linia lejka na końcu</label>
               <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={header} onChange={(e) => { setHeader(e.target.checked); keep('crm-weekly:header', e.target.checked); }} /> Nagłówek z okresem</label>
               <label className="field">Na koniec (opcjonalnie)<textarea rows={2} value={extra} onChange={(e) => { setExtra(e.target.value); save(picked, lines, e.target.value); }} placeholder="np. Nowy kontrakt wystartował we wtorek" /></label>
-              <label className="field">Podpis<input type="text" value={sign} onChange={(e) => { setSign(e.target.value); keep('crm-weekly:sign', e.target.value); }} /></label>
+              <label className="field">Podpis<input type="text" value={sign} onChange={(e) => { setSign(e.target.value); keep('crm-weekly:sign2', e.target.value); }} /></label>
             </div>
             <pre className="report" style={{ margin: 0 }}>{text}</pre>
+            <ReportMemory text={text} />
           </section>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What the report has learned: rules from your corrections (Claude adds them when you fix a report in the chat) and
+ * the last report you really sent — Claude writes the next one in the same form.
+ */
+function ReportMemory({ text }: { text: string }) {
+  const q = useQuery({ queryKey: ['report-memory'], queryFn: api.reportMemory });
+  const [rules, setRules] = useState<string | null>(null);
+  const save = useAction((d: { rules?: string[]; sent?: string }) => api.saveReportMemory(d), { ok: 'Zapisano', onDone: () => setRules(null) });
+  const shown = rules ?? (q.data?.rules || []).join('\n');
+  const last = q.data?.sent[0];
+  return (
+    <div className="col" style={{ gap: 8, padding: '12px 20px 16px', borderTop: '1px solid var(--line)' }}>
+      <div className="row between"><b>Czego raport się nauczył</b>
+        <button className="btn sm" disabled={!text} onClick={() => save.mutate({ sent: text })} title="Zapisz ten tekst jako wzór — Claude napisze następny raport w tej formie">Zapisz jako wysłany</button>
+      </div>
+      <div className="small soft">Zasady z Twoich poprawek — po jednej w linii. Claude dopisuje je sam, gdy poprawiasz raport w czacie, i trzyma się ich co tydzień.</div>
+      <textarea rows={8} value={shown} onChange={(e) => setRules(e.target.value)} />
+      {rules !== null && <button className="btn sm primary" onClick={() => save.mutate({ rules: rules.split('\n') })}>Zapisz zasady</button>}
+      {last && (
+        <details>
+          <summary className="small soft">Ostatnio wysłany ({shortDate(last.date)}) — wzór dla Claude</summary>
+          <pre className="report" style={{ margin: '8px 0 0' }}>{last.text}</pre>
+        </details>
       )}
     </div>
   );

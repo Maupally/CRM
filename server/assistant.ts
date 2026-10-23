@@ -14,7 +14,7 @@ import { Processes } from './processes.js';
 import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
 import { feesText } from './fees.js';
-import { weeklyItems } from './weekly.js';
+import { WeeklyMemory, weeklyItems } from './weekly.js';
 import { capacity } from '../shared/capacity.js';
 import { suggestGroups } from '../shared/topics.js';
 import { Stories, parseThread, type ParsedThread } from './story.js';
@@ -268,6 +268,17 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'save_weekly_report',
+    description: 'Raport tygodniowy się uczy: text = raport, który użytkownik NAPRAWDĘ wysłał (wzór dla następnych — zapisz, gdy go wkleja albo mówi „wysłałem”); ' +
+      'lessons = ogólne zasady z jego poprawek, sformułowane tak, by działały w kolejnych tygodniach (np. „Bez dostawców i zakupów — to nie partnerstwa”, ' +
+      '„Odmowy piszemy wprost: na razie bez zainteresowania, bo…”). Nie zapisuj jako lekcji jednorazowych faktów z tego tygodnia.',
+    input_schema: {
+      type: 'object',
+      properties: { text: { type: 'string' }, lessons: { type: 'array', items: { type: 'string' } } },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'get_content_plan',
     description: 'Kalendarz treści (posty, rolki, maile, reklamy, udostępnienia na grupach): data, kanał, rodzaj, tytuł, wydarzenie, kto robi, status ' +
       '(idea → production → ready → published), link do publikacji i wynik. Bez dat = zakres ±2 tygodnie od dziś plus wszystko bez daty. ' +
@@ -413,10 +424,11 @@ const GATEWAY = [
 
 const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
 const STORY_ACTIONS = new Set(['save_story', 'get_story']);
+const REPORT_ACTIONS = new Set(['save_weekly_report']);
 const MARKETING_ACTIONS = new Set(['get_content_plan', 'save_content', 'get_partner_backlog', 'save_partner_idea']);
 const BOARD_ACTIONS = new Set(['save_person_note', 'link_nodes', 'get_person_file']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
-const CONNECTOR_WRITES = new Set(['save_content', 'save_partner_idea', 'save_story', 'save_person_note', 'link_nodes', 'save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
+const CONNECTOR_WRITES = new Set(['save_weekly_report', 'save_content', 'save_partner_idea', 'save_story', 'save_person_note', 'link_nodes', 'save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -517,10 +529,11 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: 'get_weekly_items',
-    description: 'Materiał do raportu tygodniowego B2B: tematy w toku wg etapu (negocjacje, wizyty, kontakt) z jednym zdaniem statusu i następnym krokiem, ' +
-      'aktywne partnerstwa, z którymi coś się działo, wydarzenia zrealizowane i to, co jest w przyszłym tygodniu, plus liczby w lejku. ' +
-      'Raport pisz po polsku, bardzo krótko, BEZ DAT, wg tematów (nie listą zadań): „Tematy w toku” i „Aktywne partnerstwa:” jako „Nazwa - jedno zdanie”, ' +
-      '„Wydarzenia” jako „Zrealizowane: nazwa”, „W przyszłym tygodniu” jako lista „* nazwa”, na końcu uwagi użytkownika i „Best regards”.',
+    description: 'Materiał do raportu tygodniowego B2B: tematy w toku wg etapu z jednym zdaniem statusu, aktywne partnerstwa, z którymi coś się działo, ' +
+      'wydarzenia z okresu (także odwołane) i przyszły tydzień, plus gotowa linia lejka (funnel). Zwraca też rules — zasady wyuczone z poprawek użytkownika — ' +
+      'i last_sent — raport, który NAPRAWDĘ wysłał ostatnio. Pisz dokładnie w formie last_sent i trzymaj się rules (to ważniejsze niż materiał: pomiń, co rules wykluczają). ' +
+      'Zanim podasz raport, dopytaj o tematy, których CRM nie zna (rozmowy, odmowy, kto nie przyszedł). Gdy użytkownik poprawia raport — zastosuj i zapisz lekcję ' +
+      '(save_weekly_report lessons); gdy wkleja to, co wysłał — save_weekly_report text.',
     input_schema: { type: 'object', properties: { from: { type: 'string', description: 'yyyy-MM-dd' }, to: { type: 'string', description: 'yyyy-MM-dd, domyślnie dziś' } }, additionalProperties: false },
   },
   {
@@ -1642,7 +1655,7 @@ export class Assistant {
     const writes = WRITE_TOOLS.filter((t) => t.name !== 'draft_campaign');
     // chats, Studio and the knowledge base live in claude.ai itself now — the connector keeps to the CRM and B2C
     const kb = KNOWLEDGE_TOOLS.filter((t) => TASK_READS.has(t.name));
-    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name) || BOARD_ACTIONS.has(t.name) || STORY_ACTIONS.has(t.name) || MARKETING_ACTIONS.has(t.name));
+    const own = CONNECTOR_TOOLS.filter((t) => t.name.startsWith('b2c_') || ASSET_ACTIONS.has(t.name) || IDEA_ACTIONS.has(t.name) || BOARD_ACTIONS.has(t.name) || STORY_ACTIONS.has(t.name) || MARKETING_ACTIONS.has(t.name) || REPORT_ACTIONS.has(t.name));
     return [...READ_TOOLS, ...kb, ...own, ...writes].map((t) => ({
       name: t.name,
       description: String(t.description || '').replace(/^PROPOZYCJA\s*/, 'Zapisuje w CRM: '),
@@ -1809,6 +1822,17 @@ export class Assistant {
         notes: f.notes.slice(0, 40).map((n) => ({ id: n.id, day: n.day, text: n.text, ref: n.ref || undefined, also: n.links.filter((l) => !(l.kind === 'person' && l.id === String(p.id))).map((l) => l.label) })),
         connections: f.connections.map((c) => ({ kind: c.node.kind, id: c.node.id, name: c.node.label, why: c.why.slice(0, 5) })),
       });
+    }
+    if (name === 'save_weekly_report') {
+      const mem = new WeeklyMemory(this.crm);
+      const out: string[] = [];
+      if (txt(input.text)) { await mem.addSent(input.text); out.push('Zapisałem wysłany raport jako wzór na następne tygodnie.'); }
+      if (Array.isArray(input.lessons) && input.lessons.length) {
+        const before = (await mem.rules()).length;
+        const after = await mem.learn(input.lessons);
+        out.push(`Nowe zasady raportu: ${after.length - before} (razem ${after.length}). Widać je i można poprawić w Opal5 → Raporty → Raport tygodniowy.`);
+      }
+      return out.join(' ') || 'Podaj text (wysłany raport) albo lessons (zasady z poprawek).';
     }
     if (MARKETING_ACTIONS.has(name)) {
       const m = new Marketing(this.crm);
@@ -2061,7 +2085,10 @@ export class Assistant {
     if (name === 'get_fees') return feesText(this.crm, input);
     if (name === 'get_weekly_items') {
       const r = await weeklyItems(this.crm, input.from, input.to);
-      return JSON.stringify({ from: r.from, to: r.to, pipeline: r.pipeline, items: r.items.map(({ link: _l, ...i }) => i) });
+      const mem = new WeeklyMemory(this.crm);
+      const [rules, sent] = await Promise.all([mem.rules(), mem.sent()]);
+      return JSON.stringify({ from: r.from, to: r.to, rules, last_sent: sent[0] || undefined, funnel: r.funnel,
+        items: r.items.map(({ link: _l, ...i }) => i) });
     }
     if (name === 'get_templates') {
       return JSON.stringify(await this.crm.listTemplates());

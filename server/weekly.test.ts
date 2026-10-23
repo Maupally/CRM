@@ -32,3 +32,24 @@ describe('weekly report tiles', () => {
     expect(r.pipeline.active).toBe(2);
   });
 });
+
+describe('weekly report memory', () => {
+  it('writes the funnel line in Polish and keeps rules and the last sent report', async () => {
+    const { funnelLine, WeeklyMemory, DEFAULT_WEEKLY_RULES } = await import('./weekly.js');
+    expect(funnelLine({ new: 0, contacting: 16, 'scheduled visit': 1, negotiation: 1, active: 15, disqualified: 0 } as any))
+      .toBe('Lejek B2B: 16 firm w kontakcie, 1 umówiona wizyta, 1 negocjacja, 15 aktywnych partnerstw.');
+    expect(funnelLine({ new: 0, contacting: 2, 'scheduled visit': 3, negotiation: 4, active: 22, disqualified: 0 } as any))
+      .toBe('Lejek B2B: 2 firmy w kontakcie, 3 umówione wizyty, 4 negocjacje, 22 aktywne partnerstwa.');
+    const { openDb } = await import('./db.js');
+    const { Crm } = await import('./crm.js');
+    const { Assistant } = await import('./assistant.js');
+    const crm = new Crm(await openDb('memory://'), 'Martin', () => '2026-10-23');
+    const a = new Assistant(crm, 'unused');
+    await a.mcpCall('save_weekly_report', { text: 'Tematy w toku\n- Benefit Systems – czekamy na poprawki umowy.', lessons: ['Bez dostawców i zakupów (agencje reklamowe, drukarnie, gadżety) — to nie są tematy partnerskie.', 'Nowa zasada testowa'] });
+    const r = JSON.parse((await a.mcpCall('get_weekly_items', {})).text);
+    expect(r.last_sent.text).toContain('Benefit Systems');
+    expect(r.rules).toHaveLength(DEFAULT_WEEKLY_RULES.length + 1);
+    expect(r.funnel).toMatch(/^Lejek B2B: /);
+    expect((await new WeeklyMemory(crm).sent())).toHaveLength(1);
+  });
+});

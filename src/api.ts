@@ -185,6 +185,8 @@ export const api = {
   stats: () => get<Stats>('/stats'),
   reportDone: (from: string, to: string) => get<{ from: string; to: string; rows: DoneRow[] }>(`/report/done?from=${from}&to=${to}`),
   reportItems: (from: string, to: string) => get<WeeklyItems>(`/report/items?from=${from}&to=${to}`),
+  reportMemory: () => get<{ rules: string[]; sent: { date: string; text: string }[] }>('/report/memory'),
+  saveReportMemory: (d: { rules?: string[]; sent?: string }) => post<{ rules: string[]; sent: { date: string; text: string }[] }>('/report/memory', d),
   report: (from: string, to: string) => get<{ from: string; to: string; text: string }>(`/report?from=${from}&to=${to}`),
   reportSummary: (from: string, to: string, notes: string) =>
     post<{ from: string; to: string; text: string; summary: string }>('/report/summary', { from, to, notes }),

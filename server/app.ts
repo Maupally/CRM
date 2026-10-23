@@ -19,7 +19,7 @@ import { suggestProcesses } from './suggest.js';
 import { personProfile } from './profile.js';
 import { callReport, callReportHtml, callReportReady, getCallConfig, parseScriptConfig, saveCallConfig, sendCallReport } from './callreport.js';
 import { getFees, resetFeeYear, saveFeeYear } from './fees.js';
-import { doneList, weeklyItems } from './weekly.js';
+import { WeeklyMemory, doneList, weeklyItems } from './weekly.js';
 import { Knowledge, MAX_FILE } from './knowledge.js';
 import { mailEnabled } from './mail.js';
 
@@ -188,6 +188,14 @@ export function createApp(o: AppOptions) {
   api.get('/agenda', async (c) => c.json(await (await crm()).agenda(c.req.query('from') || '', c.req.query('to') || '')));
   api.get('/stats', async (c) => c.json(await (await crm()).stats()));
   api.get('/report/done', async (c) => c.json(await doneList(await crm(), c.req.query('from'), c.req.query('to'))));
+  api.get('/report/memory', async (c) => { const m = new WeeklyMemory(await crm()); return c.json({ rules: await m.rules(), sent: await m.sent() }); });
+  api.post('/report/memory', async (c) => {
+    const m = new WeeklyMemory(await crm());
+    const d = await body<{ rules?: string[]; sent?: string }>(c);
+    if (Array.isArray(d.rules)) await m.setRules(d.rules);
+    if (d.sent) await m.addSent(d.sent);
+    return c.json({ rules: await m.rules(), sent: await m.sent() });
+  });
   api.get('/report/items', async (c) => c.json(await weeklyItems(await crm(), c.req.query('from'), c.req.query('to'))));
   api.get('/report', async (c) => c.json(await (await crm()).report(c.req.query('from'), c.req.query('to'))));
   api.get('/events', async (c) => c.json(await (await crm()).listEvents()));
