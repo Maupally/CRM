@@ -13,7 +13,8 @@ export const GRADE_LABEL: Record<Grade, string> = {
 
 /** current = attends (invoiced), leaving = attends but not re-enrolling, joining = contract signed, starts later, potential = open lead */
 export type Kid = 'current' | 'leaving' | 'joining' | 'potential';
-export interface BoardEntry { kind: Kid; gender?: 'M' | 'F'; born?: string; start?: string; stage?: string; year?: string }
+/** chance = the lead's enrolment probability in % (lead score; none = 0) */
+export interface BoardEntry { kind: Kid; gender?: 'M' | 'F'; born?: string; start?: string; stage?: string; year?: string; chance?: number }
 export interface BoardColumn { key: string; label: string; cohort: string; entries: BoardEntry[] }
 export interface ClassBoardData { year: string; madeOn: string; columns: BoardColumn[]; skipped: { dropped: number; disqualified: number; noGrade: number } }
 
@@ -73,11 +74,12 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
     if (status !== 'active' && status !== 'future_lead') continue;
     const ly = str(l.academic_year);
     const g = gradeOf(l.grade);
-    if (!g) { col('none', 'Bez klasy').entries.push({ kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined }); continue; }
+    const chance = Math.max(0, Math.min(100, Number(str(l.lead_score)) || 0));
+    if (!g) { col('none', 'Bez klasy').entries.push({ kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance }); continue; }
     // a past year in the lead means it was never moved on — count it as now
     const shift = ly && startYear(ly) > y0 ? startYear(ly) - y0 : 0;
     const i = GRADES.indexOf(g) - shift;
-    const entry: BoardEntry = { kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined };
+    const entry: BoardEntry = { kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance };
     if (i < 0) col('younger', 'Młodsze').entries.push(entry);
     else col(GRADES[i], '').entries.push(entry);
   }
@@ -92,7 +94,8 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
     const mode = ys.length ? [...ys].sort((a, b) => ys.filter((x) => x === b).length - ys.filter((x) => x === a).length)[0] : 0;
     c.cohort = i >= 0 ? `rocznik ${mode || base - i}` : '';
     const rank: Record<Kid, number> = { current: 0, leaving: 1, joining: 2, potential: 3 };
-    c.entries.sort((a, b) => rank[a.kind] - rank[b.kind] || (a.born || '').localeCompare(b.born || ''));
+    // leads: the most likely first
+    c.entries.sort((a, b) => rank[a.kind] - rank[b.kind] || (b.chance ?? 0) - (a.chance ?? 0) || (a.born || '').localeCompare(b.born || ''));
   }
   // classes nobody is in, at the oldest end, are left out
   const last = Math.max(...out.map((c) => (c.entries.length ? GRADES.indexOf(c.key as Grade) : -1)));
@@ -111,6 +114,7 @@ export function sanitizeBoard(b: ClassBoardData, year: string): ClassBoardData {
     entries: (Array.isArray(c.entries) ? c.entries : []).slice(0, 300).filter((e) => kinds.includes(e.kind)).map((e) => ({
       kind: e.kind, gender: e.gender === 'F' || e.gender === 'M' ? e.gender : undefined, born: ym(e.born), start: ym(e.start),
       stage: e.stage && /^[a-z_]{1,30}$/.test(e.stage) ? e.stage : undefined, year: e.year && /^\d{4}$/.test(e.year) ? e.year : undefined,
+      chance: e.kind === 'potential' ? Math.max(0, Math.min(100, Math.round(Number(e.chance) || 0))) : undefined,
     })),
   }));
   const n = (v: unknown) => Math.max(0, Math.min(100000, Number(v) || 0));

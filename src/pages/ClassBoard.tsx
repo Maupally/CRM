@@ -1,6 +1,6 @@
 /**
- * Tablica klas: the year's classes from the youngest to the oldest, drawn like a whiteboard — blue who attends,
- * green who joins, yellow who might (open leads). The exports are read here in the browser; only the anonymous
+ * Tablica klas: the year's classes from the youngest to the oldest — blue who attends, green who joins, amber who
+ * might (open leads, with their enrolment chance). The exports are read here in the browser; only the anonymous
  * board (class, birth year, gender, stage) is kept — no names, e-mails or phones leave this page.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -10,73 +10,77 @@ import { api } from '../api';
 import { ErrorBox, Seg, useAction, useToast } from '../components/ui';
 import { buildBoard, count, kindOfExport, stageLabel, type BoardEntry, type ClassBoardData } from '../../shared/classboard';
 
-const INK = { title: '#1f2937', current: '#1d4ed8', leaving: '#1d4ed8', joining: '#15803d', potential: '#c99a00', soft: '#6b7280', line: '#d1d5db' };
-const FONT = "'Caveat', 'Comic Sans MS', cursive";
-const COL = 168, PAD = 28, LINE = 22;
+const INK = { title: '#111827', current: '#2563eb', leaving: '#2563eb', joining: '#15803d', potential: '#b45309', soft: '#6b7280', faint: '#9ca3af', line: '#e5e7eb' };
+const FONT = "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif";
+const COL = 158, PAD = 32, LINE = 20;
 const YEARS = ['2627', '2728'] as const;
 const yearLabel = (y: string) => `20${y.slice(0, 2)}/${y.slice(2)}`;
-const mmYY = (d?: string) => (d ? `${d.slice(5, 7)}.${d.slice(0, 4)}` : '');
+const mmYY = (d?: string) => (d ? `${d.slice(5, 7)}.${d.slice(0, 4)}` : '–');
+const LEGEND: [string, string, string][] = [
+  [INK.current, 'zapisani', 'chodzą w tym roku (faktura); przekreśleni odchodzą'],
+  [INK.joining, 'dołączają', 'umowa podpisana, start później (data obok)'],
+  [INK.potential, 'potencjalni', 'otwarte leady: etap i szansa zapisu w %'],
+];
 
 function entryText(e: BoardEntry, year: string): string {
-  const g = e.gender === 'F' ? '♀' : e.gender === 'M' ? '♂' : '•';
-  if (e.kind === 'current') return `${g} ur. ${mmYY(e.born)}`;
-  if (e.kind === 'leaving') return `${g} ${mmYY(e.born)} odchodzi`;
-  if (e.kind === 'joining') return `${g} ${mmYY(e.born)} → od ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : "?"}`;
-  return `? ${stageLabel(e.stage) || 'lead'}${e.year && e.year !== year ? ` ${yearLabel(e.year).slice(2)}` : ''}`;
+  const g = e.gender === 'F' ? '♀' : e.gender === 'M' ? '♂' : '·';
+  if (e.kind === 'current' || e.kind === 'leaving') return `${g} ${mmYY(e.born)}`;
+  if (e.kind === 'joining') return `${g} ${mmYY(e.born)} → ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : '?'}`;
+  return `${e.chance ?? 0}% ${stageLabel(e.stage) || 'lead'}${e.year && e.year !== year ? ` ${yearLabel(e.year).slice(2)}` : ''}`;
 }
 
-/** Draws the whiteboard on a canvas — the same picture goes to the screen, the PNG and the clipboard. */
+/** Draws the board on a canvas — the same picture goes to the screen, the PNG and the clipboard. */
 function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean) {
   const cols = b.columns;
   const rows = numbersOnly ? 0 : Math.max(0, ...cols.map((c) => c.entries.length));
-  const w = PAD * 2 + cols.length * COL;
-  const h = 150 + 120 + rows * LINE + 70;
+  const w = Math.max(PAD * 2 + cols.length * COL, 900);
+  const top = 150;
+  const listTop = top + 128;
+  const h = listTop + rows * LINE + 64;
   const scale = 2;
   canvas.width = w * scale; canvas.height = h * scale;
   canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
   const x = canvas.getContext('2d')!;
   x.scale(scale, scale);
   x.fillStyle = '#fff'; x.fillRect(0, 0, w, h);
-  x.strokeStyle = '#9ca3af'; x.lineWidth = 6; x.strokeRect(3, 3, w - 6, h - 6);
-  const text = (t: string, px: number, py: number, size: number, color: string, opts: { bold?: boolean; align?: CanvasTextAlign; strike?: boolean; max?: number } = {}) => {
-    x.font = `${opts.bold ? 700 : 500} ${size}px ${FONT}`; x.fillStyle = color; x.textAlign = opts.align || 'left';
-    // never run into the next column
+  const text = (t: string, px: number, py: number, size: number, color: string, opts: { weight?: number; align?: CanvasTextAlign; strike?: boolean; max?: number } = {}) => {
+    x.font = `${opts.weight || 400} ${size}px ${FONT}`; x.fillStyle = color; x.textAlign = opts.align || 'left';
     while (opts.max && t.length > 3 && x.measureText(t).width > opts.max) t = `${t.slice(0, -2)}…`;
     x.fillText(t, px, py);
-    if (opts.strike) { const m = x.measureText(t).width; x.fillRect(opts.align === 'center' ? px - m / 2 : px, py - size * 0.3, m, 1.5); }
+    if (opts.strike) { const m = x.measureText(t).width; x.fillRect(opts.align === 'center' ? px - m / 2 : px, py - size * 0.32, m, 1); }
+    return x.measureText(t).width;
   };
-  text(`Klasy ${yearLabel(b.year)} — Maple Bear Katowice`, PAD, 52, 36, INK.title, { bold: true });
+  const tot = (k: 'current' | 'leaving' | 'joining' | 'potential') => cols.reduce((a, c) => a + count(c, k), 0);
+  text(`Klasy ${yearLabel(b.year)}`, PAD, 46, 24, INK.title, { weight: 600 });
+  text(`Maple Bear Katowice · stan na ${b.madeOn.split('-').reverse().join('.')} · od najmłodszych do najstarszych`, PAD, 70, 13, INK.soft);
   // legend
-  let lx = PAD;
-  for (const [c, l] of [[INK.current, 'chodzą'], [INK.joining, 'dołączają'], [INK.potential, 'potencjalni (leady)']] as const) {
-    x.fillStyle = c; x.beginPath(); x.arc(lx + 7, 86, 7, 0, Math.PI * 2); x.fill();
-    text(l, lx + 20, 93, 22, c, { bold: true }); lx += 34 + x.measureText(l).width + 18;
-  }
-  text(`stan na ${b.madeOn.split('-').reverse().join('.')} · od najmłodszych do najstarszych`, w - PAD, 93, 18, INK.soft, { align: 'right' });
+  LEGEND.forEach(([c, name, what], i) => {
+    const ly = 98 + i * 18;
+    x.fillStyle = c; x.fillRect(PAD, ly - 9, 8, 8);
+    const nw = text(name, PAD + 16, ly, 13, c, { weight: 600 });
+    text(`— ${what}`, PAD + 20 + nw, ly, 13, INK.soft);
+  });
+  text('♀/♂ mm.rrrr = płeć i miesiąc urodzenia · bez imion i danych kontaktowych', w - PAD, 98, 12, INK.faint, { align: 'right' });
+  const leaving = tot('leaving');
+  text(`${tot('current') + leaving} zapisanych${leaving ? ` (${leaving} odchodzi)` : ''} · ${tot('joining')} dołącza · ${tot('potential')} potencjalnych`, w - PAD, 116, 13, INK.title, { align: 'right', weight: 600 });
 
-  const top = 130;
+  x.fillStyle = INK.line; x.fillRect(PAD, top - 8, w - PAD * 2, 1);
   cols.forEach((c, i) => {
     const cx = PAD + i * COL;
-    if (i) { x.fillStyle = INK.line; x.fillRect(cx, top, 1.5, h - top - 70); }
-    const mid = cx + COL / 2;
-    text(c.label, mid, top + 32, 28, INK.title, { bold: true, align: 'center', max: COL - 12 });
-    if (c.cohort) text(c.cohort, mid, top + 56, 18, INK.soft, { align: 'center' });
+    if (i) { x.fillStyle = INK.line; x.fillRect(cx, top, 1, h - top - 48); }
+    const lx = cx + 12;
+    text(c.label, lx, top + 22, 16, INK.title, { weight: 600, max: COL - 20 });
+    text(c.cohort, lx, top + 40, 12, INK.faint);
     const cur = count(c, 'current') + count(c, 'leaving'), join = count(c, 'joining'), pot = count(c, 'potential');
-    // „13  +2  ?11” centred as one group
-    const parts: [string, string, number][] = [[String(cur), INK.current, 36], [`+${join}`, INK.joining, 28], [`?${pot}`, INK.potential, 28]];
-    const widths = parts.map(([t, , sz]) => { x.font = `700 ${sz}px ${FONT}`; return x.measureText(t).width; });
-    let px = mid - (widths.reduce((a, b) => a + b, 0) + 2 * 12) / 2;
-    parts.forEach(([t, col, sz], k) => { text(t, px, top + 100, sz, col, { bold: true }); px += widths[k] + 12; });
-    if (!numbersOnly) c.entries.forEach((e, k) => text(entryText(e, b.year), cx + 10, top + 140 + k * LINE, 18, INK[e.kind], { strike: e.kind === 'leaving', max: COL - 16 }));
+    text(`${cur} zapisanych`, lx, top + 64, 13, cur ? INK.current : INK.faint, { weight: 600 });
+    text(`${join} dołącza`, lx, top + 81, 13, join ? INK.joining : INK.faint, { weight: 600 });
+    text(`${pot} potencjalnych`, lx, top + 98, 13, pot ? INK.potential : INK.faint, { weight: 600 });
+    if (!numbersOnly) {
+      x.fillStyle = INK.line; x.fillRect(lx, listTop - 12, COL - 24, 1);
+      c.entries.forEach((e, k) => text(entryText(e, b.year), lx, listTop + 6 + k * LINE, 13, INK[e.kind], { strike: e.kind === 'leaving', max: COL - 20 }));
+    }
   });
-  const tot = (k: 'current' | 'leaving' | 'joining' | 'potential') => cols.reduce((a, c) => a + count(c, k), 0);
-  const leaving = tot('leaving');
-  text(`Razem: ${tot('current') + leaving} chodzi${leaving ? ` (w tym ${leaving} odchodzi)` : ''}`, PAD, h - 28, 26, INK.current, { bold: true });
-  x.font = `700 26px ${FONT}`;
-  const off = PAD + x.measureText(`Razem: ${tot('current') + leaving} chodzi${leaving ? ` (w tym ${leaving} odchodzi)` : ''}`).width;
-  text(` · +${tot('joining')} dołącza`, off, h - 28, 26, INK.joining, { bold: true });
-  x.font = `700 26px ${FONT}`;
-  text(` · ${tot('potential')} potencjalnych`, off + x.measureText(` · +${tot('joining')} dołącza`).width, h - 28, 26, INK.potential, { bold: true });
+  text('Źródło: eksport uczniów i leadów z systemu szkoły · leady na kolejne lata w kolumnie dzisiejszego rocznika', PAD, h - 22, 11, INK.faint);
 }
 
 async function readExport(f: File) {
@@ -102,8 +106,8 @@ export function ClassBoardPage() {
     if (!board || !canvas.current) return;
     const go = () => draw(canvas.current!, board, numbersOnly);
     go();
-    // the marker font may arrive a moment later
-    document.fonts?.load(`700 28px ${FONT}`).then(go).catch(() => undefined);
+    // the font may arrive a moment later
+    document.fonts?.load(`600 16px ${FONT}`).then(go).catch(() => undefined);
   }, [board, numbersOnly]);
 
   const onFiles = async (list: FileList | null) => {
