@@ -36,8 +36,10 @@ function entryText(e: BoardEntry, year: string, names: boolean): string {
   const who = names && e.name ? e.name : '';
   if (e.kind === 'current' || e.kind === 'leaving') return who || mmYY(e.born);
   if (e.kind === 'joining') return `${who || mmYY(e.born)} → ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : '?'}`;
+  // a lead is just its name (the link opens it); without names — its stage and year
+  if (who) return who;
   const later = e.year && e.year !== year ? ` ${yearLabel(e.year).slice(2)}` : '';
-  return `${who || stageLabel(e.stage) || 'lead'}${later}`;
+  return `${stageLabel(e.stage) || 'lead'}${later}`;
 }
 
 /** Draws the board on a canvas — the same picture goes to the screen, the PNG and the clipboard. */
@@ -98,10 +100,11 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
       x.fillStyle = INK.line; x.fillRect(lx, listTop - 12, COL - 24, 1);
       c.entries.forEach((e, k) => {
         const y = listTop + 6 + k * LINE;
-        const tw = text(entryText(e, b.year, names), lx, y, 13, INK[e.kind], { max: COL - 20, suffix: e.kind === 'potential' ? ` (${e.chance ?? 0}%)` : '' });
+        // leads at 0% are there, but quietly
+        const tw = text(entryText(e, b.year, names), lx, y, 13, e.kind === 'potential' && !e.chance ? INK.faint : INK[e.kind], { max: COL - 20, suffix: e.kind === 'potential' ? ` (${e.chance ?? 0}%)` : '' });
         // leads are links to their card in the school system (on screen; the PNG is just a picture)
         if (names && e.leadId) {
-          x.fillStyle = INK[e.kind]; x.globalAlpha = 0.35; x.fillRect(lx, y + 3, tw, 1); x.globalAlpha = 1;
+          x.fillStyle = e.kind === 'potential' && !e.chance ? INK.faint : INK[e.kind]; x.globalAlpha = 0.35; x.fillRect(lx, y + 3, tw, 1); x.globalAlpha = 1;
           hits.push({ x: lx, y: y - 14, w: tw, h: LINE, url: LEAD_URL + encodeURIComponent(e.leadId) });
         }
       });
