@@ -14,7 +14,9 @@ export const GRADE_LABEL: Record<Grade, string> = {
 /** current = attends (invoiced), leaving = attends but not re-enrolling, joining = contract signed, starts later, potential = open lead */
 export type Kid = 'current' | 'leaving' | 'joining' | 'potential';
 /** chance = the lead's enrolment probability in % (lead score; none = 0) */
-export interface BoardEntry { kind: Kid; gender?: 'M' | 'F'; born?: string; start?: string; stage?: string; year?: string; chance?: number }
+export interface BoardEntry { kind: Kid; gender?: 'M' | 'F'; born?: string; start?: string; stage?: string; year?: string; chance?: number;
+  /** shown only in the browser that read the export — never stored or sent (sanitizeBoard drops it) */
+  name?: string }
 export interface BoardColumn { key: string; label: string; cohort: string; entries: BoardEntry[] }
 export interface ClassBoardData { year: string; madeOn: string; columns: BoardColumn[]; skipped: { dropped: number; disqualified: number; noGrade: number } }
 
@@ -63,7 +65,8 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
     if (!g) { skipped.noGrade++; continue; }
     const born = str(s.birthday).slice(0, 7);
     const gender = str(s.gender).toLowerCase().startsWith('f') ? 'F' : str(s.gender).toLowerCase().startsWith('m') ? 'M' : undefined;
-    col(g, '').entries.push({ kind, gender, born: born || undefined, start: kind === 'joining' ? str(s.start_date).slice(0, 7) || undefined : undefined });
+    col(g, '').entries.push({ kind, gender, born: born || undefined, start: kind === 'joining' ? str(s.start_date).slice(0, 7) || undefined : undefined,
+      name: [str(s.first_name), str(s.last_name)].filter(Boolean).join(' ') || undefined });
     if (born && kind !== 'joining') births.set(g, [...(births.get(g) || []), Number(born.slice(0, 4))]);
   }
 
@@ -75,11 +78,13 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
     const ly = str(l.academic_year);
     const g = gradeOf(l.grade);
     const chance = Math.max(0, Math.min(100, Number(str(l.lead_score)) || 0));
-    if (!g) { col('none', 'Bez klasy').entries.push({ kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance }); continue; }
+    // some lead titles are just an e-mail — that is a contact, not a name
+    const name = [str(l.first_name), str(l.last_name)].filter(Boolean).join(' ') || (str(l.title).includes('@') ? '' : str(l.title)) || undefined;
+    if (!g) { col('none', 'Bez klasy').entries.push({ kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance, name }); continue; }
     // a past year in the lead means it was never moved on — count it as now
     const shift = ly && startYear(ly) > y0 ? startYear(ly) - y0 : 0;
     const i = GRADES.indexOf(g) - shift;
-    const entry: BoardEntry = { kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance };
+    const entry: BoardEntry = { kind: 'potential', stage: str(l.pipeline_status) || undefined, year: ly || undefined, chance, name };
     if (i < 0) col('younger', 'Młodsze').entries.push(entry);
     else col(GRADES[i], '').entries.push(entry);
   }

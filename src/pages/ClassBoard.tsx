@@ -8,29 +8,39 @@ import { useQuery } from '@tanstack/react-query';
 import { Copy, Download, FileSpreadsheet, Save, ShieldCheck } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBox, Seg, useAction, useToast } from '../components/ui';
-import { buildBoard, count, kindOfExport, stageLabel, type BoardEntry, type ClassBoardData } from '../../shared/classboard';
+import { buildBoard, count, kindOfExport, sanitizeBoard, stageLabel, type BoardEntry, type ClassBoardData } from '../../shared/classboard';
 
-const INK = { title: '#111827', current: '#2563eb', leaving: '#2563eb', joining: '#15803d', potential: '#b45309', soft: '#6b7280', faint: '#9ca3af', line: '#e5e7eb' };
+type Ink = { bg: string; title: string; current: string; leaving: string; joining: string; potential: string; soft: string; faint: string; line: string };
+const LIGHT: Ink = { bg: '#ffffff', title: '#111827', current: '#2563eb', leaving: '#2563eb', joining: '#15803d', potential: '#b45309', soft: '#6b7280', faint: '#9ca3af', line: '#e5e7eb' };
+/** the Opal5 dark theme */
+const DARK: Ink = { bg: '#12203F', title: '#EEF2FA', current: '#8DB0FF', leaving: '#8DB0FF', joining: '#6EE7B7', potential: '#FCD34D', soft: '#9AA8C4', faint: '#6D7C9C', line: 'rgba(238,242,250,0.12)' };
+let INK: Ink = LIGHT;
+const appDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 const FONT = "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif";
-const COL = 158, PAD = 32, LINE = 20;
+const PAD = 32, LINE = 20;
+let COL = 158;
 const YEARS = ['2627', '2728'] as const;
 const yearLabel = (y: string) => `20${y.slice(0, 2)}/${y.slice(2)}`;
 const mmYY = (d?: string) => (d ? `${d.slice(5, 7)}.${d.slice(0, 4)}` : '–');
-const LEGEND: [string, string, string][] = [
-  [INK.current, 'zapisani', 'chodzą w tym roku (faktura); przekreśleni odchodzą'],
-  [INK.joining, 'dołączają', 'umowa podpisana, start później (data obok)'],
-  [INK.potential, 'potencjalni', 'otwarte leady: etap i szansa zapisu w %'],
+const LEGEND: [keyof Ink, string, string][] = [
+  ['current', 'zapisani', 'chodzą w tym roku (faktura); przekreśleni odchodzą'],
+  ['joining', 'dołączają', 'umowa podpisana, start później (data obok)'],
+  ['potential', 'potencjalni', 'otwarte leady: szansa zapisu w % i etap'],
 ];
 
-function entryText(e: BoardEntry, year: string): string {
+function entryText(e: BoardEntry, year: string, names: boolean): string {
   const g = e.gender === 'F' ? '♀' : e.gender === 'M' ? '♂' : '·';
-  if (e.kind === 'current' || e.kind === 'leaving') return `${g} ${mmYY(e.born)}`;
-  if (e.kind === 'joining') return `${g} ${mmYY(e.born)} → ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : '?'}`;
-  return `${e.chance ?? 0}% ${stageLabel(e.stage) || 'lead'}${e.year && e.year !== year ? ` ${yearLabel(e.year).slice(2)}` : ''}`;
+  const who = names && e.name ? e.name : '';
+  if (e.kind === 'current' || e.kind === 'leaving') return `${g} ${who || mmYY(e.born)}`;
+  if (e.kind === 'joining') return `${g} ${who || mmYY(e.born)} → ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : '?'}`;
+  const later = e.year && e.year !== year ? ` ${yearLabel(e.year).slice(2)}` : '';
+  return who ? `${e.chance ?? 0}% ${who}${later}` : `${e.chance ?? 0}% ${stageLabel(e.stage) || 'lead'}${later}`;
 }
 
 /** Draws the board on a canvas — the same picture goes to the screen, the PNG and the clipboard. */
-function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean) {
+function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean, dark: boolean, names: boolean) {
+  INK = dark ? DARK : LIGHT;
+  COL = names ? 196 : 158;
   const cols = b.columns;
   const rows = numbersOnly ? 0 : Math.max(0, ...cols.map((c) => c.entries.length));
   const w = Math.max(PAD * 2 + cols.length * COL, 900);
@@ -42,7 +52,7 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
   canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
   const x = canvas.getContext('2d')!;
   x.scale(scale, scale);
-  x.fillStyle = '#fff'; x.fillRect(0, 0, w, h);
+  x.fillStyle = INK.bg; x.fillRect(0, 0, w, h);
   const text = (t: string, px: number, py: number, size: number, color: string, opts: { weight?: number; align?: CanvasTextAlign; strike?: boolean; max?: number } = {}) => {
     x.font = `${opts.weight || 400} ${size}px ${FONT}`; x.fillStyle = color; x.textAlign = opts.align || 'left';
     while (opts.max && t.length > 3 && x.measureText(t).width > opts.max) t = `${t.slice(0, -2)}…`;
@@ -54,13 +64,14 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
   text(`Klasy ${yearLabel(b.year)}`, PAD, 46, 24, INK.title, { weight: 600 });
   text(`Maple Bear Katowice · stan na ${b.madeOn.split('-').reverse().join('.')} · od najmłodszych do najstarszych`, PAD, 70, 13, INK.soft);
   // legend
-  LEGEND.forEach(([c, name, what], i) => {
+  LEGEND.forEach(([k, name, what], i) => {
+    const c = INK[k];
     const ly = 98 + i * 18;
     x.fillStyle = c; x.fillRect(PAD, ly - 9, 8, 8);
     const nw = text(name, PAD + 16, ly, 13, c, { weight: 600 });
     text(`— ${what}`, PAD + 20 + nw, ly, 13, INK.soft);
   });
-  text('♀/♂ mm.rrrr = płeć i miesiąc urodzenia · bez imion i danych kontaktowych', w - PAD, 98, 12, INK.faint, { align: 'right' });
+  text(names ? 'zawiera imiona — tylko do użytku wewnętrznego' : '♀/♂ mm.rrrr = płeć i miesiąc urodzenia · bez imion i danych kontaktowych', w - PAD, 98, 12, names ? INK.potential : INK.faint, { align: 'right' });
   const leaving = tot('leaving');
   text(`${tot('current') + leaving} zapisanych${leaving ? ` (${leaving} odchodzi)` : ''} · ${tot('joining')} dołącza · ${tot('potential')} potencjalnych`, w - PAD, 116, 13, INK.title, { align: 'right', weight: 600 });
 
@@ -77,7 +88,7 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
     text(`${pot} potencjalnych`, lx, top + 98, 13, pot ? INK.potential : INK.faint, { weight: 600 });
     if (!numbersOnly) {
       x.fillStyle = INK.line; x.fillRect(lx, listTop - 12, COL - 24, 1);
-      c.entries.forEach((e, k) => text(entryText(e, b.year), lx, listTop + 6 + k * LINE, 13, INK[e.kind], { strike: e.kind === 'leaving', max: COL - 20 }));
+      c.entries.forEach((e, k) => text(entryText(e, b.year, names), lx, listTop + 6 + k * LINE, 13, INK[e.kind], { strike: e.kind === 'leaving', max: COL - 20 }));
     }
   });
   text('Źródło: eksport uczniów i leadów z systemu szkoły · leady na kolejne lata w kolumnie dzisiejszego rocznika', PAD, h - 22, 11, INK.faint);
@@ -97,18 +108,23 @@ export function ClassBoardPage() {
   const [files, setFiles] = useState<{ students?: Record<string, unknown>[]; leads?: Record<string, unknown>[]; names: string[] }>({ names: [] });
   const [err, setErr] = useState('');
   const [numbersOnly, setNumbersOnly] = useState(false);
+  const [dark, setDark] = useState(appDark);
+  const [names, setNames] = useState(true);
   const canvas = useRef<HTMLCanvasElement>(null);
   const fresh = useMemo(() => (files.students ? buildBoard(files.students, files.leads || [], year) : null), [files, year]);
   const board = fresh || saved.data || null;
-  const save = useAction((b: ClassBoardData) => api.saveClassBoard(b), { ok: 'Zapisano tablicę (bez danych osobowych)' });
+  // names exist only in a board built here from the exports; the saved one never has them
+  const hasNames = !!fresh && fresh.columns.some((c) => c.entries.some((e) => e.name));
+  const studentsNoNames = !!files.students && !files.students.some((r) => r.first_name || r.last_name);
+  const save = useAction((b: ClassBoardData) => api.saveClassBoard(sanitizeBoard(b, b.year)), { ok: 'Zapisano tablicę (bez danych osobowych)' });
 
   useEffect(() => {
     if (!board || !canvas.current) return;
-    const go = () => draw(canvas.current!, board, numbersOnly);
+    const go = () => draw(canvas.current!, board, numbersOnly, dark, names && hasNames);
     go();
     // the font may arrive a moment later
     document.fonts?.load(`600 16px ${FONT}`).then(go).catch(() => undefined);
-  }, [board, numbersOnly]);
+  }, [board, numbersOnly, dark, names, hasNames]);
 
   const onFiles = async (list: FileList | null) => {
     setErr('');
@@ -150,6 +166,9 @@ export function ClassBoardPage() {
             <input type="file" accept=".xlsx,.xls,.csv" multiple hidden onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
           </label>
           <span className="grow" />
+          <Seg value={dark ? 'dark' : 'light'} onChange={(v) => setDark(v === 'dark')} options={['light', 'dark'] as const} labels={{ light: 'Jasny', dark: 'Ciemny' }} />
+          <label className="row small" style={{ gap: 6 }} title={hasNames ? '' : 'Imiona widać tylko po wgraniu eksportów w tej przeglądarce'}>
+            <input type="checkbox" checked={names && hasNames} disabled={!hasNames} onChange={(e) => setNames(e.target.checked)} /> Imiona i nazwiska</label>
           <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={numbersOnly} onChange={(e) => setNumbersOnly(e.target.checked)} /> Tylko liczby</label>
           <button className="btn" disabled={!board} onClick={copy}><Copy size={15} /> Kopiuj obraz</button>
           <button className="btn" disabled={!board} onClick={download}><Download size={15} /> Pobierz PNG</button>
@@ -157,9 +176,11 @@ export function ClassBoardPage() {
         </div>
         <div className="row small soft" style={{ gap: 8, alignItems: 'flex-start' }}>
           <ShieldCheck size={16} style={{ flex: 'none', color: 'var(--ok)' }} />
-          <span>Pliki czytam tylko w tej przeglądarce — nic z nich nie wysyłam. Na tablicy (i w zapisie) zostaje tylko klasa, rok i miesiąc urodzenia, płeć i etap leada: bez imion, maili i telefonów. Możesz wgrywać eksporty prosto z systemu, bez czyszczenia.</span>
+          <span>Pliki czytam tylko w tej przeglądarce — nic z nich nie wysyłam. Imiona widzisz tylko tutaj; „Zapisz w Opal5” zapisuje wersję bez imion, maili i telefonów (klasa, miesiąc urodzenia, płeć, etap i szansa leada). Możesz wgrywać eksporty prosto z systemu, bez czyszczenia.</span>
         </div>
         {files.names.length > 0 && <div className="small">{files.names.join(' · ')}{!files.leads && ' · (dorzuć eksport leadów, żeby zobaczyć potencjalnych)'}</div>}
+        {names && hasNames && <div className="small" style={{ color: 'var(--warn)' }}>Imiona widać tylko tutaj — nie zapisuję ich w Opal5. Zanim wyślesz obrazek do raportu, odznacz „Imiona i nazwiska”.</div>}
+        {studentsNoNames && <div className="small soft">Eksport uczniów ma puste kolumny first_name / last_name — wyeksportuj go z systemu z imionami, żeby zobaczyć dzieci po imieniu.</div>}
         {err && <div className="error-box small">{err}</div>}
         {!fresh && saved.data && <div className="small soft">Pokazuję tablicę zapisaną {saved.data.madeOn.split('-').reverse().join('.')}. Wgraj nowe eksporty, żeby ją odświeżyć.</div>}
         {saved.error && <ErrorBox error={saved.error} />}
