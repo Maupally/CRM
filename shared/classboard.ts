@@ -62,7 +62,7 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
     try { ay = JSON.parse(str(s.academic_year_data) || '[]'); } catch { /* broken cell */ }
     const now = ay.find((a) => a.academic_year === year);
     const g = gradeOf(now?.grade);
-    const kind: Kid | null = status === 'invoiced' ? 'current' : status === 'leaving_cy' ? 'leaving' : status === 'starting_ny' ? 'joining' : null;
+    const kind: Kid | null = status === 'invoiced' ? 'current' : status === 'leaving_cy' || status === 'leaving_ny' ? 'leaving' : status === 'starting_ny' ? 'joining' : null;
     if (!kind) continue;
     if (!g) { skipped.noGrade++; continue; }
     const born = str(s.birthday).slice(0, 7);

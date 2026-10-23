@@ -11,9 +11,9 @@ import { ErrorBox, Seg, useAction, useToast } from '../components/ui';
 import { buildBoard, count, kindOfExport, sanitizeBoard, stageLabel, type BoardEntry, type ClassBoardData } from '../../shared/classboard';
 
 type Ink = { bg: string; title: string; current: string; leaving: string; joining: string; potential: string; soft: string; faint: string; line: string };
-const LIGHT: Ink = { bg: '#ffffff', title: '#111827', current: '#2563eb', leaving: '#2563eb', joining: '#15803d', potential: '#b45309', soft: '#6b7280', faint: '#9ca3af', line: '#e5e7eb' };
+const LIGHT: Ink = { bg: '#ffffff', title: '#111827', current: '#2563eb', leaving: '#dc2626', joining: '#15803d', potential: '#b45309', soft: '#6b7280', faint: '#9ca3af', line: '#e5e7eb' };
 /** the Opal5 dark theme */
-const DARK: Ink = { bg: '#12203F', title: '#EEF2FA', current: '#8DB0FF', leaving: '#8DB0FF', joining: '#6EE7B7', potential: '#FCD34D', soft: '#9AA8C4', faint: '#6D7C9C', line: 'rgba(238,242,250,0.12)' };
+const DARK: Ink = { bg: '#12203F', title: '#EEF2FA', current: '#8DB0FF', leaving: '#FCA5A5', joining: '#6EE7B7', potential: '#FCD34D', soft: '#9AA8C4', faint: '#6D7C9C', line: 'rgba(238,242,250,0.12)' };
 let INK: Ink = LIGHT;
 const appDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 const FONT = "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif";
@@ -26,7 +26,8 @@ const YEARS = ['2627', '2728'] as const;
 const yearLabel = (y: string) => `20${y.slice(0, 2)}/${y.slice(2)}`;
 const mmYY = (d?: string) => (d ? `${d.slice(5, 7)}.${d.slice(0, 4)}` : '–');
 const LEGEND: [keyof Ink, string, string][] = [
-  ['current', 'zapisani', 'chodzą w tym roku (faktura); przekreśleni odchodzą'],
+  ['current', 'zapisani', 'chodzą w tym roku (faktura)'],
+  ['leaving', 'odchodzą', 'chodzą, ale nie zostają na kolejny rok (leaving)'],
   ['joining', 'dołączają', 'umowa podpisana, start później (data obok)'],
   ['potential', 'potencjalni', 'aktywne leady (bez future leadów), w nawiasie szansa zapisu'],
 ];
@@ -36,7 +37,7 @@ function entryText(e: BoardEntry, year: string, names: boolean): string {
   if (e.kind === 'current' || e.kind === 'leaving') return who || mmYY(e.born);
   if (e.kind === 'joining') return `${who || mmYY(e.born)} → ${e.start ? `${e.start.slice(5, 7)}.${e.start.slice(2, 4)}` : '?'}`;
   const later = e.year && e.year !== year ? ` ${yearLabel(e.year).slice(2)}` : '';
-  return `${who || stageLabel(e.stage) || 'lead'}${later} (${e.chance ?? 0}%)`;
+  return `${who || stageLabel(e.stage) || 'lead'}${later}`;
 }
 
 /** Draws the board on a canvas — the same picture goes to the screen, the PNG and the clipboard. */
@@ -47,7 +48,7 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
   const cols = b.columns;
   const rows = numbersOnly ? 0 : Math.max(0, ...cols.map((c) => c.entries.length));
   const w = Math.max(PAD * 2 + cols.length * COL, 900);
-  const top = 150;
+  const top = 170;
   const listTop = top + 128;
   const h = listTop + rows * LINE + 64;
   const scale = 2;
@@ -56,9 +57,12 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
   const x = canvas.getContext('2d')!;
   x.scale(scale, scale);
   x.fillStyle = INK.bg; x.fillRect(0, 0, w, h);
-  const text = (t: string, px: number, py: number, size: number, color: string, opts: { weight?: number; align?: CanvasTextAlign; strike?: boolean; max?: number } = {}) => {
+  const text = (t: string, px: number, py: number, size: number, color: string, opts: { weight?: number; align?: CanvasTextAlign; strike?: boolean; max?: number; suffix?: string } = {}) => {
+    const tail = opts.suffix || '';
     x.font = `${opts.weight || 400} ${size}px ${FONT}`; x.fillStyle = color; x.textAlign = opts.align || 'left';
-    while (opts.max && t.length > 3 && x.measureText(t).width > opts.max) t = `${t.slice(0, -2)}…`;
+    // shorten the name, never the percentage after it
+    while (opts.max && t.length > 3 && x.measureText(t + tail).width > opts.max) t = `${t.slice(0, -2)}…`;
+    t += tail;
     x.fillText(t, px, py);
     if (opts.strike) { const m = x.measureText(t).width; x.fillRect(opts.align === 'center' ? px - m / 2 : px, py - size * 0.32, m, 1); }
     return x.measureText(t).width;
@@ -87,13 +91,14 @@ function draw(canvas: HTMLCanvasElement, b: ClassBoardData, numbersOnly: boolean
     text(c.cohort, lx, top + 40, 12, INK.faint);
     const cur = count(c, 'current') + count(c, 'leaving'), join = count(c, 'joining'), pot = count(c, 'potential');
     text(`${cur} zapisanych`, lx, top + 64, 13, cur ? INK.current : INK.faint, { weight: 600 });
+    if (count(c, 'leaving')) text(`${count(c, 'leaving')} odchodzi`, lx, top + 115, 13, INK.leaving, { weight: 600 });
     text(`${join} dołącza`, lx, top + 81, 13, join ? INK.joining : INK.faint, { weight: 600 });
     text(`${pot} potencjalnych`, lx, top + 98, 13, pot ? INK.potential : INK.faint, { weight: 600 });
     if (!numbersOnly) {
       x.fillStyle = INK.line; x.fillRect(lx, listTop - 12, COL - 24, 1);
       c.entries.forEach((e, k) => {
         const y = listTop + 6 + k * LINE;
-        const tw = text(entryText(e, b.year, names), lx, y, 13, INK[e.kind], { strike: e.kind === 'leaving', max: COL - 20 });
+        const tw = text(entryText(e, b.year, names), lx, y, 13, INK[e.kind], { max: COL - 20, suffix: e.kind === 'potential' ? ` (${e.chance ?? 0}%)` : '' });
         // leads are links to their card in the school system (on screen; the PNG is just a picture)
         if (names && e.leadId) {
           x.fillStyle = INK[e.kind]; x.globalAlpha = 0.35; x.fillRect(lx, y + 3, tw, 1); x.globalAlpha = 1;
