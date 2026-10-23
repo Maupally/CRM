@@ -11,6 +11,7 @@ import { B2c } from './b2c.js';
 import { Ideas } from './ideas.js';
 import { Stories, parseThread } from './story.js';
 import { Marketing } from './marketing.js';
+import { sanitizeBoard, type ClassBoardData } from '../shared/classboard.js';
 import { suggestGroups } from '../shared/topics.js';
 import { BoardStore } from './board.js';
 import { Messages } from './messages.js';
@@ -188,6 +189,17 @@ export function createApp(o: AppOptions) {
   api.get('/agenda', async (c) => c.json(await (await crm()).agenda(c.req.query('from') || '', c.req.query('to') || '')));
   api.get('/stats', async (c) => c.json(await (await crm()).stats()));
   api.get('/report/done', async (c) => c.json(await doneList(await crm(), c.req.query('from'), c.req.query('to'))));
+  // class board: anonymous (class, birth month, gender, lead stage) — built in the browser from the school system's exports
+  api.get('/classboard/:year', async (c) => {
+    const v = await (await crm()).setting(`classboard.${c.req.param('year')}`);
+    return c.json(v ? JSON.parse(v) : null);
+  });
+  api.post('/classboard/:year', async (c) => {
+    const b = await body<ClassBoardData>(c);
+    const clean = sanitizeBoard(b, c.req.param('year'));
+    await (await crm()).setSetting(`classboard.${clean.year}`, JSON.stringify(clean));
+    return c.json({ ok: true });
+  });
   api.get('/report/memory', async (c) => { const m = new WeeklyMemory(await crm()); return c.json({ rules: await m.rules(), sent: await m.sent() }); });
   api.post('/report/memory', async (c) => {
     const m = new WeeklyMemory(await crm());

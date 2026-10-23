@@ -15,6 +15,7 @@ import { suggestProcesses, suggestText } from './suggest.js';
 import { personProfile } from './profile.js';
 import { feesText } from './fees.js';
 import { WeeklyMemory, weeklyItems } from './weekly.js';
+import { count, type ClassBoardData } from '../shared/classboard.js';
 import { capacity } from '../shared/capacity.js';
 import { suggestGroups } from '../shared/topics.js';
 import { Stories, parseThread, type ParsedThread } from './story.js';
@@ -268,6 +269,12 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'get_class_board',
+    description: 'Tablica klas na rok szkolny (z ostatnich eksportów wgranych w Opal5 → Tablica klas): dla każdej klasy od najmłodszej — rocznik, ile dzieci chodzi, ' +
+      'ile odchodzi, ile dołącza (umowa podpisana, start później) i ile potencjalnych (otwarte leady wg etapu). Bez danych osobowych. Do raportu: liczby i obrazek z Opal5.',
+    input_schema: { type: 'object', properties: { year: { type: 'string', description: 'np. 2627 (domyślnie)' } }, additionalProperties: false },
+  },
+  {
     name: 'save_weekly_report',
     description: 'Raport tygodniowy się uczy: text = raport, który użytkownik NAPRAWDĘ wysłał (wzór dla następnych — zapisz, gdy go wkleja albo mówi „wysłałem”); ' +
       'lessons = ogólne zasady z jego poprawek, sformułowane tak, by działały w kolejnych tygodniach (np. „Bez dostawców i zakupów — to nie partnerstwa”, ' +
@@ -424,7 +431,7 @@ const GATEWAY = [
 
 const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
 const STORY_ACTIONS = new Set(['save_story', 'get_story']);
-const REPORT_ACTIONS = new Set(['save_weekly_report']);
+const REPORT_ACTIONS = new Set(['save_weekly_report', 'get_class_board']);
 const MARKETING_ACTIONS = new Set(['get_content_plan', 'save_content', 'get_partner_backlog', 'save_partner_idea']);
 const BOARD_ACTIONS = new Set(['save_person_note', 'link_nodes', 'get_person_file']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
@@ -1822,6 +1829,16 @@ export class Assistant {
         notes: f.notes.slice(0, 40).map((n) => ({ id: n.id, day: n.day, text: n.text, ref: n.ref || undefined, also: n.links.filter((l) => !(l.kind === 'person' && l.id === String(p.id))).map((l) => l.label) })),
         connections: f.connections.map((c) => ({ kind: c.node.kind, id: c.node.id, name: c.node.label, why: c.why.slice(0, 5) })),
       });
+    }
+    if (name === 'get_class_board') {
+      const y = /^\d{4}$/.test(txt(input.year)) ? txt(input.year) : '2627';
+      const raw = await this.crm.setting(`classboard.${y}`);
+      if (!raw) return `Brak tablicy klas na ${y} — wgraj eksporty uczniów i leadów w Opal5 → Tablica klas.`;
+      const b = JSON.parse(raw) as ClassBoardData;
+      const stages = (c: ClassBoardData['columns'][number]) => [...new Set(c.entries.filter((e) => e.kind === 'potential').map((e) => e.stage).filter(Boolean))];
+      return JSON.stringify({ year: b.year, as_of: b.madeOn, classes: b.columns.map((c) => ({ class: c.label, cohort: c.cohort || undefined,
+        attending: count(c, 'current') + count(c, 'leaving'), leaving: count(c, 'leaving') || undefined, joining: count(c, 'joining'), potential: count(c, 'potential'),
+        potential_stages: stages(c).length ? stages(c) : undefined })) });
     }
     if (name === 'save_weekly_report') {
       const mem = new WeeklyMemory(this.crm);

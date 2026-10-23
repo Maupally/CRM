@@ -5,7 +5,7 @@ import {
   Users,
   LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
   LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
-  Target, Workflow, FileText, Lightbulb, Megaphone,
+  Target, Workflow, FileText, Lightbulb, Megaphone, Grid3x3,
 } from 'lucide-react';
 import { api } from './api';
 import { searchKey } from '../shared/domain';
@@ -27,6 +27,7 @@ const ProcessesPage = lazy(() => import('./pages/Processes').then((m) => ({ defa
 const TemplatesPage = lazy(() => import('./pages/Templates').then((m) => ({ default: m.TemplatesPage })));
 const LaterPage = lazy(() => import('./pages/Later').then((m) => ({ default: m.LaterPage })));
 const PeoplePage = lazy(() => import('./pages/People').then((m) => ({ default: m.PeoplePage })));
+const ClassBoardPage = lazy(() => import('./pages/ClassBoard').then((m) => ({ default: m.ClassBoardPage })));
 const MarketingPage = lazy(() => import('./pages/Marketing').then((m) => ({ default: m.MarketingPage })));
 const TeamSpacePage = lazy(() => import('./pages/TeamSpace').then((m) => ({ default: m.TeamSpacePage })));
 const PersonFilePage = lazy(() => import('./pages/People').then((m) => ({ default: m.PersonFilePage })));
@@ -105,6 +106,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
     { to: '/lejek', label: 'Lejek', icon: KanbanSquare },
     { to: '/firmy', label: 'Firmy', icon: Building2 },
     { to: '/b2c', label: 'B2C', icon: Target },
+    { to: '/klasy', label: 'Tablica klas', icon: Grid3x3 },
     { to: '/szablony', label: 'Szablony', icon: FileText },
   ] },
   { group: 'Plan', items: [
@@ -189,6 +191,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
             <Route path="/zespol/:id" element={<PersonFilePage />} />
             <Route path="/b2c" element={<B2cPage />} />
             <Route path="/marketing" element={<MarketingPage />} />
+            <Route path="/klasy" element={<ClassBoardPage />} />
             <Route path="/szablony" element={<TemplatesPage />} />
             <Route path="/procesy" element={<ProcessesPage />} />
             <Route path="/na-pozniej" element={<LaterPage />} />
@@ -211,6 +214,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
         <div className="list card flat">
           {[
             { to: '/b2c', label: 'B2C', icon: Target },
+    { to: '/klasy', label: 'Tablica klas', icon: Grid3x3 },
             { to: '/szablony', label: 'Szablony', icon: FileText },
             { to: '/kalendarz', label: 'Kalendarz', icon: CalendarDays },
             { to: '/wydarzenia', label: 'Wydarzenia', icon: PartyPopper },

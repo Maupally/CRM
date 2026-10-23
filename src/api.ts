@@ -1,5 +1,6 @@
 import type { Activity, CrmEvent, Lead, Segment, Task, Template, Stage, KnowledgeItem, Person, Style, Design, DesignSummary, Thread, ThreadSummary, ThreadMessage, B2cItem, B2cLog, EventPerson, Process, ProcessRun, Idea, MsgChannel, MsgStats, Board, PersonFile, StoryItem } from '../shared/domain';
 import type { ParsedThread, StoryDraft } from '../server/story';
+import type { ClassBoardData } from '../shared/classboard';
 import type { ContentItem, ContentReportRow, PartnerIdea, ShareLink } from '../shared/marketing';
 import type { GroupSuggestion } from '../shared/topics';
 export type ParsedStory = ParsedThread & { ai: boolean; companies: { id: string; company: string }[]; groups: GroupSuggestion[] };
@@ -185,6 +186,8 @@ export const api = {
   stats: () => get<Stats>('/stats'),
   reportDone: (from: string, to: string) => get<{ from: string; to: string; rows: DoneRow[] }>(`/report/done?from=${from}&to=${to}`),
   reportItems: (from: string, to: string) => get<WeeklyItems>(`/report/items?from=${from}&to=${to}`),
+  classBoard: (year: string) => get<ClassBoardData | null>(`/classboard/${year}`),
+  saveClassBoard: (b: ClassBoardData) => post<{ ok: boolean }>(`/classboard/${b.year}`, b),
   reportMemory: () => get<{ rules: string[]; sent: { date: string; text: string }[] }>('/report/memory'),
   saveReportMemory: (d: { rules?: string[]; sent?: string }) => post<{ rules: string[]; sent: { date: string; text: string }[] }>('/report/memory', d),
   report: (from: string, to: string) => get<{ from: string; to: string; text: string }>(`/report?from=${from}&to=${to}`),
