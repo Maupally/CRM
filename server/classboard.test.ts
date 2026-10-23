@@ -14,15 +14,16 @@ describe('class board', () => {
     ];
     const leads = [
       { id: 'LEAD123', status: 'active', grade: 'grade_0', academic_year: '2627', pipeline_status: 'meeting_booked', lead_score: '30', title: 'Jan Kowalski', contact_1_email: 'x@y.pl' },
-      { status: 'future_lead', grade: 'grade_1', academic_year: '2728', pipeline_status: 'contacted', title: 'mama@x.pl' },
-      { status: 'future_lead', grade: null, academic_year: null, pipeline_status: 'contacted' },
+      { status: 'active', grade: 'grade_1', academic_year: '2728', pipeline_status: 'contacted', title: 'mama@x.pl' },
+      { status: 'future_lead', grade: 'sk', academic_year: '2627', pipeline_status: 'contacted', title: 'Przyszly Lead' },
       { status: 'disqualified', grade: 'sk', academic_year: '2627' },
       { status: 'enrolled', grade: 'sk', academic_year: '2627' },
     ];
     expect(kindOfExport(['id', 'birthday', 'academic_year_data'])).toBe('students');
     expect(kindOfExport(['id', 'grade', 'pipeline_status'])).toBe('leads');
     const b = buildBoard(students, leads, '2627', '2026-10-23');
-    expect(b.columns.map((c) => c.label)).toEqual(['Nursery', 'JK', 'SK', 'Grade 0', 'Bez klasy']);
+    expect(b.columns.map((c) => c.label)).toEqual(['Nursery', 'JK', 'SK', 'Grade 0']);
+    expect(JSON.stringify(b)).not.toMatch(/Przyszly/);
     const [nursery, jk, , g0] = b.columns;
     expect([count(nursery, 'current'), count(nursery, 'joining')]).toEqual([1, 1]);
     expect(count(jk, 'leaving')).toBe(1);
@@ -30,7 +31,7 @@ describe('class board', () => {
     expect([count(g0, 'current'), count(g0, 'potential')]).toEqual([1, 2]);
     expect(nursery.cohort).toBe('rocznik 2023');
     expect(g0.entries.filter((e) => e.kind === 'potential').map((e) => e.chance)).toEqual([30, 0]);
-    expect(b.skipped).toMatchObject({ dropped: 1, disqualified: 1 });
+    expect(b.skipped).toMatchObject({ dropped: 1, disqualified: 1, future: 1 });
     // names are there for the screen only; contacts never
     expect(nursery.entries.length).toBeGreaterThan(0);
     expect(JSON.stringify(b)).toMatch(/Kowalski/);

@@ -28,7 +28,7 @@ const mmYY = (d?: string) => (d ? `${d.slice(5, 7)}.${d.slice(0, 4)}` : '–');
 const LEGEND: [keyof Ink, string, string][] = [
   ['current', 'zapisani', 'chodzą w tym roku (faktura); przekreśleni odchodzą'],
   ['joining', 'dołączają', 'umowa podpisana, start później (data obok)'],
-  ['potential', 'potencjalni', 'otwarte leady: szansa zapisu w % i etap'],
+  ['potential', 'potencjalni', 'aktywne leady (bez future leadów): szansa zapisu w % i etap'],
 ];
 
 function entryText(e: BoardEntry, year: string, names: boolean): string {

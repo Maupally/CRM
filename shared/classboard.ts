@@ -11,7 +11,7 @@ export const GRADE_LABEL: Record<Grade, string> = {
   grade_5: 'Grade 5', grade_6: 'Grade 6', grade_7: 'Grade 7', grade_8: 'Grade 8',
 };
 
-/** current = attends (invoiced), leaving = attends but not re-enrolling, joining = contract signed, starts later, potential = open lead */
+/** current = attends (invoiced), leaving = attends but not re-enrolling, joining = contract signed, starts later, potential = active lead (future leads are left out) */
 export type Kid = 'current' | 'leaving' | 'joining' | 'potential';
 /** chance = the lead's enrolment probability in % (lead score; none = 0) */
 export interface BoardEntry { kind: Kid; gender?: 'M' | 'F'; born?: string; start?: string; stage?: string; year?: string; chance?: number;
@@ -20,7 +20,7 @@ export interface BoardEntry { kind: Kid; gender?: 'M' | 'F'; born?: string; star
   /** the lead's id in the school system, for a link — browser only, like the name */
   leadId?: string }
 export interface BoardColumn { key: string; label: string; cohort: string; entries: BoardEntry[] }
-export interface ClassBoardData { year: string; madeOn: string; columns: BoardColumn[]; skipped: { dropped: number; disqualified: number; noGrade: number } }
+export interface ClassBoardData { year: string; madeOn: string; columns: BoardColumn[]; skipped: { dropped: number; disqualified: number; noGrade: number; future?: number } }
 
 const STAGE_PL: Record<string, string> = {
   contacted: 'kontakt', meeting_booked: 'spotkanie', trial_day: 'dzień próbny', contract_sent: 'umowa wysłana', contract_signed: 'umowa podpisana',
@@ -52,7 +52,7 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
     return cols.get(key)!;
   };
   for (const g of GRADES) col(g, GRADE_LABEL[g]);
-  const skipped = { dropped: 0, disqualified: 0, noGrade: 0 };
+  const skipped = { dropped: 0, disqualified: 0, noGrade: 0, future: 0 };
   const births = new Map<string, number[]>();
 
   for (const s of students) {
@@ -76,7 +76,9 @@ export function buildBoard(students: Row[], leads: Row[], year = '2627', today =
   for (const l of leads) {
     const status = str(l.status);
     if (status === 'disqualified') { skipped.disqualified++; continue; }
-    if (status !== 'active' && status !== 'future_lead') continue;
+    // only leads being worked on now; future leads (a later year, parked) stay out of the board
+    if (status === 'future_lead') { skipped.future++; continue; }
+    if (status !== 'active') continue;
     const ly = str(l.academic_year);
     const g = gradeOf(l.grade);
     const chance = Math.max(0, Math.min(100, Number(str(l.lead_score)) || 0));
@@ -126,5 +128,5 @@ export function sanitizeBoard(b: ClassBoardData, year: string): ClassBoardData {
   }));
   const n = (v: unknown) => Math.max(0, Math.min(100000, Number(v) || 0));
   return { year, madeOn: /^\d{4}-\d{2}-\d{2}$/.test(str(b?.madeOn)) ? str(b.madeOn) : new Date().toISOString().slice(0, 10), columns: cols,
-    skipped: { dropped: n(b?.skipped?.dropped), disqualified: n(b?.skipped?.disqualified), noGrade: n(b?.skipped?.noGrade) } };
+    skipped: { dropped: n(b?.skipped?.dropped), disqualified: n(b?.skipped?.disqualified), noGrade: n(b?.skipped?.noGrade), future: n(b?.skipped?.future) } };
 }
