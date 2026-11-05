@@ -835,3 +835,20 @@ a.qa { text-decoration: none; color: inherit; }
   .mk-day { grid-template-columns: 1fr; gap: 6px; }
   .mk-date { flex-direction: row; gap: 6px; padding-top: 0; }
 }
+
+/* content calendar — week with the days side by side */
+.mk-week { display: grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap: 0; border-top: 1px solid var(--line); overflow-x: auto; }
+.mk-wcol { display: flex; flex-direction: column; gap: 6px; padding: 8px 6px 10px; min-height: 340px; border-right: 1px solid var(--line); min-width: 0; }
+.mk-wcol:last-child { border-right: 0; }
+.mk-wcol.past { background: color-mix(in srgb, var(--panel) 30%, transparent); }
+.mk-whead { display: flex; flex-direction: column; align-items: center; padding-bottom: 4px; }
+.mk-whead span { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); }
+.mk-whead b { font-size: 20px; font-weight: 600; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; }
+.mk-wcol.today .mk-whead b { background: var(--accent); color: #fff; }
+.mk-wcol.today .mk-whead span { color: var(--accent); }
+.mk-wevent { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: var(--tint); color: var(--chip-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-wcol .mk-card { padding: 8px 9px; }
+.mk-wcol .mk-card .title { font-size: 12.5px; }
+.mk-wadd { margin-top: auto; align-self: center; border: 1px dashed var(--line-strong, var(--line)); background: none; color: var(--faint); border-radius: 8px; width: 100%; padding: 4px; cursor: pointer; opacity: 0; }
+.mk-wcol:hover .mk-wadd, .mk-wadd:focus { opacity: 1; }
+@media (hover: none) { .mk-wadd { opacity: .7; } }

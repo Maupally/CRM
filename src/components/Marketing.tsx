@@ -2,12 +2,12 @@
  * Content calendar, its monthly report and the partnership backlog. The same views run inside Opal5 and in the
  * team space opened by a personal link — only the client (which API it talks to) differs.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import type { MarketingClient, TeamContext } from '../api';
-import { Empty, Modal, useAction, useToday } from './ui';
-import { addDays, shortDate, weekday } from '../../shared/domain';
+import { Empty, Modal, Seg, useAction, useToday } from './ui';
+import { addDays, shortDate, startOfWeek, weekday } from '../../shared/domain';
 import {
   CHANNELS, CONTENT_KINDS, CONTENT_STATUS, CONTENT_STATUS_LABEL, PARTNER_STATUS, PARTNER_STATUS_LABEL,
   type ContentItem, type ContentStatus, type PartnerIdea, type PartnerStatus,
@@ -29,7 +29,60 @@ function Pill({ status }: { status: ContentStatus | PartnerStatus }) {
 
 /* ------------------------------------------------------------ content calendar */
 
+/** Content calendar: a week with the days side by side (like Google Calendar), or the month as a list. */
 export function ContentCalendar({ client }: { client: MarketingClient }) {
+  const [view, setView] = useState<'week' | 'month'>(() => { try { return localStorage.getItem('mk.view') === 'month' ? 'month' : 'week'; } catch { return 'week'; } });
+  const pick = (v: 'week' | 'month') => { setView(v); try { localStorage.setItem('mk.view', v); } catch { /* private mode */ } };
+  const toggle = <Seg value={view} onChange={pick} options={['week', 'month'] as const} labels={{ week: 'Tydzień', month: 'Miesiąc' }} />;
+  return view === 'week' ? <ContentWeek client={client} toggle={toggle} /> : <ContentMonth client={client} toggle={toggle} />;
+}
+
+function ContentWeek({ client, toggle }: { client: MarketingClient; toggle: ReactNode }) {
+  const today = useToday();
+  const [start, setStart] = useState(() => startOfWeek(today));
+  const [edit, setEdit] = useState<Partial<ContentItem> | null>(null);
+  const end = addDays(start, 6);
+  const q = useQuery({ queryKey: [client.key, 'content', 'week', start], queryFn: () => client.content(start, end) });
+  const ctx = useTeamContext(client);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  const items = q.data || [];
+  const undated = items.filter((c) => !c.day);
+  const label = `${shortDate(start)} – ${shortDate(end)}.${end.slice(0, 4)}`;
+  return (
+    <>
+      <div className="toolbar wrap">
+        {toggle}
+        <div className="row" style={{ gap: 4 }}>
+          <button className="btn sm icon" onClick={() => setStart(addDays(start, -7))} aria-label="Poprzedni tydzień"><ChevronLeft size={16} /></button>
+          <button className="btn sm" onClick={() => setStart(startOfWeek(today))}>Dziś</button>
+          <button className="btn sm icon" onClick={() => setStart(addDays(start, 7))} aria-label="Następny tydzień"><ChevronRight size={16} /></button>
+          <b style={{ marginLeft: 8 }}>{label}</b>
+        </div>
+        <span className="grow" />
+        <button className="btn sm primary" onClick={() => setEdit({ day: today >= start && today <= end ? today : start, status: 'idea', owner: ctx.data?.name || '' })}><Plus size={14} /> Dodaj treść</button>
+      </div>
+      <div className="mk-week">
+        {days.map((d) => (
+          <div key={d} className={`mk-wcol ${d === today ? 'today' : ''} ${d < today ? 'past' : ''}`}>
+            <div className="mk-whead"><span>{WD[weekday(d)]}</span><b>{Number(d.slice(8))}</b></div>
+            {(ctx.data?.events || []).filter((e) => e.date === d).map((e) => <div key={e.id} className="mk-wevent" title={e.title}>{e.title}</div>)}
+            {items.filter((c) => c.day === d).map((c) => <ContentCard key={c.id} c={c} today={today} onOpen={() => setEdit(c)} />)}
+            <button className="mk-wadd" onClick={() => setEdit({ day: d, status: 'idea', owner: ctx.data?.name || '' })} aria-label={`Dodaj na ${shortDate(d)}`}><Plus size={14} /></button>
+          </div>
+        ))}
+      </div>
+      {undated.length > 0 && (
+        <>
+          <div className="group-label">Bez daty · {undated.length}</div>
+          <div className="mk-items" style={{ padding: '0 20px 16px' }}>{undated.map((c) => <ContentCard key={c.id} c={c} today={today} onOpen={() => setEdit(c)} />)}</div>
+        </>
+      )}
+      <ContentForm client={client} ctx={ctx.data} value={edit} onClose={() => setEdit(null)} />
+    </>
+  );
+}
+
+function ContentMonth({ client, toggle }: { client: MarketingClient; toggle: ReactNode }) {
   const today = useToday();
   const [month, setMonth] = useState(today.slice(0, 7));
   const [status, setStatus] = useState<'' | ContentStatus>('');
@@ -53,6 +106,7 @@ export function ContentCalendar({ client }: { client: MarketingClient }) {
   return (
     <>
       <div className="toolbar wrap">
+        {toggle}
         <div className="row" style={{ gap: 4 }}>
           <button className="btn sm icon" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Poprzedni miesiąc"><ChevronLeft size={16} /></button>
           <b style={{ minWidth: 150, textAlign: 'center', textTransform: 'capitalize' }}>{monthLabel(month)}</b>
