@@ -62,7 +62,7 @@ export function TemplatesPage() {
       <div className="page-head">
         <div><h1>Szablony</h1><div className="sub">Cenniki, wiadomości i maile do rodziców — wszystko z jednego cennika, osobno dla każdego roku szkolnego.</div></div>
         <span className="spacer" />
-        {sent.data && <Link to="/raporty?tab=wiadomosci" className="tag soon" title="Policzone kopiowania w tym miesiącu">W tym miesiącu: {sent.data.period.email} e-maili · {sent.data.period.sms} SMS</Link>}
+        {sent.data && <span className="tag soon" title="Policzone kopiowania w tym miesiącu">W tym miesiącu: {sent.data.period.email} e-maili · {sent.data.period.sms} SMS</span>}
         <Seg value={tab} options={TABS} labels={TAB_LABEL} onChange={(t) => setSp(t === 'mail' ? {} : { tab: t }, { replace: true })} />
       </div>
 

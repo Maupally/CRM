@@ -3,9 +3,9 @@ import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-d
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Users,
-  LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, BarChart3, Settings, Search,
+  LayoutDashboard, ListTodo, KanbanSquare, Building2, CalendarDays, PartyPopper, Settings, Search,
   LogOut, MoreHorizontal, CornerDownLeft, type LucideIcon,
-  Target, Workflow, FileText, Lightbulb, Megaphone, Grid3x3,
+  Target, Workflow, FileText, Lightbulb, Megaphone, Grid3x3, PhoneCall,
 } from 'lucide-react';
 import { api } from './api';
 import { searchKey } from '../shared/domain';
@@ -118,7 +118,7 @@ const NAV: { group?: string; items: NavItem[] }[] = [
     { to: '/na-pozniej', label: 'Na później', icon: Lightbulb },
   ] },
   { group: 'Analiza', items: [
-    { to: '/raporty', label: 'Raporty', icon: BarChart3 },
+    { to: '/raporty', label: 'Call report', icon: PhoneCall },
   ] },
 ];
 
@@ -222,7 +222,7 @@ function Shell({ passwordRequired }: { passwordRequired: boolean }) {
     { to: '/marketing', label: 'Marketing', icon: Megaphone },
             { to: '/procesy', label: 'Procesy', icon: Workflow },
             { to: '/na-pozniej', label: 'Na później', icon: Lightbulb },
-            { to: '/raporty', label: 'Raporty', icon: BarChart3 },
+            { to: '/raporty', label: 'Call report', icon: PhoneCall },
             { to: '/ustawienia', label: 'Ustawienia i dane', icon: Settings },
           ].map(({ to, label, icon: I }) => (
             <NavLink key={to} to={to} className="li"><I size={18} /> {label}</NavLink>
