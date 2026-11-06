@@ -10,6 +10,7 @@ import { nowIso } from './db.js';
 import {
   NODE_KINDS, isIsoDay, longTxt, nodeKey, searchKey, txt,
   type Board, type BoardEdge, type BoardNode, type BoardNote, type NodeKind, type NodeRef, type PersonFile,
+  connectionsOf,
 } from '../shared/domain.js';
 
 const placeId = (name: string) => searchKey(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -193,16 +194,13 @@ export class BoardStore {
     return { nodes: keep, edges: list };
   }
 
-  /** A person's file: notes about them and everything they are tied to. */
-  async personFile(id: number): Promise<PersonFile> {
-    const p = await this.crm.getPerson(id);
-    const [notes, board] = await Promise.all([this.notes({ kind: 'person', id: String(id) }), this.board()]);
-    const me = `person:${id}`;
-    const byKey = new Map(board.nodes.map((n) => [n.key, n]));
-    const connections = board.edges.filter((e) => e.a === me || e.b === me)
-      .map((e) => ({ node: byKey.get(e.a === me ? e.b : e.a)!, why: e.labels, linkIds: e.linkIds }))
-      .filter((c) => c.node)
-      .sort((a, b) => b.why.length - a.why.length || a.node.label.localeCompare(b.node.label, 'pl'));
-    return { person: { id: p.id, name: p.name, role: p.role, company: p.company, photo: p.photo || '' }, notes, connections };
+  /**
+   * A person's file: notes about them and everything they are tied to. The app already holds the board, so it asks
+   * for the notes only and works the ties out itself — no second pass over the whole board.
+   */
+  async personFile(id: number, withConnections = true): Promise<PersonFile> {
+    const [p, notes, board] = await Promise.all([this.crm.getPerson(id), this.notes({ kind: 'person', id: String(id) }), withConnections ? this.board() : null]);
+    return { person: { id: p.id, name: p.name, role: p.role, company: p.company, photo: p.photo || '' }, notes,
+      connections: board ? connectionsOf(board, id) : [] };
   }
 }

@@ -338,7 +338,7 @@ export function createApp(o: AppOptions) {
   api.get('/messages/stats', async (c) => c.json(await (await messages()).stats(c.req.query('from'), c.req.query('to'))));
   const boardStore = async () => new BoardStore(await crm());
   api.get('/board', async (c) => c.json(await (await boardStore()).board()));
-  api.get('/people/:id/file', async (c) => c.json(await (await boardStore()).personFile(num(c.req.param('id')))));
+  api.get('/people/:id/file', async (c) => c.json(await (await boardStore()).personFile(num(c.req.param('id')), c.req.query('notes_only') !== '1')));
   api.post('/notes', async (c) => c.json(await (await boardStore()).addNote(await body(c))));
   api.delete('/notes/:id', async (c) => c.json(await (await boardStore()).deleteNote(num(c.req.param('id')))));
   api.post('/links', async (c) => { const d = await body<any>(c); return c.json(await (await boardStore()).link(d.a, d.b, d.label)); });

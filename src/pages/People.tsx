@@ -5,7 +5,7 @@ import { ArrowLeft, Building2, CalendarDays, FolderOpen, MapPin, Mail, Pencil, P
 import { BoardView } from '../components/BoardView';
 import { api } from '../api';
 import { Avatar, Empty, ErrorBox, Loading, Modal, Seg, relDay, telHref, useAction, useToday } from '../components/ui';
-import { PERSON_KINDS, PERSON_KIND_LABEL, searchKey, shortDate, type NodeKind, type Person, type PersonKind } from '../../shared/domain';
+import { connectionsOf, PERSON_KINDS, PERSON_KIND_LABEL, searchKey, shortDate, type NodeKind, type Person, type PersonKind } from '../../shared/domain';
 
 /**
  * The user's network: the school team and outside contacts (suppliers, animators, people at firms) — with what
@@ -226,7 +226,7 @@ export function PersonFilePage() {
   if (people.isLoading || file.isLoading) return <Loading />;
   if (file.error) return <ErrorBox error={file.error} />;
   if (!p) return <div className="empty">Nie ma takiej osoby.</div>;
-  const f = file.data!;
+  const f = { ...file.data!, connections: board.data ? connectionsOf(board.data, id) : [] };
   const groups = (['person', 'event', 'company', 'place'] as const).map((k) => [k, f.connections.filter((c) => c.node.kind === k)] as const).filter(([, l]) => l.length);
 
   return (

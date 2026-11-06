@@ -556,6 +556,16 @@ export interface PersonFile {
 }
 export const nodeKey = (r: NodeRef) => `${r.kind}:${r.id}`;
 
+/** What ties one person to the rest of the board — strongest ties first. */
+export function connectionsOf(board: Board, personId: number): PersonFile['connections'] {
+  const me = `person:${personId}`;
+  const byKey = new Map(board.nodes.map((n) => [n.key, n]));
+  return board.edges.filter((e) => e.a === me || e.b === me)
+    .map((e) => ({ node: byKey.get(e.a === me ? e.b : e.a)!, why: e.labels, linkIds: e.linkIds }))
+    .filter((c) => c.node)
+    .sort((a, b) => b.why.length - a.why.length || a.node.label.localeCompare(b.node.label, 'pl'));
+}
+
 /* -------------------------------------------------------------- effort (story points) */
 
 /** Fibonacci story points: complexity, uncertainty and effort together — not hours. 13 and 21 mean "break it down". */

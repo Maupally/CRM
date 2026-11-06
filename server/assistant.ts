@@ -20,6 +20,7 @@ import { capacity } from '../shared/capacity.js';
 import { suggestGroups } from '../shared/topics.js';
 import { Stories, parseThread, type ParsedThread } from './story.js';
 import { Marketing } from './marketing.js';
+import { databaseUrl } from './db.js';
 import { CONTENT_STATUS_LABEL, PARTNER_STATUS_LABEL } from '../shared/marketing.js';
 import { Ideas } from './ideas.js';
 import { BoardStore } from './board.js';
@@ -269,6 +270,11 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'speed_check',
+    description: 'Diagnostyka szybkości Opal5: region serwera i bazy (sama nazwa hosta, bez haseł), czas jednego zapytania do bazy i czasy ładowania pulpitu, tablicy powiązań i teczki osoby. Gdy użytkownik mówi, że coś wolno się ładuje.',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'get_class_board',
     description: 'Tablica klas na rok szkolny (z ostatnich eksportów wgranych w Opal5 → Tablica klas): dla każdej klasy od najmłodszej — rocznik, ile dzieci chodzi, ' +
       'ile odchodzi, ile dołącza (umowa podpisana, start później) i ile potencjalnych (otwarte leady wg etapu). Bez danych osobowych. Do raportu: liczby i obrazek z Opal5.',
@@ -431,7 +437,7 @@ const GATEWAY = [
 
 const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
 const STORY_ACTIONS = new Set(['save_story', 'get_story']);
-const REPORT_ACTIONS = new Set(['save_weekly_report', 'get_class_board']);
+const REPORT_ACTIONS = new Set(['save_weekly_report', 'get_class_board', 'speed_check']);
 const MARKETING_ACTIONS = new Set(['get_content_plan', 'save_content', 'get_partner_backlog', 'save_partner_idea']);
 const BOARD_ACTIONS = new Set(['save_person_note', 'link_nodes', 'get_person_file']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
@@ -1828,6 +1834,20 @@ export class Assistant {
         person: f.person,
         notes: f.notes.slice(0, 40).map((n) => ({ id: n.id, day: n.day, text: n.text, ref: n.ref || undefined, also: n.links.filter((l) => !(l.kind === 'person' && l.id === String(p.id))).map((l) => l.label) })),
         connections: f.connections.map((c) => ({ kind: c.node.kind, id: c.node.id, name: c.node.label, why: c.why.slice(0, 5) })),
+      });
+    }
+    if (name === 'speed_check') {
+      const time = async (f: () => Promise<unknown>) => { const t = performance.now(); await f(); return Math.round(performance.now() - t); };
+      const ping: number[] = [];
+      for (let i = 0; i < 3; i++) ping.push(await time(() => this.crm.db.get('SELECT 1 AS x')));
+      const board = new BoardStore(this.crm);
+      const first = (await this.crm.listPeople())[0];
+      let host = '';
+      try { host = new URL(databaseUrl()).hostname; } catch { host = databaseUrl() ? '?' : 'lokalna (PGlite)'; }
+      return JSON.stringify({
+        server_region: process.env.VERCEL_REGION || 'lokalnie', db_host: host, db_ping_ms: ping,
+        dashboard_ms: await time(() => this.crm.dashboard()), board_ms: await time(() => board.board()),
+        person_file_ms: first ? await time(() => board.personFile(first.id)) : undefined,
       });
     }
     if (name === 'get_class_board') {

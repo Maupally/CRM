@@ -531,9 +531,13 @@ export class Crm {
   /** The home screen: what is overdue, what is today, who to call next and how the week goes. */
   async dashboard() {
     const t = this.today();
-    const [planned, leads, tasks, events, done, week] = await Promise.all([
+    // the pulpit needs the call queue and the stage counts — not every company with all its activity sums
+    const [planned, fresh, stages, segs, tasks, events, done, week] = await Promise.all([
       this.activities({ open: true, to: addDays(t, 7) }),
-      this.listLeads(),
+      this.q.all(LEAD_SQL + ` WHERE l.stage = 'new' AND (l.phone <> '' OR l.email <> '')
+        AND NOT EXISTS (SELECT 1 FROM crm.activities a WHERE a.lead_id = l.id AND a.result = 'planned')`),
+      this.q.all('SELECT stage, COUNT(*) AS n FROM crm.leads GROUP BY stage'),
+      this.segmentMap(),
       this.q.all(TASK_SQL + ` WHERE (t.status NOT IN ('done', 'skipped') AND t.due <> '' AND t.due <= ?) OR (t.status = 'done' AND t.completed = ?)
         ORDER BY t.due`, [addDays(t, 7), t]),
       this.q.all(`SELECT * FROM crm.events WHERE date BETWEEN ? AND ? AND status <> 'cancelled' ORDER BY date, time`,
@@ -544,12 +548,11 @@ export class Crm {
         WHERE date BETWEEN ? AND ? AND result IN ('reached','done','no answer') AND type <> 'Note'`, [addDays(t, -6), t]),
     ]);
 
-    const queue = leads
-      .filter((l) => l.stage === 'new' && l.openCount === 0 && (l.phone || l.email))
+    const queue = fresh.map((r) => this.toLead(r, segs))
       .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))
       .slice(0, 12);
     const pipeline: Record<string, number> = Object.fromEntries(STAGES.map((s) => [s, 0]));
-    for (const l of leads) pipeline[l.stage] = (pipeline[l.stage] || 0) + 1;
+    for (const r of stages) pipeline[r.stage] = (pipeline[r.stage] || 0) + Number(r.n);
 
     return {
       today: t,

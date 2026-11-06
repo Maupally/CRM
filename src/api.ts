@@ -237,7 +237,8 @@ export const api = {
   logMessage: (d: { channel: MsgChannel; template: string; source: string; lang?: string; city?: string }) => post<{ ok: boolean }>('/messages/log', d).then(() => { window.dispatchEvent(new Event('crm:msg')); }, () => undefined),
   messageStats: (from?: string, to?: string) => get<MsgStats>(`/messages/stats${from && to ? `?from=${from}&to=${to}` : ''}`),
   board: () => get<Board>('/board'),
-  personFile: (id: number) => get<PersonFile>(`/people/${id}/file`),
+  /** notes only — the ties come from the board the page already has */
+  personFile: (id: number) => get<PersonFile>(`/people/${id}/file?notes_only=1`),
   deleteNote: (id: number) => del(`/notes/${id}`),
   unlink: (id: number) => del(`/links/${id}`),
   story: (t: { lead?: string; event?: string; topic?: string } = {}) => get<StoryItem[]>(`/story?${new URLSearchParams(t as Record<string, string>)}`),
