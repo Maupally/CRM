@@ -21,6 +21,7 @@ import { suggestGroups } from '../shared/topics.js';
 import { Stories, parseThread, type ParsedThread } from './story.js';
 import { Marketing } from './marketing.js';
 import { databaseUrl } from './db.js';
+import { parseScriptConfig, saveCallConfig } from './callreport.js';
 import { CONTENT_STATUS_LABEL, PARTNER_STATUS_LABEL } from '../shared/marketing.js';
 import { Ideas } from './ideas.js';
 import { BoardStore } from './board.js';
@@ -270,6 +271,12 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'import_call_config',
+    description: 'Call report: wczytuje konfigurację ze skryptu Google Apps Script (osoby z numerami i działami, czarna lista numerów wewnętrznych, odbiorcy). ' +
+      'Login i hasło są pomijane — przed wysłaniem usuń je ze skryptu; te idą tylko do zmiennych PLUS_REC_USER / PLUS_REC_PASSWORD w Vercel.',
+    input_schema: { type: 'object', properties: { script: { type: 'string' } }, required: ['script'], additionalProperties: false },
+  },
+  {
     name: 'db_sessions',
     description: 'Co teraz dzieje się w bazie: sesje, które coś trzymają albo na coś czekają (stan, od ilu sekund, początek zapytania), i kto kogo blokuje. ' +
       'terminate_stuck = true kończy sesje zawieszone ponad 60 s (bezczynne w transakcji albo blokujące innych) — gdy Opal5 stoi.',
@@ -443,11 +450,11 @@ const GATEWAY = [
 
 const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
 const STORY_ACTIONS = new Set(['save_story', 'get_story']);
-const REPORT_ACTIONS = new Set(['save_weekly_report', 'get_class_board', 'speed_check', 'db_sessions']);
+const REPORT_ACTIONS = new Set(['save_weekly_report', 'get_class_board', 'speed_check', 'db_sessions', 'import_call_config']);
 const MARKETING_ACTIONS = new Set(['get_content_plan', 'save_content', 'get_partner_backlog', 'save_partner_idea']);
 const BOARD_ACTIONS = new Set(['save_person_note', 'link_nodes', 'get_person_file']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
-const CONNECTOR_WRITES = new Set(['save_weekly_report', 'save_content', 'save_partner_idea', 'save_story', 'save_person_note', 'link_nodes', 'save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
+const CONNECTOR_WRITES = new Set(['import_call_config', 'save_weekly_report', 'save_content', 'save_partner_idea', 'save_story', 'save_person_note', 'link_nodes', 'save_idea', 'log_chat', 'save_design', 'save_note', 'b2c_progress', 'b2c_save_item', 'save_asset', 'make_form_script']);
 
 /** What a proposal actually contains, written out for the chat log. */
 function proposalText(p: Proposal): string {
@@ -1841,6 +1848,10 @@ export class Assistant {
         notes: f.notes.slice(0, 40).map((n) => ({ id: n.id, day: n.day, text: n.text, ref: n.ref || undefined, also: n.links.filter((l) => !(l.kind === 'person' && l.id === String(p.id))).map((l) => l.label) })),
         connections: f.connections.map((c) => ({ kind: c.node.kind, id: c.node.id, name: c.node.label, why: c.why.slice(0, 5) })),
       });
+    }
+    if (name === 'import_call_config') {
+      const c = await saveCallConfig(this.crm, parseScriptConfig(String(input.script || '')));
+      return `Call report: ${c.people.length} osób (${c.people.map((p) => `${p.person}${p.recordingNumber ? ' · numer' : ''}`).join(', ')}), ${c.blacklist.length} numerów wewnętrznych, ${c.recipients.length} odbiorców.`;
     }
     if (name === 'db_sessions') {
       if (!databaseUrl()) return 'Baza lokalna — brak sesji do pokazania.';
