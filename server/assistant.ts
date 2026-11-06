@@ -270,6 +270,12 @@ const CONNECTOR_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'db_sessions',
+    description: 'Co teraz dzieje się w bazie: sesje, które coś trzymają albo na coś czekają (stan, od ilu sekund, początek zapytania), i kto kogo blokuje. ' +
+      'terminate_stuck = true kończy sesje zawieszone ponad 60 s (bezczynne w transakcji albo blokujące innych) — gdy Opal5 stoi.',
+    input_schema: { type: 'object', properties: { terminate_stuck: { type: 'boolean' } }, additionalProperties: false },
+  },
+  {
     name: 'speed_check',
     description: 'Diagnostyka szybkości Opal5: region serwera i bazy (sama nazwa hosta, bez haseł), czas jednego zapytania do bazy i czasy ładowania pulpitu, tablicy powiązań i teczki osoby. Gdy użytkownik mówi, że coś wolno się ładuje.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
@@ -437,7 +443,7 @@ const GATEWAY = [
 
 const IDEA_ACTIONS = new Set(['save_idea', 'get_ideas']);
 const STORY_ACTIONS = new Set(['save_story', 'get_story']);
-const REPORT_ACTIONS = new Set(['save_weekly_report', 'get_class_board', 'speed_check']);
+const REPORT_ACTIONS = new Set(['save_weekly_report', 'get_class_board', 'speed_check', 'db_sessions']);
 const MARKETING_ACTIONS = new Set(['get_content_plan', 'save_content', 'get_partner_backlog', 'save_partner_idea']);
 const BOARD_ACTIONS = new Set(['save_person_note', 'link_nodes', 'get_person_file']);
 const ASSET_ACTIONS = new Set(['event_kit', 'find_assets', 'get_asset', 'save_asset', 'make_form_script']);
@@ -1835,6 +1841,25 @@ export class Assistant {
         notes: f.notes.slice(0, 40).map((n) => ({ id: n.id, day: n.day, text: n.text, ref: n.ref || undefined, also: n.links.filter((l) => !(l.kind === 'person' && l.id === String(p.id))).map((l) => l.label) })),
         connections: f.connections.map((c) => ({ kind: c.node.kind, id: c.node.id, name: c.node.label, why: c.why.slice(0, 5) })),
       });
+    }
+    if (name === 'db_sessions') {
+      if (!databaseUrl()) return 'Baza lokalna — brak sesji do pokazania.';
+      const rows = await this.crm.db.all(`SELECT pid, usename, application_name, state, wait_event_type, wait_event,
+          EXTRACT(EPOCH FROM (now() - COALESCE(xact_start, query_start)))::int AS secs, LEFT(query, 160) AS query,
+          pg_blocking_pids(pid) AS blocked_by
+        FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND state <> 'idle'
+        ORDER BY secs DESC NULLS LAST LIMIT 30`);
+      let killed: number[] = [];
+      if (input.terminate_stuck) {
+        const blockers = new Set(rows.flatMap((r) => (Array.isArray(r.blocked_by) ? r.blocked_by : String(r.blocked_by || '').replace(/[{}]/g, '').split(',').filter(Boolean)).map(Number)));
+        const stuck = rows.filter((r) => Number(r.secs) > 60 && (String(r.state).startsWith('idle in transaction') || blockers.has(Number(r.pid)) || String(r.wait_event_type) === 'Lock'));
+        for (const r of stuck) {
+          const ok = await this.crm.db.get('SELECT pg_terminate_backend(?) AS ok', [Number(r.pid)]).catch(() => null);
+          if (ok?.ok) killed.push(Number(r.pid));
+        }
+      }
+      return JSON.stringify({ sessions: rows.map((r) => ({ pid: r.pid, user: r.usename, app: r.application_name || undefined, state: r.state,
+        waiting: r.wait_event_type ? `${r.wait_event_type}/${r.wait_event}` : undefined, secs: r.secs, blocked_by: r.blocked_by, query: r.query })), terminated: killed });
     }
     if (name === 'speed_check') {
       // each step on its own clock, cut off after 8 s, so one slow part shows up instead of the whole check timing out
