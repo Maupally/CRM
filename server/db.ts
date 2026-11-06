@@ -414,8 +414,11 @@ async function openRemote(url: string): Promise<DB> {
   const sql = postgres(cleanUrl(url), {
     prepare: false,                        // required by Supabase / Neon poolers (transaction mode)
     ssl: local ? false : 'require',
-    max: 5,
-    idle_timeout: 20,
+    // one connection per serverless instance: the Supabase pooler's slots are shared by every instance, and five
+    // per instance ran it dry — queries then waited for a free slot for seconds. Queries take a few ms, so a queue
+    // on one connection is far quicker than waiting for a slot.
+    max: 1,
+    idle_timeout: 10,
     onnotice: () => {},
   });
   const make = (s: any): Q => ({
