@@ -529,6 +529,19 @@ export class Crm {
   }
 
   /** The home screen: what is overdue, what is today, who to call next and how the week goes. */
+  /** The pulpit's SQL, one by one — for speed_check to time each. */
+  dashboardQueries(): [string, string, unknown[]][] {
+    const t = this.today();
+    return [
+      ['queue', LEAD_SQL + ` WHERE l.stage = 'new' AND (l.phone <> '' OR l.email <> '')
+        AND NOT EXISTS (SELECT 1 FROM crm.activities a WHERE a.lead_id = l.id AND a.result = 'planned')`, []],
+      ['stages', 'SELECT stage, COUNT(*) AS n FROM crm.leads GROUP BY stage', []],
+      ['tasks', TASK_SQL + ` WHERE (t.status NOT IN ('done', 'skipped') AND t.due <> '' AND t.due <= ?) OR (t.status = 'done' AND t.completed = ?) ORDER BY t.due`, [addDays(t, 7), t]],
+      ['events', `SELECT * FROM crm.events WHERE date BETWEEN ? AND ? AND status <> 'cancelled' ORDER BY date, time`, [t, addDays(t, 30)]],
+      ['done', `SELECT COUNT(*) AS n FROM crm.activities WHERE date = ? AND result IN ('reached','done','no answer') AND type <> 'Note'`, [t]],
+    ];
+  }
+
   async dashboard() {
     const t = this.today();
     // the pulpit needs the call queue and the stage counts — not every company with all its activity sums

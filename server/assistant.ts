@@ -1859,6 +1859,7 @@ export class Assistant {
       await step('open_activities', () => this.crm.activities({ open: true, to: addDays(today, 7) }));
       await step('tasks', () => this.crm.listTasks());
       await step('board', () => board.board());
+      for (const [k, sql, args] of this.crm.dashboardQueries()) await step(`dash_${k}`, () => this.crm.db.all(sql, args));
       await step('dashboard', () => this.crm.dashboard());
       const counts = await this.crm.db.get(`SELECT (SELECT COUNT(*) FROM crm.leads) AS leads, (SELECT COUNT(*) FROM crm.activities) AS activities,
         (SELECT COUNT(*) FROM crm.tasks) AS tasks, (SELECT COUNT(*) FROM crm.notes) AS notes, (SELECT COUNT(*) FROM crm.people) AS people`).catch(() => null);
