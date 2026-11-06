@@ -181,7 +181,9 @@ describe('import from the sheet', () => {
 
 describe('connection strings', () => {
   it('drops libpq-only options that postgres.js would forward', async () => {
-    const { cleanUrl } = await import('./db.js');
+    const { cleanUrl, sessionMode } = await import('./db.js');
+    expect(sessionMode('postgres://u:p@aws-0-us-east-1.pooler.supabase.com:6543/postgres')).toBe('postgres://u:p@aws-0-us-east-1.pooler.supabase.com:5432/postgres');
+    expect(sessionMode('postgres://u:p@db.x.supabase.co:5432/postgres')).toBe('postgres://u:p@db.x.supabase.co:5432/postgres');
     expect(cleanUrl('postgres://u:p@h.supabase.com:6543/postgres?sslmode=require&supa=base-pooler.x'))
       .toBe('postgres://u:p@h.supabase.com:6543/postgres');
     expect(cleanUrl('postgresql://u:p@ep-x.neon.tech/db?sslmode=require&channel_binding=require&application_name=crm'))

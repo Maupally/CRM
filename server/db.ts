@@ -408,13 +408,25 @@ export function cleanUrl(url: string): string {
   return u.toString();
 }
 
+/**
+ * Supabase's pooler in transaction mode (port 6543) lost queries from postgres.js mid-way: the database sat in
+ * ClientRead and pages hung for minutes. Session mode on the same host (port 5432) keeps one real connection per
+ * client connection and does not lose them. With a handful of connections per instance it fits the pool easily.
+ */
+export function sessionMode(url: string): string {
+  const u = new URL(url);
+  if (/\.pooler\.supabase\.com$/.test(u.hostname) && u.port === '6543') u.port = '5432';
+  return u.toString();
+}
+
 async function openRemote(url: string): Promise<DB> {
   const { default: postgres } = await import('postgres');
   const local = /localhost|127\.0\.0\.1/.test(url);
-  const sql = postgres(cleanUrl(url), {
+  const sql = postgres(sessionMode(cleanUrl(url)), {
     prepare: false,                        // required by Supabase / Neon poolers (transaction mode)
     ssl: local ? false : 'require',
-    max: 4,
+    max: 3,
+    connect_timeout: 10,
     // no pipelining: Supabase's pooler (transaction mode) loses queries sent back to back on one connection — the
     // database then waits for the rest of a query that never comes (ClientRead) and the page hangs for minutes
     max_pipeline: 1,
