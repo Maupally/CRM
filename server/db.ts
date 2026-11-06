@@ -415,9 +415,12 @@ async function openRemote(url: string): Promise<DB> {
     prepare: false,                        // required by Supabase / Neon poolers (transaction mode)
     ssl: local ? false : 'require',
     max: 4,
+    // no pipelining: Supabase's pooler (transaction mode) loses queries sent back to back on one connection — the
+    // database then waits for the rest of a query that never comes (ClientRead) and the page hangs for minutes
+    max_pipeline: 1,
     idle_timeout: 20,
     onnotice: () => {},
-  });
+  } as Parameters<typeof postgres>[1] & { max_pipeline: number });   // supported at runtime, missing from the types
   const make = (s: any): Q => ({
     all: async (q, p = []) => (await s.unsafe(pg(q), p as any[])) as any[],
     get: async (q, p = []) => ((await s.unsafe(pg(q), p as any[])) as any[])[0],

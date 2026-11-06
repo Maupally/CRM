@@ -1852,7 +1852,7 @@ export class Assistant {
       let killed: number[] = [];
       if (input.terminate_stuck) {
         const blockers = new Set(rows.flatMap((r) => (Array.isArray(r.blocked_by) ? r.blocked_by : String(r.blocked_by || '').replace(/[{}]/g, '').split(',').filter(Boolean)).map(Number)));
-        const stuck = rows.filter((r) => Number(r.secs) > 60 && (String(r.state).startsWith('idle in transaction') || blockers.has(Number(r.pid)) || String(r.wait_event_type) === 'Lock'));
+        const stuck = rows.filter((r) => Number(r.secs) > 60 && (String(r.state).startsWith('idle in transaction') || blockers.has(Number(r.pid)) || String(r.wait_event_type) === 'Lock' || String(r.wait_event) === 'ClientRead'));
         for (const r of stuck) {
           const ok = await this.crm.db.get('SELECT pg_terminate_backend(?) AS ok', [Number(r.pid)]).catch(() => null);
           if (ok?.ok) killed.push(Number(r.pid));
