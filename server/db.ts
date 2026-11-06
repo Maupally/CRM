@@ -414,11 +414,8 @@ async function openRemote(url: string): Promise<DB> {
   const sql = postgres(cleanUrl(url), {
     prepare: false,                        // required by Supabase / Neon poolers (transaction mode)
     ssl: local ? false : 'require',
-    // one connection per serverless instance: the Supabase pooler's slots are shared by every instance, and five
-    // per instance ran it dry — queries then waited for a free slot for seconds. Queries take a few ms, so a queue
-    // on one connection is far quicker than waiting for a slot.
-    max: 1,
-    idle_timeout: 10,
+    max: 4,
+    idle_timeout: 20,
     onnotice: () => {},
   });
   const make = (s: any): Q => ({
@@ -479,11 +476,36 @@ export async function openDb(target = databaseUrl() || process.env.PGLITE_DIR ||
   // start of a serverless function made other requests wait. Run it only when the schema has changed.
   const hash = createHash('sha256').update(SCHEMA).digest('hex').slice(0, 16);
   const current = await db.get("SELECT value FROM crm.settings WHERE key = 'schema.hash'").then((r) => r?.value, () => '');
-  if (current !== hash) {
-    await db.exec(SCHEMA);
-    await db.run(`INSERT INTO crm.settings (key, value) VALUES ('schema.hash', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [hash]);
-  }
+  if (current !== hash) await migrate(db, hash);
   return db;
+}
+
+/**
+ * Brings the tables up to date without ever stalling the app. ALTER TABLE locks a table for everyone; if it has to
+ * wait for a running query, every request queues behind it — the whole app hangs, and when the migration is then
+ * cancelled the next cold start tries again, for ever. So: one instance at a time (an advisory lock — others just
+ * carry on with the tables as they are), give up after 3 s of waiting for a lock, and try again on a later start.
+ * Everything runs in one transaction, so a migration that gives up leaves nothing half done.
+ */
+async function migrate(db: DB, hash: string) {
+  const script = `BEGIN;
+SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '60s';
+DO $m$ BEGIN
+  IF NOT pg_try_advisory_xact_lock(5150561) THEN RAISE EXCEPTION 'schema migration already running'; END IF;
+END $m$;
+${SCHEMA}
+INSERT INTO crm.settings (key, value) VALUES ('schema.hash', '${hash}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+COMMIT;`;
+  try {
+    await db.exec(script);
+  } catch (e) {
+    await db.exec('ROLLBACK').catch(() => undefined);
+    // a fresh database must get its tables; an existing one keeps working and is updated on a later start
+    const ready = await db.get("SELECT 1 AS x FROM crm.settings LIMIT 1").then(() => true, () => false);
+    if (!ready) throw e;
+    console.warn('schema migration postponed:', (e as Error).message);
+  }
 }
 
 /** Insert many rows with few round trips — matters a lot over the network. */
