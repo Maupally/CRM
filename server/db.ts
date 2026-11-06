@@ -125,8 +125,6 @@ CREATE TABLE IF NOT EXISTS crm.tasks (
   completed  TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS tasks_event ON crm.tasks(event_id);
-CREATE INDEX IF NOT EXISTS tasks_lead ON crm.tasks(lead_id);
-CREATE INDEX IF NOT EXISTS tasks_person ON crm.tasks(person_id);
 -- tasks can belong to an event (project), a company, or nothing; they carry ready-made
 -- materials (JSON [{title, body}]) and knowledge files (comma-separated ids)
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS lead_id TEXT NOT NULL DEFAULT '';
@@ -134,6 +132,8 @@ ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS materials TEXT NOT NULL DEFAULT '
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS attachments TEXT NOT NULL DEFAULT '';
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS sort INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS person_id BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS tasks_lead ON crm.tasks(lead_id);
+CREATE INDEX IF NOT EXISTS tasks_person ON crm.tasks(person_id);
 -- effort in story points (Fibonacci: 1 2 3 5 8 13 21); 0 = not estimated, an estimate from the wording is shown instead
 ALTER TABLE crm.tasks ADD COLUMN IF NOT EXISTS points INTEGER NOT NULL DEFAULT 0;
 -- project / topic a task belongs to when no event or company says it (e.g. „Rekrutacja: firmy japońskie”)
