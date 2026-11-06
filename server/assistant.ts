@@ -1837,18 +1837,32 @@ export class Assistant {
       });
     }
     if (name === 'speed_check') {
-      const time = async (f: () => Promise<unknown>) => { const t = performance.now(); await f(); return Math.round(performance.now() - t); };
-      const ping: number[] = [];
-      for (let i = 0; i < 3; i++) ping.push(await time(() => this.crm.db.get('SELECT 1 AS x')));
-      const board = new BoardStore(this.crm);
-      const first = (await this.crm.listPeople())[0];
+      // each step on its own clock, cut off after 8 s, so one slow part shows up instead of the whole check timing out
+      const started = performance.now();
+      const out: Record<string, number | string> = {};
+      const step = async (k: string, f: () => Promise<unknown>) => {
+        if (performance.now() - started > 45_000) { out[k] = 'pominięte'; return; }
+        const t = performance.now();
+        const r = await Promise.race([f().then(() => 'ok', (e) => `błąd: ${String(e?.message || e).slice(0, 80)}`), new Promise((res) => setTimeout(() => res('timeout'), 8000))]);
+        out[k] = r === 'ok' ? Math.round(performance.now() - t) : String(r);
+      };
       let host = '';
       try { host = new URL(databaseUrl()).hostname; } catch { host = databaseUrl() ? '?' : 'lokalna (PGlite)'; }
-      return JSON.stringify({
-        server_region: process.env.VERCEL_REGION || 'lokalnie', db_host: host, db_ping_ms: ping,
-        dashboard_ms: await time(() => this.crm.dashboard()), board_ms: await time(() => board.board()),
-        person_file_ms: first ? await time(() => board.personFile(first.id)) : undefined,
-      });
+      const board = new BoardStore(this.crm);
+      const today = this.crm.today();
+      await step('ping_1', () => this.crm.db.get('SELECT 1 AS x'));
+      await step('ping_2', () => this.crm.db.get('SELECT 1 AS x'));
+      await step('people', () => this.crm.listPeople());
+      await step('events', () => this.crm.listEvents());
+      await step('notes', () => board.notes());
+      await step('links', () => this.crm.db.all('SELECT * FROM crm.links'));
+      await step('open_activities', () => this.crm.activities({ open: true, to: addDays(today, 7) }));
+      await step('tasks', () => this.crm.listTasks());
+      await step('board', () => board.board());
+      await step('dashboard', () => this.crm.dashboard());
+      const counts = await this.crm.db.get(`SELECT (SELECT COUNT(*) FROM crm.leads) AS leads, (SELECT COUNT(*) FROM crm.activities) AS activities,
+        (SELECT COUNT(*) FROM crm.tasks) AS tasks, (SELECT COUNT(*) FROM crm.notes) AS notes, (SELECT COUNT(*) FROM crm.people) AS people`).catch(() => null);
+      return JSON.stringify({ server_region: process.env.VERCEL_REGION || 'lokalnie', db_host: host, ms: out, rows: counts });
     }
     if (name === 'get_class_board') {
       const y = /^\d{4}$/.test(txt(input.year)) ? txt(input.year) : '2627';
