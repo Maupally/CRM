@@ -1,7 +1,10 @@
 /**
- * Personal greeting in templates: "Dzień dobry, Panie Damianie," / "Dzień dobry, Pani Anno,".
+ * Personal greeting in templates: "Dzień dobry Panie Damianie," / "Dzień dobry Pani Julio,".
  * The first name goes into the vocative (wołacz) by the usual Polish rules; odd names can be corrected
  * by hand (the `voc` override). Without a name the template keeps its own "Dzień dobry," (Państwo).
+ *
+ * Texts say who they talk to with {Państwo|Pan|Pani} variants, e.g. "czy {szukają Państwo|szuka Pan|szuka Pani}
+ * przedszkola" — with a name the Pan / Pani form is used, without one the Państwo form (the text as before).
  */
 
 export type Title = 'pan' | 'pani';
@@ -84,22 +87,31 @@ export function address(g: Greet): string {
   return `${g.title === 'pani' ? 'Pani' : 'Panie'} ${voc}`;
 }
 
-/** The greeting line on its own: "Dzień dobry, Panie Damianie," / "Good morning Damian,". */
+/** The greeting line on its own: "Dzień dobry Panie Damianie," / "Good morning Damian,". */
 export function greetingLine(g: Greet, lang: 'pl' | 'en', en = 'Good morning'): string {
   const n = tidy(g.name);
   if (lang === 'en') return n ? `${en} ${cap(first(n))},` : `${en},`;
-  return n ? `Dzień dobry, ${address(g)},` : 'Dzień dobry,';
+  return n ? `Dzień dobry ${address(g)},` : 'Dzień dobry,';
+}
+
+const FORMS = /\{([^{}|]*)\|([^{}|]*)\|([^{}|]*)\}/g;
+
+/** Picks the {Państwo|Pan|Pani} variant: Pan / Pani when we know the name, Państwo otherwise. */
+export function forms(text: string, g: Greet): string {
+  const i = !tidy(g.name) ? 1 : g.title === 'pani' ? 3 : 2;
+  return String(text ?? '').replace(FORMS, (...m) => m[i]);
 }
 
 /**
- * Puts the name into the template's opening line: "Dzień dobry," → "Dzień dobry, Panie Damianie,",
- * "Hi," → "Hi Damian,". Texts that don't open with a greeting are left alone, as is everything after it.
+ * The whole text for one person: {Państwo|Pan|Pani} variants resolved and the name in the opening line —
+ * "Dzień dobry," → "Dzień dobry Pani Julio,", "Hi," → "Hi Julia,". Without a name: the Państwo text as before.
  */
 export function personalize(text: string, g: Greet, lang: 'pl' | 'en'): string {
+  const t = forms(text, g);
   const n = tidy(g.name);
-  if (!n) return text;
-  if (lang === 'en') return text.replace(/^(Hi|Hello|Good morning|Good afternoon|Dear)\s*([,!])/, (_, w, p) => `${w} ${cap(first(n))}${p}`);
-  return text.replace(/^Dzień dobry\s*([,!])/, (_, p) => `Dzień dobry, ${address(g)}${p}`);
+  if (!n) return t;
+  if (lang === 'en') return t.replace(/^(Hi|Hello|Good morning|Good afternoon|Dear)\s*([,!])/, (_, w, p) => `${w} ${cap(first(n))}${p}`);
+  return t.replace(/^Dzień dobry\s*([,!])/, (_, p) => `Dzień dobry ${address(g)}${p}`);
 }
 
 /** Name and title from a CRM contact field like "pani Celina Nowak (HR)" → { name: Celina, title: pani }. */

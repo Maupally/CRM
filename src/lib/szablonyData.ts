@@ -20,7 +20,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Hi 1"
     },
     "text": {
-     "pl": "Dzień dobry,\nDostałem Państwa kontakt z naszej kampanii/reklamy na social media - chciałem zapytać, czy szukają Państwo przedszkola lub szkoły dla dziecka?",
+     "pl": "Dzień dobry,\nDostałem {Państwa kontakt|kontakt do Pana|kontakt do Pani} z naszej kampanii/reklamy na social media - chciałem zapytać, czy {szukają Państwo|szuka Pan|szuka Pani} przedszkola lub szkoły dla dziecka?",
      "en": "Hi,\nwe have received your contact from our campaign/social media ad - I wanted to ask, are you looking for a kindergarten or school for your child?"
     }
    },
@@ -30,7 +30,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Hi 2"
     },
     "text": {
-     "pl": "Dzień dobry,\npróbowałem się dodzwonić - niestety nie udało się :) Chciałem zapytać, czy nadal są Państwo zainteresowani naszą placówką?",
+     "pl": "Dzień dobry,\npróbowałem się dodzwonić - niestety nie udało się :) Chciałem zapytać, czy nadal {są Państwo zainteresowani|jest Pan zainteresowany|jest Pani zainteresowana} naszą placówką?",
      "en": "Hi,\nI tried calling - unfortunately I couldn't reach you :) I wanted to ask, are you still interested in our school?"
     }
    },
@@ -79,7 +79,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Scheduling Visit 1"
     },
     "text": {
-     "pl": "Dzień dobry,\nchciałem zapytać, czy udało się Państwu zapoznać z przesłanymi materiałami. Czy wszystko jest zrozumiałe? Czy są Państwo zainteresowani?",
+     "pl": "Dzień dobry,\nchciałem zapytać, czy udało się {Państwu|Panu|Pani} zapoznać z przesłanymi materiałami. Czy wszystko jest zrozumiałe? Czy {są Państwo zainteresowani|jest Pan zainteresowany|jest Pani zainteresowana}?",
      "en": "Hi,\nI wanted to ask whether you've had a chance to look through the materials I sent. Is everything clear? Are you still interested?"
     }
    },
@@ -118,7 +118,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Scheduling Trial Day 1"
     },
     "text": {
-     "pl": "Dzień dobry,\nchciałem zapytać, czy są Państwo nadal zainteresowani dniem próbnym?",
+     "pl": "Dzień dobry,\nchciałem zapytać, czy {są Państwo nadal zainteresowani|jest Pan nadal zainteresowany|jest Pani nadal zainteresowana} dniem próbnym?",
      "en": "Hi,\nI wanted to ask - are you still interested in the trial day?"
     }
    },
@@ -128,7 +128,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Scheduling Trial Day 2"
     },
     "text": {
-     "pl": "Dzień dobry,\npróbowałem się dodzwonić - niestety nie udało się :) Chciałem zapytać, czy nadal są Państwo zainteresowani dniem próbnym?",
+     "pl": "Dzień dobry,\npróbowałem się dodzwonić - niestety nie udało się :) Chciałem zapytać, czy nadal {są Państwo zainteresowani|jest Pan zainteresowany|jest Pani zainteresowana} dniem próbnym?",
      "en": "Hi,\nI tried calling - unfortunately I couldn't reach you :) I wanted to ask, are you still interested in the trial day?"
     }
    }
@@ -147,7 +147,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Spot reservation policy"
     },
     "text": {
-     "pl": "Dzień dobry,\n\nChciałem jeszcze wyjaśnić jak wygląda u nas polityka rezerwacji miejsca.\nDołączają Państwo do grupy, która już istnieje i się rozwija - nie jestem w stanie zagwarantować miejsca jeśli Państwo zdecydują się dopiero w przyszłym roku szkolnym.\n\nJeśli jednak są Państwo już zdecydowani - możemy spotkać się i podpisać umowę teraz, z datą startu jaką wspólnie ustalimy. Jeśli coś się zmieni, umowę można anulować - opłata rekrutacyjna jest zwracana w 50%. Aktualnie mamy promocję i opłata wynosi symbolicznie 650 zł.\n\nW zamian mają Państwo zagwarantowane miejsce w szkole.\nJeśli mają Państwo pytania - proszę śmiało pisać!",
+     "pl": "Dzień dobry,\n\nChciałem jeszcze wyjaśnić jak wygląda u nas polityka rezerwacji miejsca.\n{Dołączają Państwo|Dołącza Pan|Dołącza Pani} do grupy, która już istnieje i się rozwija - nie jestem w stanie zagwarantować miejsca jeśli {Państwo zdecydują|Pan zdecyduje|Pani zdecyduje} się dopiero w przyszłym roku szkolnym.\n\nJeśli jednak {są Państwo już zdecydowani|jest Pan już zdecydowany|jest Pani już zdecydowana} - możemy spotkać się i podpisać umowę teraz, z datą startu jaką wspólnie ustalimy. Jeśli coś się zmieni, umowę można anulować - opłata rekrutacyjna jest zwracana w 50%. Aktualnie mamy promocję i opłata wynosi symbolicznie 650 zł.\n\nW zamian {mają Państwo|ma Pan|ma Pani} zagwarantowane miejsce w szkole.\nJeśli {mają Państwo|ma Pan|ma Pani} pytania - proszę śmiało pisać!",
      "en": "Hi,\n\nI wanted to explain how our spot-reservation policy works.\nYou'd be joining a group that already exists and is growing - I can't guarantee a spot if you decide to wait until next school year.\n\nIf you're already decided, though, we can meet and sign the contract now, with a start date we agree on together. If anything changes, the contract can be cancelled - the enrollment fee is refunded at 50%. Right now we have a promotion, so the fee is a symbolic 650 PLN.\n\nIn return, you have a guaranteed spot at the school.\nIf you have any questions, feel free to reach out!"
     }
    },
@@ -157,7 +157,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "How to sign the contract"
     },
     "text": {
-     "pl": "Dzień dobry,\n\nmogą Państwo podpisać umowę na kilka sposobów - możemy się umówić na podpis na miejscu w szkole, albo mogą Państwo podpisać dokument zdalnie.\n\nZdalnie wystarczy odesłać skan lub zdjęcie podpisanych dokumentów, skorzystać z podpisu kwalifikowanego, albo edytować plik PDF i podpisać się - na przykład palcem na telefonie.\n\nPo podpisaniu umowy mają Państwo do 2 tygodni na przesłanie opłaty rekrutacyjnej.",
+     "pl": "Dzień dobry,\n\n{mogą Państwo|może Pan|może Pani} podpisać umowę na kilka sposobów - możemy się umówić na podpis na miejscu w szkole, albo {mogą Państwo|może Pan|może Pani} podpisać dokument zdalnie.\n\nZdalnie wystarczy odesłać skan lub zdjęcie podpisanych dokumentów, skorzystać z podpisu kwalifikowanego, albo edytować plik PDF i podpisać się - na przykład palcem na telefonie.\n\nPo podpisaniu umowy {mają Państwo|ma Pan|ma Pani} do 2 tygodni na przesłanie opłaty rekrutacyjnej.",
      "en": "Hi,\n\nyou can sign the contract in a few ways - we can meet in person at the school, or you can sign it remotely.\n\nRemotely, you can send back a scan or photo of the signed documents, use a qualified electronic signature, or edit the PDF and sign it - for example with your finger on your phone.\n\nAfter signing, you have up to 2 weeks to send the enrollment fee payment."
     }
    },
@@ -167,7 +167,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Almost there!"
     },
     "text": {
-     "pl": "Dzień dobry,\n\nsą Państwo już bardzo blisko dołączenia do naszej społeczności Maple Bear! Cieszymy się, że rozważacie nas jako partnera w edukacji [imię dziecka].\n\nŻeby ta przygoda mogła się jak najszybciej zacząć, został tylko jeden krok - odesłanie podpisanego kontraktu. Czekamy z niecierpliwością!\n\nJeśli czegoś jeszcze potrzeba z naszej strony - dajcie znać, chętnie pomożemy domknąć formalności.",
+     "pl": "Dzień dobry,\n\n{są Państwo|jest Pan|jest Pani} już bardzo blisko dołączenia do naszej społeczności Maple Bear! Cieszymy się, że {rozważacie nas|rozważa nas Pan|rozważa nas Pani} jako partnera w edukacji [imię dziecka].\n\nŻeby ta przygoda mogła się jak najszybciej zacząć, został tylko jeden krok - odesłanie podpisanego kontraktu. Czekamy z niecierpliwością!\n\nJeśli czegoś jeszcze potrzeba z naszej strony - {dajcie znać|proszę dać znać|proszę dać znać}, chętnie pomożemy domknąć formalności.",
      "en": "Hi,\n\nyou're already very close to joining our Maple Bear community! We're glad you're considering us as a partner in [child's name]'s education.\n\nTo get this journey started as soon as possible, there's just one step left - sending back the signed contract. We can't wait!\n\nIf there's anything you still need from us, just let us know - happy to help wrap things up."
     }
    }
@@ -186,7 +186,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Bye cold"
     },
     "text": {
-     "pl": "Dzień dobry,\n\nPróbowałem się z Państwem skontaktować, niestety się nie udało - możliwe też, że kontakt trafił do nas przez przypadek.\n\nJeśli jednak szukają Państwo szkoły lub przedszkola, albo Państwa plany się zmienią - proszę śmiało się odezwać.",
+     "pl": "Dzień dobry,\n\nPróbowałem się {z Państwem|z Panem|z Panią} skontaktować, niestety się nie udało - możliwe też, że kontakt trafił do nas przez przypadek.\n\nJeśli jednak {szukają Państwo|szuka Pan|szuka Pani} szkoły lub przedszkola, albo {Państwa|Pana|Pani} plany się zmienią - proszę śmiało się odezwać.",
      "en": "Hi,\n\nI tried reaching you, but unfortunately couldn't get through - it's also possible your contact reached us by mistake.\n\nIf you're still looking for a school or kindergarten, or your plans change, please feel free to reach out."
     }
    },
@@ -196,7 +196,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "Bye hot"
     },
     "text": {
-     "pl": "Dzień dobry,\n\nPróbowałem się z Państwem skontaktować, niestety się nie udało - możliwe też, że kontakt trafił do nas przez przypadek.\n\nNa ten moment zamykam Państwa proces rekrutacyjny.\n\nJeśli to nie kłopot - będę wdzięczny za informację, co wpłynęło na decyzję rezygnacji.",
+     "pl": "Dzień dobry,\n\nPróbowałem się {z Państwem|z Panem|z Panią} skontaktować, niestety się nie udało - możliwe też, że kontakt trafił do nas przez przypadek.\n\nNa ten moment zamykam {Państwa|Pana|Pani} proces rekrutacyjny.\n\nJeśli to nie kłopot - będę wdzięczny za informację, co wpłynęło na decyzję rezygnacji.",
      "en": "Hi,\n\nI tried reaching you, but unfortunately couldn't get through - it's also possible your contact reached us by mistake.\n\nI'm closing your family's enrollment process for now.\n\nIf you don't mind sharing - I'd be grateful to know what led to this decision."
     }
    },
@@ -206,7 +206,7 @@ export const TEMPLATES: TplCategory[] = [
      "en": "No answer (short)"
     },
     "text": {
-     "pl": "Dzień dobry!\nPróbowałem się z Państwem kilkukrotnie skontaktować - niestety się nie udało :)\nZamykam więc ten wątek.\nJeśli jednak szukają Państwo szkoły lub przedszkola - proszę się odezwać.",
+     "pl": "Dzień dobry!\nPróbowałem się {z Państwem|z Panem|z Panią} kilkukrotnie skontaktować - niestety się nie udało :)\nZamykam więc ten wątek.\nJeśli jednak {szukają Państwo|szuka Pan|szuka Pani} szkoły lub przedszkola - proszę się odezwać.",
      "en": "Good morning!\nI've tried reaching you a few times - unfortunately it didn't work out :)\nI'm closing this thread for now.\nIf you're still looking for a school or kindergarten, please get in touch."
     }
    }
@@ -231,7 +231,7 @@ export const TEMPLATES: TplCategory[] = [
        "en": "Program invitation"
       },
       "text": {
-       "pl": "Dzień dobry,\nmamy dla Państwa propozycję - Ambassadors Club. Za polecenie rodziny, która podpisze umowę, płacicie 1 zł za miesiąc czesnego. Zainteresowani?",
+       "pl": "Dzień dobry,\nmamy dla {Państwa|Pana|Pani} propozycję - Ambassadors Club. Za polecenie rodziny, która podpisze umowę, {płacicie|płaci Pan|płaci Pani} 1 zł za miesiąc czesnego. {Zainteresowani|Zainteresowany|Zainteresowana}?",
        "en": "Hi,\nwe have something for you - our Ambassadors Club. Refer a family that signs up, and you get a month of tuition for 1 PLN. Interested?"
       }
      }
@@ -249,7 +249,7 @@ export const TEMPLATES: TplCategory[] = [
        "en": "Standard"
       },
       "text": {
-       "pl": "Dzień dobry,\nbędzie nam bardzo miło, jeśli zechcą Państwo podzielić się opinią na Google - zajmuje to dosłownie chwilę: https://g.page/r/CQGo5uOEegoLEBM/review",
+       "pl": "Dzień dobry,\nbędzie nam bardzo miło, jeśli {zechcą Państwo|zechce Pan|zechce Pani} podzielić się opinią na Google - zajmuje to dosłownie chwilę: https://g.page/r/CQGo5uOEegoLEBM/review",
        "en": "Hi,\nwe'd really appreciate it if you could leave us a Google review - it only takes a moment: https://g.page/r/CQGo5uOEegoLEBM/review"
       }
      },
@@ -259,7 +259,7 @@ export const TEMPLATES: TplCategory[] = [
        "en": "After summer camp"
       },
       "text": {
-       "pl": "Dzień dobry,\nmamy nadzieję, że się podobał! Będziemy bardzo wdzięczni, jeśli podzielą się Państwo opinią na Google: https://g.page/r/CQGo5uOEegoLEBM/review\n\nPozdrawiam,\nDawid",
+       "pl": "Dzień dobry,\nmamy nadzieję, że się podobał! Będziemy bardzo wdzięczni, jeśli {podzielą się Państwo|podzieli się Pan|podzieli się Pani} opinią na Google: https://g.page/r/CQGo5uOEegoLEBM/review\n\nPozdrawiam,\nDawid",
        "en": "Hi,\nwe hope you enjoyed it! We'd be really grateful if you could share your feedback on Google: https://g.page/r/CQGo5uOEegoLEBM/review\n\nBest,\nDawid"
       }
      }
@@ -698,7 +698,7 @@ export const T: Record<string, any> = {
   "en": "Good morning,"
  },
  "confirm_body": {
-  "pl": "Dziękuję za zainteresowanie ofertą Maple Bear. Chciałem potwierdzić Państwa zapis na wizytę w naszej szkole.\nPoniżej przesyłam kluczowe informacje o naszej placówce.",
+  "pl": "Dziękuję za zainteresowanie ofertą Maple Bear. Chciałem potwierdzić {Państwa|Pana|Pani} zapis na wizytę w naszej szkole.\nPoniżej przesyłam kluczowe informacje o naszej placówce.",
   "en": "Thank you for your interest in Maple Bear. I wanted to confirm your booking for a visit to our school.\nBelow you'll find key information about our school."
  },
  "enrollment_title": {
@@ -706,7 +706,7 @@ export const T: Record<string, any> = {
   "en": "Almost there!"
  },
  "enrollment_intro": {
-  "pl": "Dziękujemy, że rozważacie nas Państwo jako partnera w edukacji [imię dziecka]. W załącznikach znajdą Państwo dokumenty do podpisu.",
+  "pl": "Dziękujemy, że {rozważacie nas Państwo|rozważa nas Pan|rozważa nas Pani} jako partnera w edukacji [imię dziecka]. W załącznikach {znajdą Państwo|znajdzie Pan|znajdzie Pani} dokumenty do podpisu.",
   "en": "Thank you for considering us as a partner in your child's education. Please find the documents to sign attached."
  },
  "enrollment_sign_title": {
@@ -728,11 +728,11 @@ export const T: Record<string, any> = {
   ]
  },
  "enrollment_payment": {
-  "pl": "Po podpisaniu umowy mają Państwo do 2 tygodni na przesłanie opłaty rekrutacyjnej na konto (przedszkole): 72 1140 1010 0000 3992 9700 1004.",
+  "pl": "Po podpisaniu umowy {mają Państwo|ma Pan|ma Pani} do 2 tygodni na przesłanie opłaty rekrutacyjnej na konto (przedszkole): 72 1140 1010 0000 3992 9700 1004.",
   "en": "After signing, you have up to 2 weeks to send the enrollment fee payment to the account (kindergarten): 72 1140 1010 0000 3992 9700 1004."
  },
  "enrollment_question": {
-  "pl": "Proszę dać znać, jaką formę podpisu dokumentów Państwo wybierają i orientacyjnie kiedy możemy się ich spodziewać.",
+  "pl": "Proszę dać znać, jaką formę podpisu dokumentów {Państwo wybierają|Pan wybiera|Pani wybiera} i orientacyjnie kiedy możemy się ich spodziewać.",
   "en": "Please let us know which method you'll use to send the documents back, and roughly when we can expect them."
  },
  "welcome_title": {
@@ -740,11 +740,11 @@ export const T: Record<string, any> = {
   "en": "Welcome aboard!"
  },
  "welcome_body": {
-  "pl": "Z przyjemnością informujemy, że zapis [imię dziecka] do Maple Bear jest już sfinalizowany.\n\nW załączniku przesyłamy podpisany egzemplarz umowy - do Państwa archiwum.\n\nBardzo się cieszymy, że będziemy mogli razem towarzyszyć [imię dziecka] w tej edukacyjnej podróży. W najbliższym czasie prześlemy więcej informacji organizacyjnych przed rozpoczęciem nauki.",
+  "pl": "Z przyjemnością informujemy, że zapis [imię dziecka] do Maple Bear jest już sfinalizowany.\n\nW załączniku przesyłamy podpisany egzemplarz umowy - do {Państwa|Pana|Pani} archiwum.\n\nBardzo się cieszymy, że będziemy mogli razem towarzyszyć [imię dziecka] w tej edukacyjnej podróży. W najbliższym czasie prześlemy więcej informacji organizacyjnych przed rozpoczęciem nauki.",
   "en": "We're pleased to let you know that [child's name]'s enrollment at Maple Bear is now finalized.\n\nAttached you'll find a signed copy of the contract for your records.\n\nWe're delighted to accompany [child's name] on this educational journey. We'll be in touch soon with more organizational details ahead of the start date."
  },
  "welcome_closing": {
-  "pl": "Jeśli pojawią się jakiekolwiek pytania - jesteśmy do Państwa dyspozycji.",
+  "pl": "Jeśli pojawią się jakiekolwiek pytania - jesteśmy do {Państwa|Pana|Pani} dyspozycji.",
   "en": "If any questions come up, we're here to help."
  },
  "hello_body": {
@@ -808,7 +808,7 @@ export const T: Record<string, any> = {
   "en": "Navigate in Google Maps →"
  },
  "materials_title": {
-  "pl": "Materiały dla Państwa",
+  "pl": "Materiały dla {Państwa|Pana|Pani}",
   "en": "Materials for you"
  },
  "mat_items": {
@@ -957,7 +957,7 @@ export const T: Record<string, any> = {
   "en": "After your visit"
  },
  "after_intro": {
-  "pl": "W załączeniu znajdziecie Państwo prezentację oraz wzory umów do wglądu przed podpisaniem.",
+  "pl": "W załączeniu {znajdziecie Państwo|znajdzie Pan|znajdzie Pani} prezentację oraz wzory umów do wglądu przed podpisaniem.",
   "en": "Please find attached our presentation and sample contracts for your review before signing."
  },
  "after_items": {
@@ -1013,17 +1013,17 @@ export const T: Record<string, any> = {
   "en": "A few questions before your visit"
  },
  "survey_intro": {
-  "pl": "Aby jak najlepiej przygotować się do Państwa wizyty, bylibyśmy bardzo wdzięczni za kilka informacji. Wystarczy odpowiedzieć na ten e-mail.",
+  "pl": "Aby jak najlepiej przygotować się do {Państwa|Pana|Pani} wizyty, bylibyśmy bardzo wdzięczni za kilka informacji. Wystarczy odpowiedzieć na ten e-mail.",
   "en": "To make the most of your visit, we would appreciate a few details in advance. Simply reply to this email."
  },
  "survey_items": {
   "pl": [
-   "Jak ma na imię Państwa dziecko?",
+   "Jak ma na imię {Państwa|Pana|Pani} dziecko?",
    "W którym roku się urodziło?",
-   "Od kiedy chcieliby Państwo rozpocząć naukę? Już teraz czy od września?",
-   "W jaki sposób dowiedzieli się Państwo o naszej placówce?",
-   "Co najbardziej zwróciło Państwa uwagę w naszej ofercie?",
-   "Jakie są Państwa oczekiwania wobec wizyty?"
+   "Od kiedy {chcieliby Państwo|chciałby Pan|chciałaby Pani} rozpocząć naukę? Już teraz czy od września?",
+   "W jaki sposób {dowiedzieli się Państwo|dowiedział się Pan|dowiedziała się Pani} o naszej placówce?",
+   "Co najbardziej zwróciło {Państwa|Pana|Pani} uwagę w naszej ofercie?",
+   "Jakie są {Państwa|Pana|Pani} oczekiwania wobec wizyty?"
   ],
   "en": [
    "What is your child's name?",
@@ -1039,7 +1039,7 @@ export const T: Record<string, any> = {
   "en": "Schedule your visit"
  },
  "visit_cta_desc": {
-  "pl": "Chętnie pokażemy Państwu szkołę. Wybierz dogodny termin:",
+  "pl": "Chętnie pokażemy {Państwu|Panu|Pani} szkołę. Wybierz dogodny termin:",
   "en": "We'd love to show you around. Book a time that works for you:"
  },
  "visit_btn": {
@@ -1047,7 +1047,7 @@ export const T: Record<string, any> = {
   "en": "Book a visit →"
  },
  "closing": {
-  "pl": "W razie jakichkolwiek pytań pozostaję do Państwa dyspozycji.",
+  "pl": "W razie jakichkolwiek pytań pozostaję do {Państwa|Pana|Pani} dyspozycji.",
   "en": "If you have any questions, please feel free to get in touch."
  },
  "loc_names": {

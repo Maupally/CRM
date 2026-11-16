@@ -5,10 +5,10 @@ import { greetingLine, guessTitle, vocative, type Greet, type Title } from '../.
 export const NO_GREET: Greet = { name: '', title: 'pan' };
 
 /**
- * Name of the person we write to + Pan / Pani: "Dzień dobry, Panie Damianie,".
+ * Name of the person we write to + Pan / Pani: "Dzień dobry Pani Julio," and Pan / Pani forms in the text.
  * Pan / Pani is guessed from the name until clicked; the vocative is computed and can be corrected by hand.
  */
-export function GreetInput({ value, onChange, lang = 'pl', placeholder = 'Imię rodzica (np. Damian)' }: {
+export function GreetInput({ value, onChange, lang = 'pl', placeholder = 'Imię rodzica (np. Julia)' }: {
   value: Greet; onChange: (g: Greet) => void; lang?: 'pl' | 'en'; placeholder?: string;
 }) {
   const [manual, setManual] = useState(false);
@@ -21,7 +21,7 @@ export function GreetInput({ value, onChange, lang = 'pl', placeholder = 'Imię 
   return (
     <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
       <input type="text" placeholder={placeholder} value={value.name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 200 }}
-        title="Wstawi się w powitanie: Dzień dobry, Panie Damianie," />
+        title="Do kogo piszesz: powitanie „Dzień dobry Pani Julio,” i zwroty Pan / Pani w treści" />
       {has && lang === 'pl' && (
         <>
           <Seg<Title> value={value.title} options={['pan', 'pani'] as const} labels={{ pan: 'Pan', pani: 'Pani' }}

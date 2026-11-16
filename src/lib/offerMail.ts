@@ -4,6 +4,7 @@
  */
 import { CITY_NAME, materialsText, pln, type City, type FeeYear } from '../../shared/fees';
 import { MOD_ORDER, PLACES, T } from './szablonyData';
+import { forms, greetingLine, type Greet } from '../../shared/greeting';
 
 type Lang = 'pl' | 'en';
 export interface MailOpts {
@@ -14,8 +15,8 @@ export interface MailOpts {
   fees: FeeYear;
   /** also show the next school year's list (a family starting now that stays past September) */
   next?: { year: string; fees: FeeYear };
-  /** opening line with the parent's name, e.g. "Dzień dobry, Panie Damianie," — none when not given */
-  greeting?: string;
+  /** the parent we write to: opening line "Dzień dobry Pani Julio," and Pan / Pani forms in the text */
+  greet?: Greet;
 }
 
 const RED = 'rgb(192,20,15)';
@@ -125,14 +126,17 @@ function section(id: string, o: MailOpts): string {
 
 export function offerMailHtml(o: MailOpts): string {
   const sections = MOD_ORDER.filter((id) => o.mods.includes(id)).map((id) => section(id, o)).join('');
-  return `<table width="460" cellpadding="0" cellspacing="0" border="0" style="max-width:460px;font-family:Arial,Helvetica,sans-serif;color:#000"><tbody>` +
+  const g = o.greet || { name: '', title: 'pan' };
+  const greeting = g.name.trim() ? greetingLine(g, o.lang) : '';
+  return forms(`<table width="460" cellpadding="0" cellspacing="0" border="0" style="max-width:460px;font-family:Arial,Helvetica,sans-serif;color:#000"><tbody>` +
     `<tr><td style="background:${RED};padding:18px 24px;text-align:center"><p style="margin:0 0 3px;font-size:20px;font-weight:800;color:#fff">MapleBear</p><p style="margin:0 0 8px;font-size:11px;color:rgba(255,170,170,1);letter-spacing:0.08em;text-transform:uppercase">Canadian School - ${CITY_NAME[o.city]}</p></td></tr>` +
-    (o.greeting ? `<tr><td style="padding:18px 24px 0"><p style="margin:0;font-size:13px;color:#000;line-height:1.7">${esc(o.greeting)}</p></td></tr>` : '') +
-    sections + `<tr><td style="padding:18px 24px"><p style="margin:0;font-size:13px;color:#000;line-height:1.7">${T.closing[o.lang]}</p></td></tr></tbody></table>`;
+    (greeting ? `<tr><td style="padding:18px 24px 0"><p style="margin:0;font-size:13px;color:#000;line-height:1.7">${esc(greeting)}</p></td></tr>` : '') +
+    sections + `<tr><td style="padding:18px 24px"><p style="margin:0;font-size:13px;color:#000;line-height:1.7">${T.closing[o.lang]}</p></td></tr></tbody></table>`, g);
 }
 
 /** The short SMS sent with the e-mail ("check your SPAM folder"). */
-export const companionSms = (lang: Lang, signature: string) => `${T.companion_msg[lang]}\n\n${signature}`;
+export const companionSms = (lang: Lang, signature: string, greet?: Greet) =>
+  forms(`${T.companion_msg[lang]}\n\n${signature}`, greet || { name: '', title: 'pan' });
 
 export const PRESETS: { label: string; mods: string[] }[] = [
   { label: 'Hello email', mods: ['hello', 'pricing', 'included', 'process', 'visit_cta'] },

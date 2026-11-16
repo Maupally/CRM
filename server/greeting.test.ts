@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { address, greetFromPerson, greetingLine, guessTitle, personalize, vocative } from '../shared/greeting';
+import { address, forms, greetFromPerson, greetingLine, guessTitle, personalize, vocative } from '../shared/greeting';
+import { T, TEMPLATES } from '../src/lib/szablonyData';
 
 describe('vocative', () => {
   const men: [string, string][] = [
@@ -41,8 +42,8 @@ describe('guessTitle', () => {
 describe('personalize', () => {
   it('puts the name into "Dzień dobry"', () => {
     const t = 'Dzień dobry,\nchciałem przypomnieć o jutrzejszej wizycie.';
-    expect(personalize(t, { name: 'Damian', title: 'pan' }, 'pl')).toBe('Dzień dobry, Panie Damianie,\nchciałem przypomnieć o jutrzejszej wizycie.');
-    expect(personalize('Dzień dobry!\nPróbowałem…', { name: 'Anna', title: 'pani' }, 'pl')).toBe('Dzień dobry, Pani Anno!\nPróbowałem…');
+    expect(personalize(t, { name: 'Damian', title: 'pan' }, 'pl')).toBe('Dzień dobry Panie Damianie,\nchciałem przypomnieć o jutrzejszej wizycie.');
+    expect(personalize('Dzień dobry!\nPróbowałem…', { name: 'Anna', title: 'pani' }, 'pl')).toBe('Dzień dobry Pani Anno!\nPróbowałem…');
   });
   it('uses a hand-corrected vocative', () => {
     expect(address({ name: 'Derek', title: 'pan', voc: 'Dereku' })).toBe('Panie Dereku');
@@ -56,7 +57,7 @@ describe('personalize', () => {
     expect(personalize('Good morning!\nx', { name: 'Anna', title: 'pani' }, 'en')).toBe('Good morning Anna!\nx');
   });
   it('greeting line for the offer mail', () => {
-    expect(greetingLine({ name: 'Damian', title: 'pan' }, 'pl')).toBe('Dzień dobry, Panie Damianie,');
+    expect(greetingLine({ name: 'Damian', title: 'pan' }, 'pl')).toBe('Dzień dobry Panie Damianie,');
     expect(greetingLine({ name: 'Anna', title: 'pani' }, 'en')).toBe('Good morning Anna,');
   });
 });
@@ -68,5 +69,32 @@ describe('greetFromPerson', () => {
     expect(greetFromPerson('Tomasz Kowalski, właściciel')).toEqual({ name: 'Tomasz', title: 'pan' });
     expect(greetFromPerson('')).toEqual({ name: '', title: 'pan' });
     expect(greetFromPerson('biuro@firma.pl')).toEqual({ name: '', title: 'pan' });
+  });
+});
+
+describe('Państwo / Pan / Pani in the texts', () => {
+  const hi1 = TEMPLATES[0].items![0].text.pl;
+  it('Pani: the whole message talks to her', () => {
+    expect(personalize(hi1, { name: 'Julia', title: 'pani' }, 'pl')).toBe(
+      'Dzień dobry Pani Julio,\nDostałem kontakt do Pani z naszej kampanii/reklamy na social media - chciałem zapytać, czy szuka Pani przedszkola lub szkoły dla dziecka?');
+  });
+  it('Pan: masculine forms', () => {
+    expect(personalize(hi1, { name: 'Damian', title: 'pan' }, 'pl')).toBe(
+      'Dzień dobry Panie Damianie,\nDostałem kontakt do Pana z naszej kampanii/reklamy na social media - chciałem zapytać, czy szuka Pan przedszkola lub szkoły dla dziecka?');
+    expect(forms('czy nadal {są Państwo zainteresowani|jest Pan zainteresowany|jest Pani zainteresowana}?', { name: 'Damian', title: 'pan' }))
+      .toBe('czy nadal jest Pan zainteresowany?');
+  });
+  it('no name: exactly the old Państwo text', () => {
+    expect(personalize(hi1, { name: '', title: 'pan' }, 'pl')).toBe(
+      'Dzień dobry,\nDostałem Państwa kontakt z naszej kampanii/reklamy na social media - chciałem zapytać, czy szukają Państwo przedszkola lub szkoły dla dziecka?');
+  });
+  it('every variant has three parts and no text is left with stray braces', () => {
+    const all: string[] = [];
+    const walk = (v: unknown) => { if (typeof v === 'string') all.push(v); else if (v && typeof v === 'object') Object.values(v).forEach(walk); };
+    walk(TEMPLATES); walk(T);
+    for (const t of all) for (const g of [{ name: '', title: 'pan' as const }, { name: 'Ola', title: 'pani' as const }]) {
+      expect(forms(t, g)).not.toMatch(/[{}]/);
+    }
+    expect(all.filter((t) => t.includes('{')).length).toBeGreaterThanOrEqual(30);
   });
 });

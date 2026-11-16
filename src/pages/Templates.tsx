@@ -8,7 +8,7 @@ import { CITIES, CITY_NAME, pln, schoolYear, yearFor, type City, type FeeBook, t
 import { MODULES, SIGNATURE, TEMPLATES, type TplItem } from '../lib/szablonyData';
 import { PRESETS, companionSms, copyHtml, handoverHtml, offerMailHtml, type Handover } from '../lib/offerMail';
 import { GreetInput, NO_GREET } from '../components/GreetInput';
-import { greetingLine, personalize, type Greet } from '../../shared/greeting';
+import { personalize, type Greet } from '../../shared/greeting';
 
 type Lang = 'pl' | 'en';
 type Tab = 'mail' | 'wiadomosci' | 'umowa';
@@ -240,11 +240,11 @@ function MailTab({ book, city, year, lang, child, greet }: { book: FeeBook; city
   const html = useMemo(() => fillChild(offerMailHtml({
     city, lang, mods, year, fees: book[city][year],
     next: both && nextYear ? { year: nextYear, fees: book[city][nextYear] } : undefined,
-    greeting: greet.name.trim() ? greetingLine(greet, lang) : undefined,
+    greet,
   }), child), [book, city, lang, mods, year, both, nextYear, child, greet]);
   const toggle = (id: string) => setMods(mods.includes(id) ? mods.filter((m) => m !== id) : [...mods.filter((m) => !(id === 'confirm' && m === 'visit_cta')), id]);
   const plain = () => { const d = document.createElement('div'); d.innerHTML = html; return d.innerText; };
-  const sms = companionSms(lang, SIGNATURE[lang]);
+  const sms = personalize(companionSms(lang, SIGNATURE[lang]), greet, lang);
   const logMail = () => api.logMessage({ channel: 'email', template: `Mail: ${PRESETS.find((p) => p.mods.join() === mods.join())?.label || 'własny zestaw'}`, source: 'mail', lang, city });
 
   return (
