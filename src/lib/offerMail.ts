@@ -14,6 +14,8 @@ export interface MailOpts {
   fees: FeeYear;
   /** also show the next school year's list (a family starting now that stays past September) */
   next?: { year: string; fees: FeeYear };
+  /** opening line with the parent's name, e.g. "Dzień dobry, Panie Damianie," — none when not given */
+  greeting?: string;
 }
 
 const RED = 'rgb(192,20,15)';
@@ -125,6 +127,7 @@ export function offerMailHtml(o: MailOpts): string {
   const sections = MOD_ORDER.filter((id) => o.mods.includes(id)).map((id) => section(id, o)).join('');
   return `<table width="460" cellpadding="0" cellspacing="0" border="0" style="max-width:460px;font-family:Arial,Helvetica,sans-serif;color:#000"><tbody>` +
     `<tr><td style="background:${RED};padding:18px 24px;text-align:center"><p style="margin:0 0 3px;font-size:20px;font-weight:800;color:#fff">MapleBear</p><p style="margin:0 0 8px;font-size:11px;color:rgba(255,170,170,1);letter-spacing:0.08em;text-transform:uppercase">Canadian School - ${CITY_NAME[o.city]}</p></td></tr>` +
+    (o.greeting ? `<tr><td style="padding:18px 24px 0"><p style="margin:0;font-size:13px;color:#000;line-height:1.7">${esc(o.greeting)}</p></td></tr>` : '') +
     sections + `<tr><td style="padding:18px 24px"><p style="margin:0;font-size:13px;color:#000;line-height:1.7">${T.closing[o.lang]}</p></td></tr></tbody></table>`;
 }
 

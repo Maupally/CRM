@@ -550,7 +550,8 @@ const READ_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: 'get_templates',
-    description: 'Szablony maili i skryptów (kod, rodzaj, dla jakich segmentów, temat, treść). Pola [Firma] [Miasto] [Osoba] uzupełniasz sam.',
+    description: 'Szablony maili i skryptów (kod, rodzaj, dla jakich segmentów, temat, treść). Pola [Firma] [Miasto] [Osoba] uzupełniasz sam. ' +
+      'Gdy znasz imię adresata, zacznij od „Dzień dobry, Panie Damianie,” / „Dzień dobry, Pani Anno,” (imię w wołaczu); bez imienia zostaw „Dzień dobry,”.',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {

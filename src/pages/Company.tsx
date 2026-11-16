@@ -16,6 +16,8 @@ import {
 import { STAGES, STAGE_INFO, TYPES, isClosed, normPhone, shortDate, type Activity, type Lead, type Segment, type Task } from '../../shared/domain';
 import { ProjectTaskRow, TaskDetail } from '../components/TaskDetail';
 import { StoryPanel } from '../components/Story';
+import { GreetInput } from '../components/GreetInput';
+import { greetFromPerson, personalize, type Greet } from '../../shared/greeting';
 
 type Sheet = null | { mail: true } | { edit: true };
 
@@ -368,7 +370,10 @@ function MailSheet({ lead, open, onClose }: { lead: Lead; open: boolean; onClose
   const cfg = useConfig();
   const toast = useToast();
   const [code, setCode] = useState('');
+  const [greet, setGreet] = useState<Greet>(() => greetFromPerson(lead.person));
+  useEffect(() => { if (open) setGreet(greetFromPerson(lead.person)); }, [open, lead.person]);
   const t = useQuery({ queryKey: ['tpl', lead.id, code], queryFn: () => api.renderTemplate(lead.id, code), enabled: open && !!code });
+  const body = t.data ? personalize(t.data.body, greet, 'pl') : '';
   const logged = useAction(() => api.log(lead.id, { type: 'Email', result: 'done', note: `Mail: ${t.data?.subject || code}` }),
     { ok: 'Zapisano w historii', onDone: onClose });
   const fits = (segments: string) => /wszystkie|telefon/i.test(segments) || segments.split(/\s*,\s*/).includes(lead.segment);
@@ -380,18 +385,19 @@ function MailSheet({ lead, open, onClose }: { lead: Lead; open: boolean; onClose
         <option value="">Wybierz szablon…</option>
         {sorted.map((x) => <option key={x.code} value={x.code}>{fits(x.segments) ? '★ ' : ''}{x.code} · {x.kind}</option>)}
       </select>
+      <GreetInput value={greet} onChange={setGreet} placeholder="Imię osoby (np. Damian)" />
       {t.data && (
         <>
           {t.data.subject && <b>{t.data.subject}</b>}
-          <div className="pre soft small" style={{ maxHeight: 320, overflow: 'auto' }}>{t.data.body}</div>
-          {/\[[^\]]+\]/.test(t.data.body) && <div className="hint">Uzupełnij pozostałe [pola] przed wysłaniem.</div>}
+          <div className="pre soft small" style={{ maxHeight: 320, overflow: 'auto' }}>{body}</div>
+          {/\[[^\]]+\]/.test(body) && <div className="hint">Uzupełnij pozostałe [pola] przed wysłaniem.</div>}
           <div className="row wrap">
             {lead.email && t.data.subject && (
-              <a className="btn primary" href={`mailto:${lead.email}?subject=${encodeURIComponent(t.data.subject)}&body=${encodeURIComponent(t.data.body)}`}>
+              <a className="btn primary" href={`mailto:${lead.email}?subject=${encodeURIComponent(t.data.subject)}&body=${encodeURIComponent(body)}`}>
                 <Send size={15} /> Otwórz w poczcie
               </a>
             )}
-            <button className="btn" onClick={() => { copyText((t.data!.subject ? t.data!.subject + '\n\n' : '') + t.data!.body); toast('Skopiowano'); }}><Copy size={15} /> Kopiuj</button>
+            <button className="btn" onClick={() => { copyText((t.data!.subject ? t.data!.subject + '\n\n' : '') + body); toast('Skopiowano'); }}><Copy size={15} /> Kopiuj</button>
             {t.data.subject && <button className="btn" onClick={() => logged.mutate(undefined)} disabled={logged.isPending}><Check size={15} /> Wysłany — zapisz</button>}
           </div>
         </>

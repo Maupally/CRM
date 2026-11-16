@@ -7,6 +7,8 @@ import { ErrorBox, Loading, Modal, Seg, copyText, useAction, useToast, useToday 
 import { CITIES, CITY_NAME, pln, schoolYear, yearFor, type City, type FeeBook, type FeeItem, type FeeRow, type FeeYear } from '../../shared/fees';
 import { MODULES, SIGNATURE, TEMPLATES, type TplItem } from '../lib/szablonyData';
 import { PRESETS, companionSms, copyHtml, handoverHtml, offerMailHtml, type Handover } from '../lib/offerMail';
+import { GreetInput, NO_GREET } from '../components/GreetInput';
+import { greetingLine, personalize, type Greet } from '../../shared/greeting';
 
 type Lang = 'pl' | 'en';
 type Tab = 'mail' | 'wiadomosci' | 'umowa';
@@ -37,6 +39,7 @@ export function TemplatesPage() {
   const [lang, setLang] = useRemember<Lang>('szablony.lang', 'pl', ['pl', 'en'] as const);
   const [year, setYear] = useState('');
   const [child, setChild] = useState('');
+  const [greet, setGreet] = useState<Greet>(NO_GREET);
 
   const qc = useQueryClient();
   const sent = useQuery({ queryKey: ['msgstats', 'now'], queryFn: () => api.messageStats() });
@@ -74,10 +77,11 @@ export function TemplatesPage() {
         {(tab === 'wiadomosci' || tab === 'mail') && (
           <input type="text" placeholder="Imię dziecka (wstawi się w tekst)" value={child} onChange={(e) => setChild(e.target.value)} style={{ maxWidth: 240 }} />
         )}
+        {(tab === 'wiadomosci' || tab === 'mail') && <GreetInput value={greet} onChange={setGreet} lang={lang} />}
       </section>
 
-      {tab === 'wiadomosci' && <MessagesTab lang={lang} child={child} city={city} />}
-      {tab === 'mail' && <MailTab book={book} city={city} year={year} lang={lang} child={child} />}
+      {tab === 'wiadomosci' && <MessagesTab lang={lang} child={child} city={city} greet={greet} />}
+      {tab === 'mail' && <MailTab book={book} city={city} year={year} lang={lang} child={child} greet={greet} />}
       {tab === 'umowa' && <HandoverTab book={book} city={city} onYear={setYear} />}
     </>
   );
@@ -163,7 +167,7 @@ function FeeEditor({ open, onClose, city, year, f, onSaved }: { open: boolean; o
 
 const fillChild = (text: string, child: string) => (child.trim() ? text.replace(/\[(imię dziecka|child's name)\]/gi, child.trim()) : text);
 
-function MessagesTab({ lang, child, city }: { lang: Lang; child: string; city: City }) {
+function MessagesTab({ lang, child, city, greet }: { lang: Lang; child: string; city: City; greet: Greet }) {
   const [cat, setCat] = useState('');
   const [find, setFind] = useState('');
   const [pm, setPm] = useState(() => new Date().getHours() >= 12);
@@ -193,7 +197,7 @@ function MessagesTab({ lang, child, city }: { lang: Lang; child: string; city: C
             <div key={bi} className="col" style={{ gap: 8 }}>
               {b.name && <div className="eyebrow">{b.name}</div>}
               <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
-                {b.items.map((it, i) => <MessageCard key={i} item={it} lang={lang} child={child} pm={pm} city={city} />)}
+                {b.items.map((it, i) => <MessageCard key={i} item={it} lang={lang} child={child} pm={pm} city={city} greet={greet} />)}
               </div>
             </div>
           ))}
@@ -204,11 +208,12 @@ function MessagesTab({ lang, child, city }: { lang: Lang; child: string; city: C
   );
 }
 
-function MessageCard({ item, lang, child, pm, city }: { item: TplItem; lang: Lang; child: string; pm: boolean; city: City }) {
+function MessageCard({ item, lang, child, pm, city, greet }: { item: TplItem; lang: Lang; child: string; pm: boolean; city: City; greet: Greet }) {
   const [sms, setSms] = useState(false);
   const toast = useToast();
   let t = fillChild(item.text[lang], child);
   if (lang === 'en') t = t.replace(/^(Hi|Good morning|Good afternoon)([!,])/, `${pm ? 'Good afternoon' : 'Good morning'}$2`);
+  t = personalize(t, greet, lang);
   if (sms) t += `\n\n${SIGNATURE[lang]}`;
   const parts = t.split(/(\[[^\]]+\])/g);
   return (
@@ -225,7 +230,7 @@ function MessageCard({ item, lang, child, pm, city }: { item: TplItem; lang: Lan
 
 /* ------------------------------------------------------------------ Mail z ofertą */
 
-function MailTab({ book, city, year, lang, child }: { book: FeeBook; city: City; year: string; lang: Lang; child: string }) {
+function MailTab({ book, city, year, lang, child, greet }: { book: FeeBook; city: City; year: string; lang: Lang; child: string; greet: Greet }) {
   const [mods, setMods] = useState<string[]>(PRESETS[0].mods);
   const [both, setBoth] = useState(false);
   const [edit, setEdit] = useState(false);
@@ -235,7 +240,8 @@ function MailTab({ book, city, year, lang, child }: { book: FeeBook; city: City;
   const html = useMemo(() => fillChild(offerMailHtml({
     city, lang, mods, year, fees: book[city][year],
     next: both && nextYear ? { year: nextYear, fees: book[city][nextYear] } : undefined,
-  }), child), [book, city, lang, mods, year, both, nextYear, child]);
+    greeting: greet.name.trim() ? greetingLine(greet, lang) : undefined,
+  }), child), [book, city, lang, mods, year, both, nextYear, child, greet]);
   const toggle = (id: string) => setMods(mods.includes(id) ? mods.filter((m) => m !== id) : [...mods.filter((m) => !(id === 'confirm' && m === 'visit_cta')), id]);
   const plain = () => { const d = document.createElement('div'); d.innerHTML = html; return d.innerText; };
   const sms = companionSms(lang, SIGNATURE[lang]);
