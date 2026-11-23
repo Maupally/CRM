@@ -153,7 +153,7 @@ export async function copyHtml(html: string, plain: string) {
   } catch { /* fall through */ }
   const el = document.createElement('div');
   el.innerHTML = html;
-  el.style.position = 'fixed'; el.style.left = '-9999px';
+  el.style.position = 'fixed'; el.style.left = '-9999px'; el.style.color = '#222'; el.style.background = '#fff';
   document.body.appendChild(el);
   const r = document.createRange(); r.selectNodeContents(el);
   const s = window.getSelection(); s?.removeAllRanges(); s?.addRange(r);

@@ -290,7 +290,7 @@ function MailTab({ book, city, year, lang, child, greet }: { book: FeeBook; city
           <button className="btn sm" disabled={!mods.length} onClick={() => { copyText(html); toast('Skopiowano HTML'); logMail(); }}>HTML</button>
         </div>
         {mods.length ? (
-          <div style={{ background: '#fff', borderRadius: 12, padding: 12, overflow: 'auto', border: '1px solid var(--line)' }} dangerouslySetInnerHTML={{ __html: html }} />
+          <div style={{ background: '#fff', color: '#222', fontFamily: 'Arial, Helvetica, sans-serif', fontSize: 13, lineHeight: 1.45, borderRadius: 12, padding: 12, overflow: 'auto', border: '1px solid var(--line)' }} dangerouslySetInnerHTML={{ __html: html }} />
         ) : <div className="empty">Wybierz zestaw albo moduły.</div>}
       </section>
       <FeeEditor open={edit} onClose={() => setEdit(false)} city={city} year={year} f={book[city][year]} onSaved={() => undefined} />
@@ -365,7 +365,7 @@ function HandoverTab({ book, city, onYear }: { book: FeeBook; city: City; onYear
           <h2 className="grow">Podgląd (po angielsku, dla zespołu)</h2>
           <button className="btn sm primary" onClick={async () => { const d = document.createElement('div'); d.innerHTML = html; await copyHtml(html, d.innerText); toast('Skopiowano — wklej w Gmailu'); api.logMessage({ channel: 'internal', template: 'Nowa umowa (zespół)', source: 'umowa', city }); }}><Copy size={14} /> Kopiuj mail</button>
         </div>
-        <div style={{ background: '#fff', borderRadius: 12, padding: 12, overflow: 'auto', border: '1px solid var(--line)' }} dangerouslySetInnerHTML={{ __html: html }} />
+        <div style={{ background: '#fff', color: '#222', fontFamily: 'Arial, Helvetica, sans-serif', fontSize: 13, lineHeight: 1.45, borderRadius: 12, padding: 12, overflow: 'auto', border: '1px solid var(--line)' }} dangerouslySetInnerHTML={{ __html: html }} />
       </section>
     </div>
   );
