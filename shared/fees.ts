@@ -62,8 +62,8 @@ const D = {
 };
 
 const KTW_INCLUDED = {
-  pl: ['Opieka 7:30-17:30', 'Psycholog, pedagog, logopeda', '5 zajęć dodatkowych/tydzień', 'Pakiet startowy (4 mundurki + plecak)', 'Ubezpieczenie NNW', 'Trzy posiłki dziennie', 'Materiały szkolne (1. rok)'],
-  en: ['Care 7:30-17:30', 'Psychologist, pedagogue, speech therapist', '5 extra activities/week', 'Starter pack (4 uniforms + backpack)', 'Accident insurance', 'Three meals per day', 'School materials (1st year)'],
+  pl: ['Opieka 7:30-17:30', 'Psycholog, pedagog, logopeda', '5 zajęć dodatkowych/tydzień', 'Pakiet startowy (4 mundurki + plecak)', 'Ubezpieczenie NNW', 'Trzy posiłki dziennie'],
+  en: ['Care 7:30-17:30', 'Psychologist, pedagogue, speech therapist', '5 extra activities/week', 'Starter pack (4 uniforms + backpack)', 'Accident insurance', 'Three meals per day'],
 };
 const KTW_DISCOUNTS: FeeItem[] = [
   D.second, D.third, D.annual,
@@ -178,5 +178,10 @@ export const materialsText = (r: FeeRow, lang: 'pl' | 'en' = 'pl') =>
 export function mergeFees(saved: Partial<Record<City, Record<string, FeeYear>>> | null | undefined): FeeBook {
   const out = JSON.parse(JSON.stringify(DEFAULT_FEES)) as FeeBook;
   for (const c of CITIES) for (const [y, v] of Object.entries(saved?.[c] || {})) if (v && Array.isArray(v.rows)) out[c][y] = v;
+  // school materials are paid in full from the start — never "included in the 1st year", even in a book saved earlier
+  const paidMaterials = /materiały szkolne|school materials/i;
+  for (const c of CITIES) for (const v of Object.values(out[c])) {
+    if (v.included) for (const l of ['pl', 'en'] as const) if (Array.isArray(v.included[l])) v.included[l] = v.included[l].filter((x) => !paidMaterials.test(x));
+  }
   return out;
 }

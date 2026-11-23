@@ -29,10 +29,9 @@ const OL = (items: string[]) => (items.length ? `<ol style="margin:0;padding-lef
 const LINK = '#1a73e8';
 const A = (href: string, text: string) => `<a href="${href}" style="color:${LINK}">${text}</a>`;
 /** a light outlined button — so it is clear there is something to open */
-const BTN = (href: string, text: string, icon = '') =>
-  `<a href="${href}" style="display:inline-block;padding:6px 12px;border:1px solid #dadce0;border-radius:6px;color:${LINK};text-decoration:none;font-weight:bold;white-space:nowrap">${icon ? `${icon}&nbsp; ` : ''}${text}</a>`;
-const ICON: Record<string, string> = { wideo: '&#9654;', video: '&#9654;', pdf: '&#128196;', publikacja: '&#128214;', publication: '&#128214;' };
-const iconOf = (type = '') => ICON[type.toLowerCase()] || '&#128206;';
+const RED = 'rgb(192,20,15)';
+const BTN = (href: string, text: string) =>
+  `<a href="${href}" style="display:inline-block;padding:6px 12px;border:1px solid ${RED};border-radius:6px;color:${RED};text-decoration:none;font-weight:bold;white-space:nowrap">${text}</a>`;
 const TD = 'padding:6px 12px 6px 0;border-bottom:1px solid #e5e5e5;vertical-align:top';
 const TABLE = (head: string[], rows: string[][], right: number[] = []) =>
   `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:4px 0 0;color:inherit;font-size:inherit;font-family:inherit">` +
@@ -43,7 +42,7 @@ const TABLE = (head: string[], rows: string[][], right: number[] = []) =>
 const noArrow = (t: string) => t.replace(/\s*[→»>]+\s*$/, '');
 const lower = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 const sentence = (t: string) => (/[.!?:]$/.test(t.trim()) ? t.trim() : `${t.trim()}.`);
-const docItem = (m: any) => `<div style="margin:0 0 8px">${BTN(m.link, m.title, iconOf(m.type))}${m.desc ? `<div style="margin:3px 0 0;color:#555;font-size:12px">${m.desc}</div>` : ""}</div>`;
+const docItem = (m: any) => `<div style="margin:0 0 8px">${BTN(m.link, m.title)}${m.desc ? `<div style="margin:3px 0 0;color:#555;font-size:12px">${m.desc}</div>` : ""}</div>`;
 const docs = (items: any[]) => items.map(docItem).join('') + '<div><br></div>';
 
 function priceTable(f: FeeYear, l: Lang) {
@@ -98,7 +97,7 @@ function section(id: string, o: MailOpts): string {
   }
   if (id === 'directions') {
     const dir = d.directions[l];
-    return H(T.directions_title[l]) + `<div style="margin:0 0 6px">${dir.address}</div><div>${BTN(d.mapsLink, l === 'en' ? 'Open in Google Maps' : 'Otwórz w Google Maps', '&#128205;')}</div><div><br></div>` +
+    return H(T.directions_title[l]) + `<div style="margin:0 0 6px">${dir.address}</div><div>${BTN(d.mapsLink, l === 'en' ? 'Open in Google Maps' : 'Otwórz w Google Maps')}</div><div><br></div>` +
       UL(dir.items.map((it: any) => `<b>${it.title}</b> – ${it.body}`));
   }
   if (id === 'schedule') {
@@ -110,7 +109,7 @@ function section(id: string, o: MailOpts): string {
   }
   if (id === 'after_visit') return H(T.after_title[l]) + P(T.after_intro[l]) + docs(T.after_items[l]);
   if (id === 'survey') return H(T.survey_title[l]) + `<div>${T.survey_intro[l]}</div>` + OL(T.survey_items[l]);
-  if (id === 'visit_cta') return `<div style="margin:0 0 8px">${T.visit_cta_desc[l].trim()}</div><div>${BTN(d.calLink, noArrow(T.visit_btn[l]), '&#128197;')}</div><div><br></div>`;
+  if (id === 'visit_cta') return `<div style="margin:0 0 8px">${T.visit_cta_desc[l].trim()}</div><div>${BTN(d.calLink, noArrow(T.visit_btn[l]))}</div><div><br></div>`;
   return '';
 }
 
