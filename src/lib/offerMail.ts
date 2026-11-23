@@ -19,31 +19,45 @@ export interface MailOpts {
   greet?: Greet;
 }
 
-// Looks like a mail typed by hand in Gmail: no banner, no boxes, no buttons — plain lines, a bold heading
-// now and then, simple lists and ordinary links. Gmail's own markup is <div>s with an empty <div><br></div> between paragraphs.
+// Looks like a mail typed by hand in Gmail: no banner, no coloured boxes — plain lines, a bold heading now and then,
+// simple lists, fees in a plain table and materials as light outlined buttons. Gmail's own markup is <div>s with an empty <div><br></div> between paragraphs.
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const P = (t: string) => `<div>${t}</div><div><br></div>`;
 const H = (t: string) => `<div><b>${t}</b></div>`;
 const UL = (items: string[]) => (items.length ? `<ul style="margin:0 0 0 0;padding-left:24px">${items.map((i) => `<li>${i}</li>`).join('')}</ul><div><br></div>` : '');
 const OL = (items: string[]) => (items.length ? `<ol style="margin:0;padding-left:24px">${items.map((i) => `<li>${i}</li>`).join('')}</ol><div><br></div>` : '');
-const A = (href: string, text: string) => `<a href="${href}">${text}</a>`;
+const LINK = '#1a73e8';
+const A = (href: string, text: string) => `<a href="${href}" style="color:${LINK}">${text}</a>`;
+/** a light outlined button — so it is clear there is something to open */
+const BTN = (href: string, text: string, icon = '') =>
+  `<a href="${href}" style="display:inline-block;padding:6px 12px;border:1px solid #dadce0;border-radius:6px;color:${LINK};text-decoration:none;font-weight:bold;white-space:nowrap">${icon ? `${icon}&nbsp; ` : ''}${text}</a>`;
+const ICON: Record<string, string> = { wideo: '&#9654;', video: '&#9654;', pdf: '&#128196;', publikacja: '&#128214;', publication: '&#128214;' };
+const iconOf = (type = '') => ICON[type.toLowerCase()] || '&#128206;';
+const TD = 'padding:6px 12px 6px 0;border-bottom:1px solid #e5e5e5;vertical-align:top';
+const TABLE = (head: string[], rows: string[][], right: number[] = []) =>
+  `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:4px 0 0;color:inherit;font-size:inherit;font-family:inherit">` +
+  (head.length ? `<tr>${head.map((h, i) => `<td style="${TD};font-weight:bold;color:#555;font-size:12px${right.includes(i) ? ';text-align:right' : ''}">${h}</td>`).join('')}</tr>` : '') +
+  rows.map((r) => `<tr>${r.map((c, i) => `<td style="${TD}${right.includes(i) ? ';text-align:right;white-space:nowrap' : ''}">${c}</td>`).join('')}</tr>`).join('') +
+  `</table><div><br></div>`;
 /** "Pobierz prezentację →" → "Pobierz prezentację" — arrows are what a template looks like, not a person */
 const noArrow = (t: string) => t.replace(/\s*[→»>]+\s*$/, '');
 const lower = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 const sentence = (t: string) => (/[.!?:]$/.test(t.trim()) ? t.trim() : `${t.trim()}.`);
-const docItem = (m: any) => `${A(m.link, m.title)} – ${m.desc}`;
+const docItem = (m: any) => `<div style="margin:0 0 8px">${BTN(m.link, m.title, iconOf(m.type))}${m.desc ? `<div style="margin:3px 0 0;color:#555;font-size:12px">${m.desc}</div>` : ""}</div>`;
+const docs = (items: any[]) => items.map(docItem).join('') + '<div><br></div>';
 
-function priceLines(f: FeeYear, l: Lang) {
-  return f.rows.map((r) => {
-    const parts = [`${pln(r.monthly, l)} ${l === 'en' ? 'per month' : 'miesięcznie'}${r.months ? ` (${r.months} ${l === 'en' ? 'months a year' : 'mies. w roku'})` : ''}`];
-    if (r.enrol) parts.push(`${l === 'en' ? 'enrolment fee' : 'opłata rekrutacyjna'} ${pln(r.enrol, l)}`);
-    const mat = materialsText(r, l);
-    if (mat) parts.push(`${l === 'en' ? 'materials' : 'materiały'} ${mat}`);
-    return `${esc(r.level[l])}: ${parts.join(', ')}`;
-  });
+function priceTable(f: FeeYear, l: Lang) {
+  const mat = f.rows.some((r) => materialsText(r, l));
+  const en = l === 'en';
+  const head = [en ? 'Stage' : 'Etap', en ? 'Tuition / month' : 'Czesne / mies.', en ? 'Enrolment fee' : 'Opłata rekrutacyjna', ...(mat ? [en ? 'Materials' : 'Materiały'] : [])];
+  const rows = f.rows.map((r) => [
+    `${esc(r.level[l])}${r.months ? `<br><span style="color:#777;font-size:12px">${r.months} ${en ? 'months a year' : 'mies. w roku'}</span>` : ''}`,
+    `<b>${pln(r.monthly, l)}</b>`, r.enrol ? pln(r.enrol, l) : '—', ...(mat ? [materialsText(r, l) || '—'] : []),
+  ]);
+  return TABLE(head, rows, mat ? [1, 2, 3] : [1, 2]);
 }
-const itemLines = (items: FeeYear['discounts'], l: Lang) =>
-  items.map((r) => `${esc(r.label[l])}: ${esc(r.value[l])}${r.note?.[l] ? ` – ${esc(r.note[l])}` : ''}`);
+const itemTable = (items: FeeYear['discounts'], l: Lang) =>
+  TABLE([], items.map((r) => [`${esc(r.label[l])}${r.note?.[l] ? `<br><span style="color:#777;font-size:12px">${esc(r.note[l])}</span>` : ''}`, `<b>${esc(r.value[l])}</b>`]), [1]);
 
 const yearTitle = (year: string, l: Lang, when?: 'now' | 'next') => {
   const start = year.split('/')[0];
@@ -65,13 +79,13 @@ function section(id: string, o: MailOpts): string {
   }
   if (id === 'hello') {
     const intro = o.mods.includes('confirm') ? '' : P(T.hello_body[l]);
-    return intro + H(T.pillars_title[l]) + UL(T.pillars[l]) + H(T.materials_title[l]) + UL(T.mat_items[l].map(docItem));
+    return intro + H(T.pillars_title[l]) + UL(T.pillars[l]) + H(T.materials_title[l]) + `<div style="height:6px"></div>` + docs(T.mat_items[l]);
   }
   if (id === 'pricing') {
-    const one = (year: string, f: FeeYear, when?: 'now' | 'next') => H(yearTitle(year, l, when)) + UL(priceLines(f, l)) +
-      (f.extras.length ? H(l === 'en' ? 'Paid extras' : 'Dodatkowo płatne') + UL(itemLines(f.extras, l)) : '');
+    const one = (year: string, f: FeeYear, when?: 'now' | 'next') => H(yearTitle(year, l, when)) + priceTable(f, l) +
+      (f.extras.length ? H(l === 'en' ? 'Paid extras' : 'Dodatkowo płatne') + itemTable(f.extras, l) : '');
     return one(o.year, o.fees, o.next ? 'now' : undefined) + (o.next ? one(o.next.year, o.next.fees, 'next') : '') +
-      (o.fees.discounts.length ? H(T.discounts_title[l]) + UL(itemLines(o.fees.discounts, l)) : '');
+      (o.fees.discounts.length ? H(T.discounts_title[l]) + itemTable(o.fees.discounts, l) : '');
   }
   if (id === 'included') {
     const f = o.fees;
@@ -84,19 +98,19 @@ function section(id: string, o: MailOpts): string {
   }
   if (id === 'directions') {
     const dir = d.directions[l];
-    return H(T.directions_title[l]) + `<div>${dir.address} (${A(d.mapsLink, l === 'en' ? 'map' : 'mapa')})</div>` +
+    return H(T.directions_title[l]) + `<div style="margin:0 0 6px">${dir.address}</div><div>${BTN(d.mapsLink, l === 'en' ? 'Open in Google Maps' : 'Otwórz w Google Maps', '&#128205;')}</div><div><br></div>` +
       UL(dir.items.map((it: any) => `<b>${it.title}</b> – ${it.body}`));
   }
   if (id === 'schedule') {
-    return H(T.sched_title[l]) + `<div>${T.sched_desc[l]}</div>` + UL(T.sched_items[l].map((n: string, i: number) => A(T.sched_links[i], n)));
+    return H(T.sched_title[l]) + P(T.sched_desc[l]) + docs(T.sched_items[l].map((n: string, i: number) => ({ link: T.sched_links[i], title: n, type: 'pdf', desc: '' })));
   }
   if (id === 'od') return H(T.od_title[l]) + UL(T.od_items[l].map((r: string[]) => `${r[0]} – ${r[1]}`));
   if (id === 'trial') {
     return H(T.trial_title[l]) + `<div>${sentence(T.trial_start[l])} ${T.trial_bring_title[l]}</div>` + UL(T.trial_items[l]) + P(T.trial_meals[l]);
   }
-  if (id === 'after_visit') return H(T.after_title[l]) + `<div>${T.after_intro[l]}</div>` + UL(T.after_items[l].map(docItem));
+  if (id === 'after_visit') return H(T.after_title[l]) + P(T.after_intro[l]) + docs(T.after_items[l]);
   if (id === 'survey') return H(T.survey_title[l]) + `<div>${T.survey_intro[l]}</div>` + OL(T.survey_items[l]);
-  if (id === 'visit_cta') return P(`${T.visit_cta_desc[l].trim()} ${A(d.calLink, lower(noArrow(T.visit_btn[l])))}`);
+  if (id === 'visit_cta') return `<div style="margin:0 0 8px">${T.visit_cta_desc[l].trim()}</div><div>${BTN(d.calLink, noArrow(T.visit_btn[l]), '&#128197;')}</div><div><br></div>`;
   return '';
 }
 
@@ -140,7 +154,7 @@ export function handoverHtml(h: Handover): string {
     `Materials fee: ${h.materials ? `${esc(h.materials)} ${MFREQ[h.materialsFreq]}` : '-'}`, `Referral: ${ref}`,
   ];
   return `<div>${P(`Hi team, a new family has signed a contract with us (${CITY_NAME[h.city]}).`)}${UL(lines)}` +
-    (h.link ? P(A(esc(h.link), 'Student in Evvotek')) : '') + (h.notes ? P(`Notes: ${esc(h.notes)}`) : '') + `</div>`;
+    (h.link ? P(BTN(esc(h.link), 'Student in Evvotek')) : '') + (h.notes ? P(`Notes: ${esc(h.notes)}`) : '') + `</div>`;
 }
 
 /** Copies HTML so it pastes into Gmail with its formatting (plain text as a fallback). */
