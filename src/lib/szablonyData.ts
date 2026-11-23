@@ -437,22 +437,22 @@ export const PLACES: Record<string, any> = {
      {
       "n": "1",
       "title": "Kontakt",
-      "body": "Zadzwoń lub wypełnij formularz. Prześlemy Ci materiały, które warto poznać przed wizytą."
+      "body": "Wystarczy zadzwonić lub wypełnić formularz. Prześlemy {Państwu|Panu|Pani} materiały, które warto poznać przed wizytą."
      },
      {
       "n": "2",
       "title": "Wizyta w szkole",
-      "body": "Przyjdź na spotkanie lub Dzień Otwarty. Poznaj dyrekcję i nauczycieli, zobacz nasz hybrydowy program i obejrzyj kampus: plac zabaw oraz dwie sale gimnastyczne."
+      "body": "Zapraszamy na spotkanie lub Dzień Otwarty. To okazja, żeby poznać dyrekcję i nauczycieli, zobaczyć nasz hybrydowy program i obejrzeć kampus: plac zabaw oraz dwie sale gimnastyczne."
      },
      {
       "n": "3",
       "title": "Experience Day",
-      "body": "Twoje dziecko spędzi u nas kilka godzin. Pozna nauczycieli i kolegów, weźmie udział w zajęciach i poczuje atmosferę otwartości i ciekawości, którą żyjemy każdego dnia."
+      "body": "{Państwa|Pana|Pani} dziecko spędzi u nas kilka godzin. Pozna nauczycieli i kolegów, weźmie udział w zajęciach i poczuje atmosferę otwartości i ciekawości, którą żyjemy każdego dnia."
      },
      {
       "n": "4",
       "title": "Decyzja",
-      "body": "Gdy decyzja zapadnie, podpiszemy umowę i ustalimy warunki płatności. Witamy Twoje dziecko w Maple Bear."
+      "body": "Gdy decyzja zapadnie, podpiszemy umowę i ustalimy warunki płatności. Witamy {Państwa|Pana|Pani} dziecko w Maple Bear."
      }
     ]
    },
@@ -525,22 +525,22 @@ export const PLACES: Record<string, any> = {
      {
       "n": "1",
       "title": "Kontakt",
-      "body": "Zadzwoń lub wypełnij formularz. Prześlemy Ci materiały, które warto poznać przed wizytą."
+      "body": "Wystarczy zadzwonić lub wypełnić formularz. Prześlemy {Państwu|Panu|Pani} materiały, które warto poznać przed wizytą."
      },
      {
       "n": "2",
       "title": "Wizyta w szkole",
-      "body": "Przyjdź na spotkanie lub Dzień Otwarty. Poznaj dyrekcję i nauczycieli i poczuj atmosferę Maple Bear Kraków."
+      "body": "Zapraszamy na spotkanie lub Dzień Otwarty. To okazja, żeby poznać dyrekcję i nauczycieli i poczuć atmosferę Maple Bear Kraków."
      },
      {
       "n": "3",
       "title": "Experience Day",
-      "body": "Twoje dziecko spędzi u nas kilka godzin. Pozna nauczycieli i kolegów, weźmie udział w zajęciach i poczuje atmosferę otwartości i ciekawości, którą żyjemy każdego dnia."
+      "body": "{Państwa|Pana|Pani} dziecko spędzi u nas kilka godzin. Pozna nauczycieli i kolegów, weźmie udział w zajęciach i poczuje atmosferę otwartości i ciekawości, którą żyjemy każdego dnia."
      },
      {
       "n": "4",
       "title": "Decyzja",
-      "body": "Gdy decyzja zapadnie, podpiszemy umowę i ustalimy warunki płatności. Witamy Twoje dziecko w Maple Bear."
+      "body": "Gdy decyzja zapadnie, podpiszemy umowę i ustalimy warunki płatności. Witamy {Państwa|Pana|Pani} dziecko w Maple Bear."
      }
     ]
    },
@@ -613,22 +613,22 @@ export const PLACES: Record<string, any> = {
      {
       "n": "1",
       "title": "Kontakt",
-      "body": "Zadzwoń lub wypełnij formularz. Prześlemy Ci materiały, które warto poznać przed wizytą."
+      "body": "Wystarczy zadzwonić lub wypełnić formularz. Prześlemy {Państwu|Panu|Pani} materiały, które warto poznać przed wizytą."
      },
      {
       "n": "2",
       "title": "Wizyta w szkole",
-      "body": "Przyjdź na spotkanie lub Dzień Otwarty. Poznaj dyrekcję i nauczycieli i poczuj atmosferę Maple Bear Wrocław."
+      "body": "Zapraszamy na spotkanie lub Dzień Otwarty. To okazja, żeby poznać dyrekcję i nauczycieli i poczuć atmosferę Maple Bear Wrocław."
      },
      {
       "n": "3",
       "title": "Experience Day",
-      "body": "Twoje dziecko spędzi u nas kilka godzin. Pozna nauczycieli i kolegów, weźmie udział w zajęciach i poczuje atmosferę otwartości i ciekawości, którą żyjemy każdego dnia."
+      "body": "{Państwa|Pana|Pani} dziecko spędzi u nas kilka godzin. Pozna nauczycieli i kolegów, weźmie udział w zajęciach i poczuje atmosferę otwartości i ciekawości, którą żyjemy każdego dnia."
      },
      {
       "n": "4",
       "title": "Decyzja",
-      "body": "Gdy decyzja zapadnie, podpiszemy umowę i ustalimy warunki płatności. Witamy Twoje dziecko w Maple Bear."
+      "body": "Gdy decyzja zapadnie, podpiszemy umowę i ustalimy warunki płatności. Witamy {Państwa|Pana|Pani} dziecko w Maple Bear."
      }
     ]
    },

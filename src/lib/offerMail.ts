@@ -61,7 +61,7 @@ function section(id: string, o: MailOpts): string {
       P(T.enrollment_payment[l]) + P(T.enrollment_question[l]);
   }
   if (id === 'welcome_aboard') {
-    return T.welcome_body[l].split('\n\n').map(P).join('') + P(T.welcome_closing[l]);
+    return T.welcome_body[l].split('\n\n').map(P).join('');
   }
   if (id === 'hello') {
     const intro = o.mods.includes('confirm') ? '' : P(T.hello_body[l]);
@@ -80,7 +80,7 @@ function section(id: string, o: MailOpts): string {
   }
   if (id === 'process') {
     const p = d.process[l];
-    return H(T.process_title[l]) + P(p.intro).replace(/<div><br><\/div>$/, '') + OL(p.steps.map((s: any) => `<b>${s.title}</b> – ${s.body}`));
+    return H(T.process_title[l]) + P(p.intro).replace(/<div><br><\/div>$/, '') + OL(p.steps.map((s: any) => `<b>${s.title}.</b> ${s.body}`));
   }
   if (id === 'directions') {
     const dir = d.directions[l];
